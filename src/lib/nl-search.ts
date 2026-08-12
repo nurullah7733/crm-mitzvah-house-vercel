@@ -72,8 +72,9 @@ export type Intent =
 
 export type SearchPerson = {
   id: string;
-  first_name: string;
-  last_name: string;
+  first_name: string | null;
+  last_name: string | null;
+  display_name?: string | null;
   email: string | null;
   phone: string | null;
   met_source: string | null;
@@ -287,7 +288,7 @@ export function runIntents(intents: Intent[], people: SearchPerson[]) {
           let sum = 0;
           for (const term of terms) {
             const s = fuzzyScoreAny(term, [
-              `${p.first_name} ${p.last_name}`,
+              p.display_name ?? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
               p.first_name,
               p.last_name,
               p.email,
@@ -315,7 +316,11 @@ export function runIntents(intents: Intent[], people: SearchPerson[]) {
     .sort(
       (a, b) =>
         a.score - b.score ||
-        `${a.person.last_name} ${a.person.first_name}`.localeCompare(`${b.person.last_name} ${b.person.first_name}`),
+        sortKey(a.person).localeCompare(sortKey(b.person)),
     )
     .map((s) => s.person);
+}
+
+function sortKey(p: SearchPerson) {
+  return `${p.last_name ?? p.display_name ?? ""} ${p.first_name ?? ""}`.trim();
 }
