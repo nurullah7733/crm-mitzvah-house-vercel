@@ -64,7 +64,13 @@ export function ContactPicker({
 
   const create = useMutation({
     mutationFn: async () => {
-      const payload = individual
+      const payload: {
+        contact_type: string;
+        first_name?: string | null;
+        last_name?: string | null;
+        parent_org_id?: string | null;
+        display_name?: string | null;
+      } = individual
         ? {
             contact_type: "individual",
             first_name: draft.first_name.trim() || null,
@@ -96,7 +102,7 @@ export function ContactPicker({
   });
 
   return (
-    <Field label={label} className={className} hint={hint}>
+    <Field label={label} className={className} hint={hint ?? null}>
       <div className="flex gap-2">
         <select value={value} onChange={(e) => onChange(e.target.value)} className={selectClass}>
           <option value="">{emptyLabel}</option>
