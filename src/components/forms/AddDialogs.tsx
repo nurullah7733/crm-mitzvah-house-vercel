@@ -539,7 +539,7 @@ export function AddDonationDialog({
               <option value="">Choose a person</option>
               {(people ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.first_name} {p.last_name}
+                  {personName(p)}
                 </option>
               ))}
             </select>
@@ -799,7 +799,7 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
               <option value="">No specific person</option>
               {(people ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.first_name} {p.last_name}
+                  {personName(p)}
                 </option>
               ))}
             </select>
