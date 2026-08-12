@@ -277,9 +277,49 @@ function TasksPage() {
           </section>
         )}
 
+        {followUps.length > 0 && (
+          <section>
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Follow up — engagement
+            </h2>
+            <div className="mt-3 space-y-3">
+              {followUps.map((r) => (
+                <div
+                  key={r.key}
+                  className="flex gap-3 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 shadow-sm"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-suggestion/25 text-suggestion-foreground">
+                    <HeartHandshake className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground">
+                      {r.label} —{" "}
+                      <Link
+                        to="/people/$personId"
+                        params={{ personId: r.personId }}
+                        className="text-primary hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{r.detail}</p>
+                    <button
+                      type="button"
+                      disabled={addReminderTask.isPending}
+                      className="mt-2 text-xs text-primary hover:underline disabled:opacity-50"
+                      onClick={() => addReminderTask.mutate(r)}
+                    >
+                      Add as task
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {[
           { label: "Overdue", items: overdue },
-          { label: "Follow up — engagement", items: [] as never[] },
           { label: "Upcoming", items: upcoming },
         ].map(({ label, items }) =>
           items.length === 0 ? null : (
