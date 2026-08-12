@@ -7,6 +7,7 @@ import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShel
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddDonationDialog } from "@/components/forms/AddDialogs";
+import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
@@ -26,6 +27,7 @@ export const Route = createFileRoute("/_authenticated/donations")({
 
 function DonationsPage() {
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [min, setMin] = useState("");
@@ -157,10 +159,36 @@ function DonationsPage() {
               </div>
               <p className="shrink-0 font-heading text-lg font-semibold text-money">{currency(d.amount)}</p>
             </div>
+            <button
+              type="button"
+              className="mt-2 text-xs text-primary hover:underline"
+              onClick={() => setEditing(d as unknown as Record<string, unknown>)}
+            >
+              Edit or remove this gift
+            </button>
           </div>
         ))}
       </div>
       <AddDonationDialog open={addOpen} onOpenChange={setAddOpen} />
+      {editing && (
+        <EditRecordDialog
+          open
+          onOpenChange={(v) => !v && setEditing(null)}
+          table="donations"
+          id={String(editing["id"])}
+          record={editing}
+          title="Edit gift"
+          deleteLabel="Remove this gift"
+          onDeleted={() => setEditing(null)}
+          fields={[
+            { key: "amount", label: "Amount", type: "number" },
+            { key: "date", label: "Date", type: "date" },
+            { key: "method", label: "Method" },
+            { key: "source", label: "Source" },
+            { key: "notes", label: "Notes", type: "textarea" },
+          ]}
+        />
+      )}
     </AppShell>
   );
 }
