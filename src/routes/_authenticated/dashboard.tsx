@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, currency, formatDate } from "@/components/AppShell";
 
@@ -22,28 +21,12 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
 });
 
-const TILES = [
-  { to: "/people", label: "People", table: "people" },
-  { to: "/households", label: "Households", table: "households" },
-  { to: "/events", label: "Events", table: "events" },
-  { to: "/donations", label: "Donations", table: "donations" },
-  { to: "/tasks", label: "Tasks", table: "tasks" },
-  { to: "/interactions", label: "Inbox", table: "interactions" },
-  { to: "/yahrzeits", label: "Yahrzeits", table: "yahrzeits" },
-] as const;
-
 function Dashboard() {
   const { user } = Route.useRouteContext();
 
   const { data } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
-      const counts = await Promise.all(
-        TILES.map(async (t) => {
-          const { count } = await supabase.from(t.table).select("*", { count: "exact", head: true });
-          return [t.table, count ?? 0] as const;
-        }),
-      );
       const [overdue, recentGifts, upcoming, lapsed] = await Promise.all([
         supabase
           .from("tasks")
@@ -65,7 +48,6 @@ function Dashboard() {
           .limit(5),
       ]);
       return {
-        counts: Object.fromEntries(counts) as Record<string, number>,
         overdue: overdue.data ?? [],
         recentGifts: recentGifts.data ?? [],
         upcoming: upcoming.data ?? [],
@@ -76,24 +58,7 @@ function Dashboard() {
 
   return (
     <AppShell title="Dashboard" subtitle={`Signed in as ${user.email}`}>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {TILES.map((t) => (
-          <Link
-            key={t.to}
-            to={t.to}
-            className="rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
-          >
-            <p className="flex items-center justify-between text-xs text-muted-foreground">
-              {t.label} <ChevronRight className="size-3.5" />
-            </p>
-            <p className="mt-1 font-heading text-2xl font-semibold text-foreground">
-              {data ? data.counts[t.table] : "–"}
-            </p>
-          </Link>
-        ))}
-      </div>
-
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
           {data?.overdue.length === 0 && <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>}
           {data?.overdue.map((t) => (

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -8,9 +8,9 @@ import {
   CalendarDays,
   HandCoins,
   ListChecks,
-  MessageSquare,
-  Flame,
+  Inbox as InboxIcon,
   LogOut,
+  Menu,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,7 @@ const NAV = [
   { to: "/events", label: "Events", icon: CalendarDays },
   { to: "/donations", label: "Donations", icon: HandCoins },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
-  { to: "/interactions", label: "Inbox", icon: MessageSquare },
-  { to: "/yahrzeits", label: "Yahrzeits", icon: Flame },
+  { to: "/inbox", label: "Inbox", icon: InboxIcon },
 ] as const;
 
 export function AppShell({
@@ -39,6 +38,7 @@ export function AppShell({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function signOut() {
     await queryClient.cancelQueries();
@@ -86,9 +86,45 @@ export function AppShell({
             </div>
             <div className="flex items-center gap-2">
               {action}
-              <Button variant="outline" size="sm" className="rounded-xl lg:hidden" onClick={signOut}>
-                Sign out
-              </Button>
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => setMenuOpen((o) => !o)}
+                  aria-label="Open menu"
+                >
+                  <Menu className="size-4" />
+                </Button>
+                {menuOpen && (
+                  <>
+                    <button
+                      className="fixed inset-0 z-30 cursor-default"
+                      aria-label="Close menu"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 z-40 mt-2 w-52 overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-lg">
+                      {NAV.map(({ to, label, icon: Icon }) => (
+                        <Link
+                          key={to}
+                          to={to}
+                          onClick={() => setMenuOpen(false)}
+                          className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-muted"
+                          activeProps={{ className: "!text-primary font-medium bg-primary/10" }}
+                        >
+                          <Icon className="size-4" /> {label}
+                        </Link>
+                      ))}
+                      <button
+                        onClick={signOut}
+                        className="mt-1 flex w-full items-center gap-2.5 rounded-xl border-t border-border px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        <LogOut className="size-4" /> Sign out
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </header>
