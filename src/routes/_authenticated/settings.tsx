@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Trash2, Plug } from "lucide-react";
+import { Plus, Trash2, Plug, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, formatDate } from "@/components/AppShell";
@@ -9,6 +9,12 @@ import { EditableList } from "@/components/EditableList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 const ROLES = [
   { value: "admin", label: "Admin" },
@@ -39,46 +45,62 @@ function SettingsPage() {
 
   return (
     <AppShell title="Settings" subtitle="Staff, the lists everyone shares, and your integrations">
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-2">
+      <div className="grid gap-5">
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <h2 className="font-heading font-semibold">Signed in as</h2>
           <p className="mt-2 text-sm text-foreground">{user?.email ?? "—"}</p>
         </section>
 
-        <div className="lg:col-span-2">
-          <StaffPanel />
-        </div>
+        <StaffPanel />
 
-        <EditableList
-          table="program_options"
-          title="Programs"
-          description="Programs appear as filters on Events and on each person's profile. Add new ones any time."
-          placeholder="Add a program"
-        />
-        <EditableList
-          table="tag_options"
-          title="Tags"
-          description="The everyday tags you put on people."
-          placeholder="Add a tag"
-          category="general"
-        />
-        <EditableList
-          table="met_source_options"
-          title="Where did we meet them? sources"
-          description="Rename or remove any option — changes apply everywhere."
-          placeholder="Add a source"
-        />
-        <EditableList
-          table="tag_options"
-          title="Important labels"
-          description="Extra labels you want available throughout the CRM — priorities, campaigns, anything you flag."
-          placeholder="Add a label"
-          category="important"
-        />
+        <Accordion type="multiple" defaultValue={["lists"]} className="rounded-2xl border border-border bg-card shadow-sm">
+          <AccordionItem value="lists" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Lists & labels
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <div className="grid gap-5 lg:grid-cols-2">
+                <EditableList
+                  table="program_options"
+                  title="Programs"
+                  description="Programs appear as filters on Events and on each person's profile. Add new ones any time."
+                  placeholder="Add a program"
+                />
+                <EditableList
+                  table="tag_options"
+                  title="Tags"
+                  description="The everyday tags you put on people."
+                  placeholder="Add a tag"
+                  category="general"
+                />
+                <EditableList
+                  table="met_source_options"
+                  title="Where did we meet them? sources"
+                  description="Rename or remove any option — changes apply everywhere."
+                  placeholder="Add a source"
+                />
+                <EditableList
+                  table="tag_options"
+                  title="Important labels"
+                  description="Extra labels you want available throughout the CRM — priorities, campaigns, anything you flag."
+                  placeholder="Add a label"
+                  category="important"
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
-        <div className="lg:col-span-2">
-          <IntegrationsPanel />
-        </div>
+        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+          <AccordionItem value="integrations" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Integrations
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <IntegrationsPanel />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </AppShell>
   );
