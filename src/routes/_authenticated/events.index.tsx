@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddEventDialog } from "@/components/forms/AddDialogs";
+import { downloadCsv, stamp } from "@/lib/csv";
 
 export const Route = createFileRoute("/_authenticated/events/")({
   head: () => ({
@@ -43,9 +44,33 @@ function EventsPage() {
       title="Events"
       subtitle="Programs are filters here, not a separate section"
       action={
-        <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
-          <Plus className="size-4" /> Add event
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() =>
+              downloadCsv(
+                `events-${stamp()}`,
+                events.map((e) => ({
+                  name: e.name,
+                  date: e.date,
+                  time: e.time ?? "",
+                  location: e.location ?? "",
+                  program: e.program ?? "",
+                  capacity: e.capacity ?? "",
+                  staff_lead: e.staff_lead ?? "",
+                  registered: (e.registrations ?? []).length,
+                  attended: (e.registrations ?? []).filter((r) => r.status === "attended").length,
+                })),
+              )
+            }
+          >
+            <Download className="size-4" /> Export to CSV
+          </Button>
+          <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
+            <Plus className="size-4" /> Add event
+          </Button>
+        </>
       }
     >
       <div className="flex flex-wrap gap-2">

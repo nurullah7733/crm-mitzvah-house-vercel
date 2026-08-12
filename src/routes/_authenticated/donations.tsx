@@ -1,13 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddDonationDialog } from "@/components/forms/AddDialogs";
 import { Field, selectClass } from "@/components/forms/fields";
+import { downloadCsv, stamp } from "@/lib/csv";
 
 export const Route = createFileRoute("/_authenticated/donations")({
   head: () => ({
@@ -57,9 +58,32 @@ function DonationsPage() {
       title="Donations"
       subtitle={`${gifts.length} gifts shown · ${currency(total)} total`}
       action={
-        <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
-          <Plus className="size-4" /> Log donation
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() =>
+              downloadCsv(
+                `donations-${stamp()}`,
+                gifts.map((d) => ({
+                  first_name: d.people?.first_name ?? "",
+                  last_name: d.people?.last_name ?? "",
+                  amount: d.amount,
+                  date: d.date,
+                  campaign: d.campaign ?? "",
+                  method: d.method ?? "",
+                  source: d.source ?? "",
+                  notes: d.notes ?? "",
+                })),
+              )
+            }
+          >
+            <Download className="size-4" /> Export to CSV
+          </Button>
+          <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
+            <Plus className="size-4" /> Log donation
+          </Button>
+        </>
       }
     >
       <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-3">
