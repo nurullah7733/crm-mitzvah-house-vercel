@@ -435,6 +435,60 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_credentials: {
+        Row: {
+          created_at: string
+          credentials: Json
+          id: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          credentials?: Json
+          id?: string
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          credentials?: Json
+          id?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      integration_events: {
+        Row: {
+          actor_email: string | null
+          created_at: string
+          id: string
+          kind: string
+          message: string | null
+          ok: boolean
+          provider: string
+        }
+        Insert: {
+          actor_email?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          message?: string | null
+          ok?: boolean
+          provider: string
+        }
+        Update: {
+          actor_email?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          message?: string | null
+          ok?: boolean
+          provider?: string
+        }
+        Relationships: []
+      }
       integrations: {
         Row: {
           created_at: string
@@ -992,6 +1046,7 @@ export type Database = {
         }
         Returns: string
       }
+      purge_old_audit_log: { Args: never; Returns: number }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
       undo_import: { Args: { _batch_id: string }; Returns: Json }
