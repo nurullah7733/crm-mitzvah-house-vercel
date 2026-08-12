@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/dialog";
 import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { ChipEditor } from "@/components/ChipEditor";
+import { EditableCard } from "@/components/EditableCard";
+import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
