@@ -10,6 +10,7 @@ import { AddDonationDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/donations")({
   head: () => ({
