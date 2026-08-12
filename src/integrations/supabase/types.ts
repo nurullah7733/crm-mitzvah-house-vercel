@@ -800,6 +800,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
+      recalculate_all_giving_totals: { Args: never; Returns: number }
     }
     Enums: {
       app_role: "admin" | "marketing" | "va"
