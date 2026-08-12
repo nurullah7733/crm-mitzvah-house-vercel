@@ -1,8 +1,8 @@
 import { personName } from "@/lib/names";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronDown, Plus, HeartHandshake } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
+import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
@@ -31,6 +33,7 @@ export const Route = createFileRoute("/_authenticated/tasks")({
 });
 
 function TasksPage() {
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
   const [showDone, setShowDone] = useState(false);
@@ -77,6 +80,55 @@ function TasksPage() {
     },
   });
 
+  const { data: engagement } = useQuery({
+    queryKey: ["engagement-reminders"],
+    queryFn: async () => {
+      const since = new Date();
+      since.setDate(since.getDate() - 45);
+      const [people, donations] = await Promise.all([
+        fetchAll((f, t) =>
+          supabase
+            .from("people")
+            .select("id, display_name, first_name, last_name, last_activity_date, last_gift_date")
+            .is("deleted_at", null)
+            .order("id")
+            .range(f, t),
+        ),
+        fetchAll((f, t) =>
+          supabase
+            .from("donations")
+            .select(
+              "id, person_id, amount, date, campaign, source, people(id, display_name, first_name, last_name)",
+            )
+            .is("deleted_at", null)
+            .gte("date", since.toISOString().slice(0, 10))
+            .order("id")
+            .range(f, t),
+        ),
+      ]);
+      return { people, donations };
+    },
+  });
+
+  const addReminderTask = useMutation({
+    mutationFn: async (r: EngagementReminder) => {
+      const { error } = await supabase.from("tasks").insert({
+        person_id: r.personId,
+        text: `${r.label}: ${r.name}`,
+        due_date: r.dueDate,
+        priority: r.priority,
+        status: "upcoming",
+        notes: `auto:${r.key} · ${r.detail}`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      toast.success("Task added");
+      queryClient.invalidateQueries({ queryKey: ["tasks-list"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const reminders = [
     ...(dates?.people ?? []).flatMap((p) => {
       const next = nextBirthday(p.birth_date);
@@ -117,6 +169,21 @@ function TasksPage() {
           ? ("overdue" as const)
           : ("upcoming" as const),
   }));
+
+  // A reminder disappears once staff have turned it into a real task.
+  const alreadyTracked = new Set(
+    (data ?? []).flatMap((t) => {
+      const m = /auto:([^\s·]+)/.exec(String(t.notes ?? ""));
+      return m ? [m[1]] : [];
+    }),
+  );
+
+  const followUps = [
+    ...quietReminders(engagement?.people ?? [], (p) => personName(p)),
+    ...giftReminders(engagement?.donations ?? [], (p) => personName(p)),
+  ]
+    .filter((r) => !alreadyTracked.has(r.key))
+    .sort((a, b) => a.sort - b.sort);
 
   const overdue = tasks.filter((t) => t.group === "overdue");
   const upcoming = tasks.filter((t) => t.group === "upcoming");
