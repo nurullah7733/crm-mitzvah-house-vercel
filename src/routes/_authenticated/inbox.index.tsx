@@ -336,6 +336,59 @@ function ImportCenter() {
       }[] = [];
       let failures = 0;
 
+      // Existing households, so people at the same address join one household
+      // instead of each row creating a fresh duplicate.
+      const existingHouses = (await fetchAll<{ id: string; name: string; address: string | null }>((f, t) =>
+        supabase.from("households").select("id, name, address").order("id").range(f, t),
+      )) as { id: string; name: string; address: string | null }[];
+      const houseByKey = new Map<string, string>();
+      for (const h of existingHouses) {
+        const k = addressKey(h.address);
+        if (k && !houseByKey.has(k)) houseByKey.set(k, h.id);
+        const nk = (h.name ?? "").trim().toLowerCase();
+        if (nk && !houseByKey.has(`name:${nk}`)) houseByKey.set(`name:${nk}`, h.id);
+      }
+
+      type HouseParts = {
+        address: string | null;
+        address_line2: string | null;
+        address_line3: string | null;
+        city: string | null;
+        state: string | null;
+        postal_code: string | null;
+        county: string | null;
+      };
+
+      /** Find the household for this row, or create it once and remember it. */
+      async function ensureHousehold(
+        name: string,
+        parts: HouseParts,
+        billing: string | null,
+      ): Promise<string | null> {
+        const key = addressKey(parts.address);
+        const nameKey = `name:${name.trim().toLowerCase()}`;
+        const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
+        if (found) {
+          // Fill in any address details the stored household is missing.
+          const patch: Record<string, string> = {};
+          for (const [k, val] of Object.entries(parts)) if (val) patch[k] = val as string;
+          if (billing) patch["billing_address"] = billing;
+          if (Object.keys(patch).length > 0) await supabase.from("households").update(patch).eq("id", found);
+          return found;
+        }
+        const { data: household } = await supabase
+          .from("households")
+          .insert({ name, ...parts, billing_address: billing, import_batch_id: batch.id })
+          .select("id")
+          .single();
+        if (household?.id) {
+          if (key) houseByKey.set(key, household.id);
+          if (name) houseByKey.set(nameKey, household.id);
+          return household.id;
+        }
+        return null;
+      }
+
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
@@ -356,6 +409,12 @@ function ImportCenter() {
           let personId = item.match.candidates[0]?.id ?? null;
           let householdId = item.match.candidates[0]?.household_id ?? null;
           const { first, last } = mainName(v);
+          const displayName = [first, last].filter(Boolean).join(" ").trim() || null;
+          const personRole = roleFromRow({
+            ...(v.role ? { role: v.role } : {}),
+            ...(v.age ? { age: v.age } : {}),
+            ...(v.birth_date ? { birth_date: v.birth_date } : {}),
+          });
           const fullAddress = composeAddress(v);
           const addressParts = {
             address: fullAddress,
@@ -369,26 +428,18 @@ function ImportCenter() {
           const hasFamily = Boolean(
             v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
           );
+          const householdName = v.household_name ?? `${last || first || "New"} household`;
 
           if (item.match.status === "new") {
             if (hasFamily || v.billing_address) {
-              const { data: household } = await supabase
-                .from("households")
-                .insert({
-                  name: v.household_name ?? `${last || first || "New"} household`,
-                  ...addressParts,
-                  billing_address: v.billing_address ?? null,
-                  import_batch_id: batch.id,
-                })
-                .select("id")
-                .single();
-              householdId = household?.id ?? null;
+              householdId = await ensureHousehold(householdName, addressParts, v.billing_address ?? null);
             }
             const { data: created, error: createError } = await supabase
               .from("people")
               .insert({
                 first_name: first || null,
                 last_name: last || null,
+                display_name: displayName,
                 email: v.email ?? null,
                 phone: v.phone ?? null,
                 birth_date: isoDate(v.birth_date),
@@ -397,7 +448,7 @@ function ImportCenter() {
                 school: v.school ?? null,
                 notes: v.person_notes ?? null,
                 household_id: householdId,
-                role: "Adult",
+                role: personRole,
                 tags: splitList(v.tags),
                 programs: splitList(v.programs),
                 import_batch_id: batch.id,
@@ -430,17 +481,7 @@ function ImportCenter() {
 
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
-              const { data: household } = await supabase
-                .from("households")
-                .insert({
-                  name: v.household_name ?? `${last || first || "New"} household`,
-                  ...addressParts,
-                  billing_address: v.billing_address ?? null,
-                  import_batch_id: batch.id,
-                })
-                .select("id")
-                .single();
-              householdId = household?.id ?? null;
+              householdId = await ensureHousehold(householdName, addressParts, v.billing_address ?? null);
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
             } else if (householdId && (fullAddress || v.billing_address)) {
               const housePatch: {
