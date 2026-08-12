@@ -60,9 +60,9 @@ export function AppShell({
     <div className="min-h-screen bg-background">
       {/* Brand header — azure, stuck to the top of every page */}
       <header className="sticky top-0 z-30 bg-[linear-gradient(120deg,var(--sidebar),var(--sidebar-accent))] shadow-sm">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
-          <Link to="/dashboard" className="flex shrink-0 items-center">
-            <img src={logoWhite} alt="Mitzvah House" className="h-8 w-auto sm:h-9" />
+        <div className="mx-auto flex max-w-5xl items-center gap-4 px-5 py-3 sm:px-8">
+          <Link to="/dashboard" className="flex shrink-0 items-center pr-2">
+            <img src={logoAsset.url} alt="Mitzvah House" className="h-8 w-auto sm:h-9" />
           </Link>
           <form
             className="relative min-w-0 flex-1"
