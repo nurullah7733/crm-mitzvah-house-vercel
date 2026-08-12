@@ -172,8 +172,7 @@ function StaffPanel() {
   });
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="font-heading font-semibold">Staff</h2>
+    <div className="space-y-1">
       <p className="text-xs text-muted-foreground">
         Add the people who work in the CRM and set what each one does. They sign in with this email address.
       </p>
@@ -238,7 +237,7 @@ function StaffPanel() {
           <Plus className="size-4" /> Add staff
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
 
