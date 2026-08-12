@@ -671,6 +671,7 @@ export type Database = {
       }
       tasks: {
         Row: {
+          completed_at: string | null
           completion_note: string | null
           created_at: string
           due_date: string | null
@@ -684,6 +685,7 @@ export type Database = {
           text: string
         }
         Insert: {
+          completed_at?: string | null
           completion_note?: string | null
           created_at?: string
           due_date?: string | null
@@ -697,6 +699,7 @@ export type Database = {
           text: string
         }
         Update: {
+          completed_at?: string | null
           completion_note?: string | null
           created_at?: string
           due_date?: string | null
