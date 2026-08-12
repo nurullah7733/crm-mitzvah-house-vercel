@@ -13,7 +13,13 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedDonationsRouteImport } from './routes/_authenticated/donations'
+import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
+import { Route as AuthenticatedHouseholdsRouteImport } from './routes/_authenticated/households'
+import { Route as AuthenticatedInteractionsRouteImport } from './routes/_authenticated/interactions'
 import { Route as AuthenticatedPeopleRouteImport } from './routes/_authenticated/people'
+import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
+import { Route as AuthenticatedYahrzeitsRouteImport } from './routes/_authenticated/yahrzeits'
 import { Route as AuthenticatedPeoplePersonIdRouteImport } from './routes/_authenticated/people.$personId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,9 +41,40 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDonationsRoute = AuthenticatedDonationsRouteImport.update({
+  id: '/donations',
+  path: '/donations',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedEventsRoute = AuthenticatedEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedHouseholdsRoute = AuthenticatedHouseholdsRouteImport.update({
+  id: '/households',
+  path: '/households',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedInteractionsRoute =
+  AuthenticatedInteractionsRouteImport.update({
+    id: '/interactions',
+    path: '/interactions',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPeopleRoute = AuthenticatedPeopleRouteImport.update({
   id: '/people',
   path: '/people',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedYahrzeitsRoute = AuthenticatedYahrzeitsRouteImport.update({
+  id: '/yahrzeits',
+  path: '/yahrzeits',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedPeoplePersonIdRoute =
@@ -51,14 +88,26 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/donations': typeof AuthenticatedDonationsRoute
+  '/events': typeof AuthenticatedEventsRoute
+  '/households': typeof AuthenticatedHouseholdsRoute
+  '/interactions': typeof AuthenticatedInteractionsRoute
   '/people': typeof AuthenticatedPeopleRouteWithChildren
+  '/tasks': typeof AuthenticatedTasksRoute
+  '/yahrzeits': typeof AuthenticatedYahrzeitsRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/donations': typeof AuthenticatedDonationsRoute
+  '/events': typeof AuthenticatedEventsRoute
+  '/households': typeof AuthenticatedHouseholdsRoute
+  '/interactions': typeof AuthenticatedInteractionsRoute
   '/people': typeof AuthenticatedPeopleRouteWithChildren
+  '/tasks': typeof AuthenticatedTasksRoute
+  '/yahrzeits': typeof AuthenticatedYahrzeitsRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
 }
 export interface FileRoutesById {
@@ -67,21 +116,55 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/donations': typeof AuthenticatedDonationsRoute
+  '/_authenticated/events': typeof AuthenticatedEventsRoute
+  '/_authenticated/households': typeof AuthenticatedHouseholdsRoute
+  '/_authenticated/interactions': typeof AuthenticatedInteractionsRoute
   '/_authenticated/people': typeof AuthenticatedPeopleRouteWithChildren
+  '/_authenticated/tasks': typeof AuthenticatedTasksRoute
+  '/_authenticated/yahrzeits': typeof AuthenticatedYahrzeitsRoute
   '/_authenticated/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/dashboard' | '/people' | '/people/$personId'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/donations'
+    | '/events'
+    | '/households'
+    | '/interactions'
+    | '/people'
+    | '/tasks'
+    | '/yahrzeits'
+    | '/people/$personId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/dashboard' | '/people' | '/people/$personId'
+  to:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/donations'
+    | '/events'
+    | '/households'
+    | '/interactions'
+    | '/people'
+    | '/tasks'
+    | '/yahrzeits'
+    | '/people/$personId'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/dashboard'
+    | '/_authenticated/donations'
+    | '/_authenticated/events'
+    | '/_authenticated/households'
+    | '/_authenticated/interactions'
     | '/_authenticated/people'
+    | '/_authenticated/tasks'
+    | '/_authenticated/yahrzeits'
     | '/_authenticated/people/$personId'
   fileRoutesById: FileRoutesById
 }
@@ -121,11 +204,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/donations': {
+      id: '/_authenticated/donations'
+      path: '/donations'
+      fullPath: '/donations'
+      preLoaderRoute: typeof AuthenticatedDonationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/events': {
+      id: '/_authenticated/events'
+      path: '/events'
+      fullPath: '/events'
+      preLoaderRoute: typeof AuthenticatedEventsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/households': {
+      id: '/_authenticated/households'
+      path: '/households'
+      fullPath: '/households'
+      preLoaderRoute: typeof AuthenticatedHouseholdsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/interactions': {
+      id: '/_authenticated/interactions'
+      path: '/interactions'
+      fullPath: '/interactions'
+      preLoaderRoute: typeof AuthenticatedInteractionsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/people': {
       id: '/_authenticated/people'
       path: '/people'
       fullPath: '/people'
       preLoaderRoute: typeof AuthenticatedPeopleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tasks': {
+      id: '/_authenticated/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AuthenticatedTasksRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/yahrzeits': {
+      id: '/_authenticated/yahrzeits'
+      path: '/yahrzeits'
+      fullPath: '/yahrzeits'
+      preLoaderRoute: typeof AuthenticatedYahrzeitsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/people/$personId': {
@@ -151,12 +276,24 @@ const AuthenticatedPeopleRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedDonationsRoute: typeof AuthenticatedDonationsRoute
+  AuthenticatedEventsRoute: typeof AuthenticatedEventsRoute
+  AuthenticatedHouseholdsRoute: typeof AuthenticatedHouseholdsRoute
+  AuthenticatedInteractionsRoute: typeof AuthenticatedInteractionsRoute
   AuthenticatedPeopleRoute: typeof AuthenticatedPeopleRouteWithChildren
+  AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
+  AuthenticatedYahrzeitsRoute: typeof AuthenticatedYahrzeitsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedDonationsRoute: AuthenticatedDonationsRoute,
+  AuthenticatedEventsRoute: AuthenticatedEventsRoute,
+  AuthenticatedHouseholdsRoute: AuthenticatedHouseholdsRoute,
+  AuthenticatedInteractionsRoute: AuthenticatedInteractionsRoute,
   AuthenticatedPeopleRoute: AuthenticatedPeopleRouteWithChildren,
+  AuthenticatedTasksRoute: AuthenticatedTasksRoute,
+  AuthenticatedYahrzeitsRoute: AuthenticatedYahrzeitsRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
