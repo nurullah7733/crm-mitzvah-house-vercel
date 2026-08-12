@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft, CalendarDays, FileText, HandCoins, Phone, StickyNote, Plus } from "lucide-react";
@@ -50,8 +50,10 @@ function today() {
 
 function PersonPage() {
   const { personId } = Route.useParams();
+  const navigate = useNavigate();
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
   const [showAllGifts, setShowAllGifts] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: options } = useQuery({
