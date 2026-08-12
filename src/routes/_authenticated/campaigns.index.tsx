@@ -29,11 +29,11 @@ function CampaignsPage() {
     queryFn: async () => {
       const [campaigns, donations] = await Promise.all([
         supabase.from("campaigns").select("*, events(id, name, date)").order("created_at", { ascending: false }),
-        supabase.from("donations").select("campaign_id, amount"),
+        fetchAll((f, t) => supabase.from("donations").select("campaign_id, amount").order("id").range(f, t)),
       ]);
       if (campaigns.error) throw campaigns.error;
       const raised = new Map<string, number>();
-      for (const d of donations.data ?? []) {
+      for (const d of donations) {
         if (!d.campaign_id) continue;
         raised.set(d.campaign_id, (raised.get(d.campaign_id) ?? 0) + Number(d.amount ?? 0));
       }
