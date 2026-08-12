@@ -266,7 +266,7 @@ function Panel({
   children,
 }: {
   title: string;
-  to: "/tasks" | "/donations" | "/events" | "/people" | "/grants" | "/campaigns";
+  to: "/tasks" | "/donations" | "/events" | "/people" | "/grants";
   linkLabel: string;
   children: React.ReactNode;
 }) {

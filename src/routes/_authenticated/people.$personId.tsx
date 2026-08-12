@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/dialog";
 import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { ChipEditor } from "@/components/ChipEditor";
+import { EditableCard } from "@/components/EditableCard";
+import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
@@ -146,6 +148,47 @@ function PersonPage() {
       </AppShell>
     );
   }
+  const householdId = p.household_id;
+
+  /**
+   * Saves an inline edit. Address fields live on the household, everything else on
+   * the person. Each changed field also records that it was edited by hand, and the
+   * change history is written automatically by the database.
+   */
+  async function savePersonFields(patch: Record<string, string | null>) {
+    const householdKeys = ["address", "billing_address"] as const;
+    const householdPatch: Record<string, string | null> = {};
+    const personPatch: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if ((householdKeys as readonly string[]).includes(key)) householdPatch[key] = value;
+      else personPatch[key] = value;
+    }
+
+    if (Object.keys(personPatch).length) {
+      const { error } = await supabase.from("people").update(personPatch as never).eq("id", personId);
+      if (error) throw error;
+    }
+    if (Object.keys(householdPatch).length) {
+      if (!householdId) throw new Error("Add this person to a household before saving an address");
+      const { error } = await supabase.from("households").update(householdPatch as never).eq("id", householdId);
+      if (error) throw error;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    await supabase.from("field_sources").insert(
+      Object.keys(patch).map((field_name) => ({
+        person_id: personId,
+        field_name,
+        source: "Edited by staff",
+        recorded_date: today,
+      })),
+    );
+
+    toast.success("Saved");
+    logChange("Edited a contact");
+    await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+    await queryClient.invalidateQueries({ queryKey: ["people"] });
+  }
 
   const sourceFor = (field: string) => {
     const s = (data?.sources ?? []).find((x) => x.field_name === field);
@@ -243,6 +286,25 @@ function PersonPage() {
           { key: "first_name", label: "First name" },
           { key: "last_name", label: "Last name" },
           { key: "display_name", label: "Name shown" },
+          {
+            key: "role",
+            label: "Adult or child",
+            type: "select",
+            options: [
+              { value: "Adult", label: "Adult" },
+              { value: "Child", label: "Child" },
+            ],
+          },
+          {
+            key: "contact_type",
+            label: "Contact type",
+            type: "select",
+            options: [
+              { value: "individual", label: "Individual" },
+              { value: "organization", label: "Organization" },
+              { value: "foundation", label: "Foundation" },
+            ],
+          },
           { key: "email", label: "Email", type: "email" },
           { key: "phone", label: "Phone", type: "tel" },
           { key: "birth_date", label: "Birth date", type: "date" },
@@ -305,13 +367,42 @@ function PersonPage() {
       <div className="mt-5 grid gap-5 md:grid-cols-2">
         {/* Left column — contact and details */}
         <div className="order-1 space-y-5 md:col-start-1 md:row-start-1">
-          <Card title="Contact info">
+          <EditableCard
+            title="Contact info"
+            values={{ phone: p.phone, email: p.email, address: p.households?.address }}
+            fields={[
+              { key: "phone", label: "Phone", type: "tel" },
+              { key: "email", label: "Email", type: "email" },
+              { key: "address", label: "Address (shared with the household)", full: true },
+            ]}
+            onSave={savePersonFields}
+            editHint="Changes are saved to this contact and noted in the change history."
+          >
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
-          </Card>
+          </EditableCard>
 
-          <Card title="Additional info">
+          <EditableCard
+            title="Additional info"
+            values={{
+              billing_address: p.households?.billing_address,
+              school: p.school,
+              notes: p.notes,
+              met_source: p.met_source,
+              met_date: p.met_date,
+              owner: p.owner,
+            }}
+            fields={[
+              { key: "billing_address", label: "Billing address", full: true },
+              { key: "school", label: "School" },
+              { key: "owner", label: "Owner" },
+              { key: "met_source", label: "Where we met" },
+              { key: "met_date", label: "Date we met", type: "date" },
+              { key: "notes", label: "Notes", type: "textarea" },
+            ]}
+            onSave={savePersonFields}
+          >
             {p.households?.billing_address && p.households.billing_address !== p.households.address && (
               <SourceRow
                 label="Billing address"
@@ -327,7 +418,7 @@ function PersonPage() {
               source={sourceFor("met_source")}
             />
             <SourceRow label="Owner" value={p.owner} source={sourceFor("owner")} />
-          </Card>
+          </EditableCard>
 
           <Card title="Giving">
             <Stat label="Lifetime" value={currency(lifetime)} money />
@@ -358,8 +449,15 @@ function PersonPage() {
             </div>
           </Card>
 
-          <Card
+          <EditableCard
             title="Special dates"
+            values={{ birth_date: p.birth_date, anniversary_date: p.anniversary_date }}
+            fields={[
+              { key: "birth_date", label: "Birthday", type: "date" },
+              { key: "anniversary_date", label: "Anniversary", type: "date" },
+            ]}
+            onSave={savePersonFields}
+            editHint="Hebrew dates and next-observance countdowns are worked out again as soon as you save."
             action={
               <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("yahrzeit")}>
                 <Plus className="size-3.5" /> Add yahrzeit
@@ -421,7 +519,7 @@ function PersonPage() {
                 </div>
               );
             })}
-          </Card>
+          </EditableCard>
         </div>
 
         {/* Activity — the other half of the page */}

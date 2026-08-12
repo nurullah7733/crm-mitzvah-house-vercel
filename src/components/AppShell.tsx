@@ -13,7 +13,6 @@ import {
   LogOut,
   Menu,
   Sparkles,
-  Target,
   FileBadge,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,7 +25,6 @@ const NAV = [
   { to: "/households", label: "Households", icon: Home },
   { to: "/events", label: "Events", icon: CalendarDays },
   { to: "/donations", label: "Donations", icon: HandCoins },
-  { to: "/campaigns", label: "Campaigns", icon: Target },
   { to: "/grants", label: "Grants", icon: FileBadge },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
 ] as const;

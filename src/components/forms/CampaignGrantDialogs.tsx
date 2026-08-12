@@ -10,7 +10,7 @@ import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { logChange } from "@/lib/session-log";
 import { CAMPAIGN_STATUSES, GRANT_STAGES, personName } from "@/lib/names";
 import { useProgramOptions } from "@/components/forms/AddDialogs";
-import { fetchAll } from "@/lib/fetch-all";
+import { ContactPicker } from "@/components/forms/ContactPicker";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -32,23 +32,6 @@ export function useGrantsMini() {
       const { data, error } = await supabase.from("grants").select("id, name, stage").order("name");
       if (error) throw error;
       return data;
-    },
-  });
-}
-
-function useContacts(types: readonly string[]) {
-  return useQuery({
-    queryKey: ["contacts-by-type", types.join(",")],
-    queryFn: async () => {
-      const data = await fetchAll((f, t) =>
-        supabase
-          .from("people")
-          .select("id, display_name, first_name, last_name, contact_type")
-          .in("contact_type", [...types])
-          .order("id")
-          .range(f, t),
-      );
-      return data.sort((a, b) => personName(a).localeCompare(personName(b)));
     },
   });
 }
@@ -187,8 +170,6 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
   const [form, setForm] = useState(EMPTY_GRANT);
   const set = (k: keyof typeof EMPTY_GRANT, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const { data: funders } = useContacts(["foundation", "organization"]);
-  const { data: officers } = useContacts(["individual"]);
   const { data: campaigns } = useCampaignsMini();
   const { data: programs } = useProgramOptions();
 
@@ -270,30 +251,25 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
         <Field label="Grant name" className="sm:col-span-2">
           <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
-        <Field label="Funder">
-          <select value={form.funder_id} onChange={(e) => set("funder_id", e.target.value)} className={selectClass}>
-            <option value="">Choose a foundation</option>
-            {(funders ?? []).map((f) => (
-              <option key={f.id} value={f.id}>
-                {personName(f)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Program officer (optional)">
-          <select
-            value={form.program_officer_id}
-            onChange={(e) => set("program_officer_id", e.target.value)}
-            className={selectClass}
-          >
-            <option value="">Not known</option>
-            {(officers ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {personName(o)}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <ContactPicker
+          label="Funder"
+          types={["foundation", "organization"]}
+          value={form.funder_id}
+          onChange={(id) => set("funder_id", id)}
+          emptyLabel="Choose a foundation"
+          newLabel="New funder"
+          hint="Not in the CRM yet? Create the foundation right here."
+        />
+        <ContactPicker
+          label="Program officer (optional)"
+          types={["individual"]}
+          value={form.program_officer_id}
+          onChange={(id) => set("program_officer_id", id)}
+          emptyLabel="Not known"
+          newLabel="New person"
+          parentOrgId={form.funder_id}
+          hint="New officers are linked to the funder automatically."
+        />
         <Field label="Amount requested">
           <Input
             className="text-base"
