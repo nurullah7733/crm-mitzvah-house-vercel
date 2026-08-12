@@ -500,7 +500,7 @@ function PersonPage() {
                 </div>
               );
             })}
-          </Card>
+          </EditableCard>
         </div>
 
         {/* Activity — the other half of the page */}
