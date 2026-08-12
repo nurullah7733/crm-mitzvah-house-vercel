@@ -13,6 +13,8 @@ import {
   type CompletableTask,
 } from "@/components/forms/AddDialogs";
 import { todayISO } from "@/components/forms/fields";
+import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { CalendarHeart } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
@@ -42,6 +44,55 @@ function TasksPage() {
       return data;
     },
   });
+
+  const { data: dates } = useQuery({
+    queryKey: ["upcoming-special-dates"],
+    queryFn: async () => {
+      const [people, yahrzeits] = await Promise.all([
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, birth_date")
+          .not("birth_date", "is", null),
+        supabase
+          .from("yahrzeits")
+          .select(
+            "id, deceased_name, relationship, hebrew_month, hebrew_day, people(id, display_name, first_name, last_name)",
+          ),
+      ]);
+      return { people: people.data ?? [], yahrzeits: yahrzeits.data ?? [] };
+    },
+  });
+
+  const reminders = [
+    ...(dates?.people ?? []).flatMap((p) => {
+      const next = nextBirthday(p.birth_date);
+      if (!next || next.days > 31) return [];
+      return [
+        {
+          key: `b-${p.id}`,
+          personId: p.id,
+          name: personName(p),
+          label: `Birthday in ${next.days} day${next.days === 1 ? "" : "s"}`,
+          date: next.date.toISOString(),
+          days: next.days,
+        },
+      ];
+    }),
+    ...(dates?.yahrzeits ?? []).flatMap((y) => {
+      const next = nextYahrzeit(y.hebrew_month, y.hebrew_day);
+      if (!next || next.days > 31 || !y.people) return [];
+      return [
+        {
+          key: `y-${y.id}`,
+          personId: y.people.id,
+          name: personName(y.people),
+          label: `Yahrzeit for ${y.deceased_name} in ${next.days} day${next.days === 1 ? "" : "s"}`,
+          date: next.date.toISOString(),
+          days: next.days,
+        },
+      ];
+    }),
+  ].sort((a, b) => a.days - b.days);
 
   const tasks = (data ?? []).map((t) => ({
     ...t,
@@ -110,6 +161,34 @@ function TasksPage() {
     >
       {isLoading && <EmptyState label="Loading tasks…" />}
       <div className="space-y-6">
+        {reminders.length > 0 && (
+          <section>
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Reach out — special dates this month
+            </h2>
+            <div className="mt-3 space-y-3">
+              {reminders.map((r) => (
+                <div key={r.key} className="flex gap-3 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 shadow-sm">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-suggestion/25 text-suggestion-foreground">
+                    <CalendarHeart className="size-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground">
+                      Reach out to{" "}
+                      <Link to="/people/$personId" params={{ personId: r.personId }} className="text-primary hover:underline">
+                        {r.name}
+                      </Link>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {r.label} · {formatDate(r.date)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {[
           { label: "Overdue", items: overdue },
           { label: "Upcoming", items: upcoming },
