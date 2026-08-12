@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { selectClass } from "@/components/forms/fields";
+import { EditableCard } from "@/components/EditableCard";
 import { GRANT_STAGES, personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
 
@@ -79,6 +80,19 @@ function GrantPage() {
   const received = (data?.payments ?? []).reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
   const outstanding = Number(g.amount_awarded ?? 0) - received;
 
+  async function saveGrant(patch: Record<string, string | null>) {
+    const clean: Record<string, unknown> = { ...patch };
+    for (const key of ["amount_requested", "amount_awarded"]) {
+      if (key in clean) clean[key] = clean[key] === null ? null : Number(clean[key]);
+    }
+    const { error } = await supabase.from("grants").update(clean as never).eq("id", grantId);
+    if (error) throw error;
+    toast.success("Saved");
+    logChange("Edited a grant");
+    await queryClient.invalidateQueries({ queryKey: ["grant", grantId] });
+    await queryClient.invalidateQueries({ queryKey: ["grants"] });
+  }
+
   return (
     <AppShell
       title={g.name}
@@ -93,9 +107,20 @@ function GrantPage() {
       }
     >
       <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="font-heading font-semibold">Grant details</h2>
-          <div className="mt-3 space-y-2 text-sm">
+        <EditableCard
+          title="Grant details"
+          values={g as unknown as Record<string, unknown>}
+          fields={[
+            { key: "name", label: "Grant name", full: true },
+            { key: "amount_requested", label: "Amount requested", type: "number" },
+            { key: "amount_awarded", label: "Amount awarded", type: "number" },
+            { key: "restricted_program", label: "Restricted to program" },
+            { key: "notes", label: "Notes", type: "textarea" },
+          ]}
+          onSave={saveGrant}
+          editHint="Received and outstanding are worked out from linked payments, so they aren't edited by hand."
+        >
+          <div className="space-y-2 text-sm">
             <Row label="Stage">
               <select
                 className={selectClass}
@@ -135,21 +160,28 @@ function GrantPage() {
             {g.campaigns ? (
               <Row label="Campaign">{g.campaigns.name}</Row>
             ) : null}
+            {g.notes ? <p className="pt-2 text-sm text-muted-foreground">{g.notes}</p> : null}
           </div>
-          {g.notes ? <p className="mt-4 text-sm text-muted-foreground">{g.notes}</p> : null}
-        </section>
+        </EditableCard>
 
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="font-heading font-semibold">Deadlines</h2>
-          <div className="mt-3 space-y-2 text-sm">
+        <EditableCard
+          title="Deadlines"
+          values={g as unknown as Record<string, unknown>}
+          fields={[
+            { key: "application_deadline", label: "Application deadline", type: "date" },
+            { key: "report_deadline", label: "Report deadline", type: "date" },
+            { key: "renewal_deadline", label: "Renewal deadline", type: "date" },
+          ]}
+          onSave={saveGrant}
+        >
+          <div className="space-y-2 text-sm">
             <Row label="Application">{formatDate(g.application_deadline)}</Row>
             <Row label="Report">{formatDate(g.report_deadline)}</Row>
             <Row label="Renewal">{formatDate(g.renewal_deadline)}</Row>
-          </div>
-          <h3 className="mt-5 font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 className="pt-4 font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Linked tasks
           </h3>
-          <div className="mt-2">
+          <div className="mt-1">
             {(data?.tasks ?? []).length === 0 && <p className="text-sm text-muted-foreground">No tasks yet.</p>}
             {(data?.tasks ?? []).map((t) => (
               <div key={t.id} className="border-b border-border py-2 last:border-0">
@@ -160,7 +192,8 @@ function GrantPage() {
               </div>
             ))}
           </div>
-        </section>
+          </div>
+        </EditableCard>
 
         <section className="rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-2">
           <h2 className="font-heading font-semibold">Payments received</h2>
