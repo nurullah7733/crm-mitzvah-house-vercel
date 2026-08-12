@@ -175,8 +175,16 @@ function PersonPage() {
       </section>
 
       <div className="mt-5 grid gap-5 md:grid-cols-2">
-        {/* Left column — contact and the small cards */}
+        {/* Left column — contact and details */}
         <div className="order-1 space-y-5 md:col-start-1 md:row-start-1">
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-border" />
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Contact info
+            </h2>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <Card title="Contact">
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
@@ -247,9 +255,16 @@ function PersonPage() {
 
         {/* Activity — the other half of the page */}
         <section className="order-3 rounded-2xl border border-border bg-card p-5 shadow-sm md:col-start-2 md:row-span-2 md:row-start-1">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="h-px flex-1 bg-border" />
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Activity
+            </h2>
+            <div className="h-px flex-1 bg-border" />
+          </div>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="min-w-0">
-              <h2 className="font-heading font-semibold">Timeline</h2>
+              <p className="font-heading font-semibold">Timeline</p>
               <p className="text-xs text-muted-foreground">Everything in one feed, newest first</p>
             </div>
           </div>
@@ -292,6 +307,14 @@ function PersonPage() {
 
         {/* Left column continued — tasks and programs */}
         <div className="order-2 space-y-5 md:col-start-1 md:row-start-2">
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-border" />
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Tracking
+            </h2>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <Card title="Open tasks">
             {(data?.tasks ?? []).filter((t) => t.status !== "done").length === 0 && (
               <p className="text-sm text-muted-foreground">No open tasks.</p>
