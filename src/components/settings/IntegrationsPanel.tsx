@@ -49,12 +49,6 @@ const PROVIDER_ORDER = [
   "google_sheets",
 ];
 
-async function authHeaders(): Promise<HeadersInit | undefined> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : undefined;
-}
-
 function StatusPill({ status }: { status: IntegrationStatusEntry["status"] }) {
   const map: Record<IntegrationStatusEntry["status"], { label: string; className: string }> = {
     connected: { label: "Connected", className: "bg-money text-money-foreground" },
@@ -83,8 +77,7 @@ export function IntegrationsPanel() {
   const { data, isLoading } = useQuery({
     queryKey: ["integration-status"],
     queryFn: async () => {
-      const headers = await authHeaders();
-      return listFn({ headers });
+      return listFn();
     },
   });
 
@@ -92,8 +85,7 @@ export function IntegrationsPanel() {
 
   const save = useMutation({
     mutationFn: async ({ provider, credentials }: { provider: string; credentials: Record<string, string> }) => {
-      const headers = await authHeaders();
-      return saveFn({ data: { provider, credentials }, headers });
+      return saveFn({ data: { provider, credentials } });
     },
     onSuccess: (entry) => {
       invalidate();
@@ -105,8 +97,7 @@ export function IntegrationsPanel() {
 
   const test = useMutation({
     mutationFn: async (provider: string) => {
-      const headers = await authHeaders();
-      return testFn({ data: { provider }, headers });
+      return testFn({ data: { provider } });
     },
     onSuccess: (result) => {
       invalidate();
@@ -118,8 +109,7 @@ export function IntegrationsPanel() {
 
   const disconnect = useMutation({
     mutationFn: async (provider: string) => {
-      const headers = await authHeaders();
-      return disconnectFn({ data: { provider }, headers });
+      return disconnectFn({ data: { provider } });
     },
     onSuccess: (_result, provider) => {
       invalidate();
