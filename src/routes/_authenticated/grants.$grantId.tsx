@@ -133,11 +133,7 @@ function GrantPage() {
             </Row>
             <Row label="Restricted to">{g.restricted_program ?? "Unrestricted"}</Row>
             {g.campaigns ? (
-              <Row label="Campaign">
-                <Link to="/campaigns/$campaignId" params={{ campaignId: g.campaigns.id }} className="text-primary hover:underline">
-                  {g.campaigns.name}
-                </Link>
-              </Row>
+              <Row label="Campaign">{g.campaigns.name}</Row>
             ) : null}
           </div>
           {g.notes ? <p className="mt-4 text-sm text-muted-foreground">{g.notes}</p> : null}
