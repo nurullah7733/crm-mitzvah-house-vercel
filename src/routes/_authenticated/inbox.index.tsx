@@ -370,15 +370,21 @@ function ImportCenter() {
         const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
         if (found) {
           // Fill in any address details the stored household is missing.
-          const patch: Record<string, string> = {};
-          for (const [k, val] of Object.entries(parts)) if (val) patch[k] = val as string;
-          if (billing) patch["billing_address"] = billing;
+          const patch: Partial<HouseParts> & { billing_address?: string } = {};
+          if (parts.address) patch.address = parts.address;
+          if (parts.address_line2) patch.address_line2 = parts.address_line2;
+          if (parts.address_line3) patch.address_line3 = parts.address_line3;
+          if (parts.city) patch.city = parts.city;
+          if (parts.state) patch.state = parts.state;
+          if (parts.postal_code) patch.postal_code = parts.postal_code;
+          if (parts.county) patch.county = parts.county;
+          if (billing) patch.billing_address = billing;
           if (Object.keys(patch).length > 0) await supabase.from("households").update(patch).eq("id", found);
           return found;
         }
         const { data: household } = await supabase
           .from("households")
-          .insert({ name, ...parts, billing_address: billing, import_batch_id: batch.id })
+          .insert({ name, ...parts, billing_address: billing, import_batch_id: batchId })
           .select("id")
           .single();
         if (household?.id) {
@@ -517,47 +523,54 @@ function ImportCenter() {
             : v.spouse_full_name
               ? splitFullName(v.spouse_full_name)
               : null;
-          if (spouseName && (spouseName.first || spouseName.last)) {
-            const already = (people ?? []).some(
+          // Only people already in this household count as "already there", so a
+          // common first name elsewhere in the database never swallows a real person.
+          const houseMembers = householdId
+            ? ((await supabase.from("people").select("first_name, last_name").eq("household_id", householdId)).data ?? [])
+            : [];
+          const inHousehold = (f: string, l: string) =>
+            houseMembers.some(
               (p) =>
-                (p.first_name ?? "").toLowerCase() === spouseName.first.toLowerCase() &&
-                (p.last_name ?? "").toLowerCase() === (spouseName.last || last).toLowerCase(),
+                (p.first_name ?? "").trim().toLowerCase() === f.trim().toLowerCase() &&
+                (p.last_name ?? "").trim().toLowerCase() === l.trim().toLowerCase(),
             );
-            if (!already) {
+          if (spouseName && (spouseName.first || spouseName.last)) {
+            const spouseLast = spouseName.last || last;
+            if (!inHousehold(spouseName.first, spouseLast)) {
               await supabase.from("people").insert({
                 first_name: spouseName.first || null,
-                last_name: spouseName.last || last || null,
+                last_name: spouseLast || null,
+                display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
                 email: v.spouse_email ?? null,
                 phone: v.spouse_phone ?? null,
                 household_id: householdId,
                 role: "Adult",
                 met_source: v.met_source ?? null,
-                import_batch_id: batch.id,
+                import_batch_id: batchId,
               });
+              houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
             }
           }
 
           // Children listed on the row each become their own contact, linked by household.
           for (const child of v.children ?? []) {
-            const cn = splitFullName(child.name);
-            if (!cn.first && !cn.last) continue;
-            const already = (people ?? []).some(
-              (p) =>
-                (p.first_name ?? "").toLowerCase() === cn.first.toLowerCase() &&
-                (p.last_name ?? "").toLowerCase() === (cn.last || last).toLowerCase(),
-            );
-            if (already) continue;
+            const childFirst = child.first.trim();
+            const childLast = (child.last ?? "").trim() || last;
+            if (!childFirst && !childLast) continue;
+            if (inHousehold(childFirst, childLast)) continue;
             await supabase.from("people").insert({
-              first_name: cn.first || null,
-              last_name: cn.last || last || null,
+              first_name: childFirst || null,
+              last_name: childLast || null,
+              display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
               household_id: householdId,
               role: "Child",
               birth_date: isoDate(child.birth_date),
               school: child.school ?? null,
               met_source: v.met_source ?? null,
               programs: splitList(v.programs),
-              import_batch_id: batch.id,
+              import_batch_id: batchId,
             });
+            houseMembers.push({ first_name: childFirst, last_name: childLast });
           }
 
           for (const key of [
