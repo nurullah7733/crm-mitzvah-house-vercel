@@ -5,7 +5,6 @@ import { ArrowLeft, CalendarDays, FileText, HandCoins, Phone, StickyNote, Plus }
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { ChipEditor } from "@/components/ChipEditor";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
   head: () => ({
@@ -50,6 +50,39 @@ function today() {
 function PersonPage() {
   const { personId } = Route.useParams();
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
+  const queryClient = useQueryClient();
+
+  const { data: options } = useQuery({
+    queryKey: ["chip-options"],
+    queryFn: async () => {
+      const [tags, programs] = await Promise.all([
+        supabase.from("tag_options").select("label").order("label"),
+        supabase.from("program_options").select("label").order("label"),
+      ]);
+      return {
+        tags: (tags.data ?? []).map((t) => t.label),
+        programs: (programs.data ?? []).map((t) => t.label),
+      };
+    },
+  });
+
+  const saveChips = useMutation({
+    mutationFn: async (patch: { tags?: string[]; programs?: string[] }) => {
+      const { error } = await supabase.from("people").update(patch).eq("id", personId);
+      if (error) throw error;
+      const table = patch.tags ? "tag_options" : "program_options";
+      const list = patch.tags ?? patch.programs ?? [];
+      const known = (patch.tags ? options?.tags : options?.programs) ?? [];
+      const fresh = list.filter((v) => !known.includes(v));
+      if (fresh.length) await supabase.from(table).insert(fresh.map((label) => ({ label })));
+    },
+    onSuccess: () => {
+      toast.success("Saved");
+      queryClient.invalidateQueries({ queryKey: ["person", personId] });
+      queryClient.invalidateQueries({ queryKey: ["chip-options"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["person", personId],
@@ -163,12 +196,26 @@ function PersonPage() {
               {" · "}
               {since === null ? "No activity yet" : `last activity: ${since} days ago`}
             </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {(p.tags ?? []).map((t) => (
-                <Badge key={t} variant="secondary" className="rounded-full text-[11px] font-normal">
-                  {t}
-                </Badge>
-              ))}
+            <div className="mt-3">
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</p>
+              <ChipEditor
+                values={p.tags ?? []}
+                options={options?.tags ?? []}
+                emptyLabel="No tags yet."
+                placeholder="New tag…"
+                onChange={(next) => saveChips.mutate({ tags: next })}
+              />
+            </div>
+            <div className="mt-3">
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Programs</p>
+              <ChipEditor
+                values={p.programs ?? []}
+                options={options?.programs ?? []}
+                tone="primary"
+                emptyLabel="No programs yet."
+                placeholder="New program…"
+                onChange={(next) => saveChips.mutate({ programs: next })}
+              />
             </div>
           </div>
         </div>
@@ -177,15 +224,7 @@ function PersonPage() {
       <div className="mt-5 grid gap-5 md:grid-cols-2">
         {/* Left column — contact and details */}
         <div className="order-1 space-y-5 md:col-start-1 md:row-start-1">
-          <div className="flex items-center gap-2">
-            <div className="h-px flex-1 bg-border" />
-            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Contact info
-            </h2>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
-          <Card title="Contact">
+          <Card title="Contact info">
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
@@ -255,16 +294,9 @@ function PersonPage() {
 
         {/* Activity — the other half of the page */}
         <section className="order-3 rounded-2xl border border-border bg-card p-5 shadow-sm md:col-start-2 md:row-span-2 md:row-start-1">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="h-px flex-1 bg-border" />
-            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Activity
-            </h2>
-            <div className="h-px flex-1 bg-border" />
-          </div>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="min-w-0">
-              <p className="font-heading font-semibold">Timeline</p>
+              <h2 className="font-heading font-semibold text-foreground">Activity</h2>
               <p className="text-xs text-muted-foreground">Everything in one feed, newest first</p>
             </div>
           </div>
@@ -307,14 +339,6 @@ function PersonPage() {
 
         {/* Left column continued — tasks and programs */}
         <div className="order-2 space-y-5 md:col-start-1 md:row-start-2">
-          <div className="flex items-center gap-2">
-            <div className="h-px flex-1 bg-border" />
-            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Tracking
-            </h2>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
           <Card title="Open tasks">
             {(data?.tasks ?? []).filter((t) => t.status !== "done").length === 0 && (
               <p className="text-sm text-muted-foreground">No open tasks.</p>
@@ -331,16 +355,6 @@ function PersonPage() {
               ))}
           </Card>
 
-          <Card title="Programs">
-            {(p.programs ?? []).length === 0 && <p className="text-sm text-muted-foreground">No programs yet.</p>}
-            <div className="flex flex-wrap gap-1.5">
-              {(p.programs ?? []).map((prog) => (
-                <Badge key={prog} variant="secondary" className="rounded-full text-[11px] font-normal">
-                  {prog}
-                </Badge>
-              ))}
-            </div>
-          </Card>
         </div>
       </div>
 
