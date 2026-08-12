@@ -86,10 +86,12 @@ export function EditableList({
   });
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="font-heading font-semibold text-foreground">{title}</h2>
-      <p className="text-xs text-muted-foreground">{description}</p>
-      <div className="mt-3 space-y-2">
+    <div className="space-y-3">
+      <div>
+        <h2 className="font-heading font-semibold text-foreground">{title}</h2>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div className="space-y-2">
         {(data ?? []).map((item) => (
           <div key={item.id} className="flex gap-2">
             <Input
@@ -113,7 +115,7 @@ export function EditableList({
         ))}
         {(data ?? []).length === 0 && <p className="text-sm text-muted-foreground">Nothing here yet.</p>}
       </div>
-      <div className="mt-3 flex gap-2">
+      <div className="flex gap-2">
         <Input
           className="text-base"
           placeholder={placeholder}
@@ -128,6 +130,6 @@ export function EditableList({
           <Plus className="size-4" /> Add
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
