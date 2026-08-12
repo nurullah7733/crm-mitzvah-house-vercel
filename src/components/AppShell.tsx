@@ -13,6 +13,8 @@ import {
   LogOut,
   Menu,
   Sparkles,
+  Target,
+  FileBadge,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "@/lib/current-staff";
@@ -24,12 +26,23 @@ const NAV = [
   { to: "/households", label: "Households", icon: Home },
   { to: "/events", label: "Events", icon: CalendarDays },
   { to: "/donations", label: "Donations", icon: HandCoins },
+  { to: "/campaigns", label: "Campaigns", icon: Target },
+  { to: "/grants", label: "Grants", icon: FileBadge },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
 ] as const;
 
 const SETTINGS = { to: "/settings", label: "Settings", icon: SettingsIcon } as const;
 const INBOX = { to: "/inbox", label: "Inbox", icon: InboxIcon } as const;
 const MENU_NAV = [...NAV, INBOX, SETTINGS] as const;
+
+/* Only five fit a phone tab bar — the rest live in the hamburger menu. */
+const TAB_NAV = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/people", label: "People", icon: Users },
+  { to: "/donations", label: "Donations", icon: HandCoins },
+  { to: "/tasks", label: "Tasks", icon: ListChecks },
+  INBOX,
+] as const;
 
 export function AppShell({
   title,
@@ -169,7 +182,7 @@ export function AppShell({
 
       {/* Mobile bottom tabs */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 flex overflow-x-auto border-t border-border bg-card px-1 py-2 lg:hidden">
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {TAB_NAV.map(({ to, label, icon: Icon }) => (
           <Link
             key={to}
             to={to}
