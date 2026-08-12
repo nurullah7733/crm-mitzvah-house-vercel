@@ -71,7 +71,7 @@ function PersonPage() {
       key: `i-${i.id}`,
       date: i.date,
       kind: i.type,
-      title: i.text,
+      title: i.text ?? "(no text)",
       detail: i.author ? `Logged by ${i.author}` : null,
     })),
     ...(data?.donations ?? []).map((d) => ({
