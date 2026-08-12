@@ -241,7 +241,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         {(duplicates ?? []).length > 0 && (
-          <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm sm:col-span-2">
+          <div className="rounded-xl border border-suggestion/50 bg-suggestion/15 p-3 text-sm sm:col-span-2">
             <p className="font-medium text-foreground">This may already be in the CRM</p>
             <ul className="mt-1 space-y-1 text-muted-foreground">
               {(duplicates ?? []).map((d) => (
