@@ -326,6 +326,7 @@ function ImportCenter() {
         .select("id")
         .single();
       if (batchError) throw batchError;
+      const batchId = batch.id;
 
       const fieldSources: {
         person_id: string;
