@@ -54,6 +54,17 @@ export function useMetSourceOptions() {
   });
 }
 
+export function useProgramOptions() {
+  return useQuery({
+    queryKey: ["program-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("program_options").select("id, label").order("label");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 /* ------------------------------------------------------------------ person */
 
 const EMPTY_PERSON = {
