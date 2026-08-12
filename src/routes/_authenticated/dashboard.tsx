@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, History } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, currency, formatDate } from "@/components/AppShell";
+import { greeting, useCurrentStaff } from "@/lib/current-staff";
+import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/session-log";
 import { CompleteTaskDialog, TaskCheckbox, type CompletableTask } from "@/components/forms/AddDialogs";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -27,6 +29,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 function Dashboard() {
   const { user } = Route.useRouteContext();
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
+  const staff = useCurrentStaff();
 
   const { data: pendingReview } = useQuery({
     queryKey: ["review-queue-count"],
@@ -73,7 +76,10 @@ function Dashboard() {
   });
 
   return (
-    <AppShell title="Dashboard" subtitle={`Signed in as ${user.email}`}>
+    <AppShell
+      title={`${greeting()}${staff?.name ? `, ${staff.name}` : ""}`}
+      subtitle={`Signed in as ${user.email}`}
+    >
       {!!pendingReview && (
         <Link
           to="/inbox/review"
@@ -165,9 +171,44 @@ function Dashboard() {
             </Link>
           ))}
         </Panel>
+
+        <SessionLogPanel />
       </div>
       <CompleteTaskDialog task={completing} onOpenChange={(v) => !v && setCompleting(null)} />
     </AppShell>
+  );
+}
+
+function SessionLogPanel() {
+  const [entries, setEntries] = useState<SessionChange[]>([]);
+
+  useEffect(() => {
+    setEntries(getSessionLog());
+    return subscribeSessionLog(() => setEntries(getSessionLog()));
+  }, []);
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <History className="size-4 text-primary" />
+        <h2 className="font-heading font-semibold text-foreground">Changes this session</h2>
+      </div>
+      <div className="mt-2">
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No changes yet since you signed in.</p>
+        ) : (
+          entries.map((e) => (
+            <div key={e.id} className="border-b border-border py-2.5 last:border-0">
+              <p className="text-sm text-foreground">{e.text}</p>
+              <p className="text-xs text-muted-foreground">
+                {e.actor} ·{" "}
+                {new Date(e.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
