@@ -15,7 +15,6 @@ import {
   disconnectIntegration,
   type IntegrationStatusEntry,
 } from "@/lib/integrations.functions";
-import { supabase } from "@/integrations/supabase/client";
 
 type FieldDef = { key: string; label: string; secret?: boolean };
 

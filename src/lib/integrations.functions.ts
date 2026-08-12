@@ -77,7 +77,7 @@ async function buildStatusEntry(
   admin: any,
   key: string,
 ): Promise<IntegrationStatusEntry> {
-  const meta = PROVIDERS[key];
+  const meta = PROVIDERS[key]!;
   const { data: credRow } = await admin
     .from("integration_credentials")
     .select("credentials")
