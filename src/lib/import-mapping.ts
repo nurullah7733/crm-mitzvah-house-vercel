@@ -11,9 +11,16 @@ export type FieldKey =
   | "email"
   | "phone"
   | "address"
+  | "address_line2"
+  | "address_line3"
+  | "city"
+  | "state"
+  | "postal_code"
+  | "county"
   | "billing_address"
   | "household_name"
   | "birth_date"
+  | "anniversary_date"
   | "school"
   | "person_notes"
   | "spouse_full_name"
@@ -43,9 +50,16 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   email: "Email",
   phone: "Phone",
   address: "Home address",
+  address_line2: "Address line 2 (apt, unit)",
+  address_line3: "Extra address line",
+  city: "City",
+  state: "State",
+  postal_code: "ZIP / postal code",
+  county: "County",
   billing_address: "Billing address",
   household_name: "Household name",
   birth_date: "Birth date",
+  anniversary_date: "Anniversary",
   school: "School",
   person_notes: "Notes about this person",
   spouse_full_name: "Partner — full name",
@@ -80,9 +94,16 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
   email: ["email", "e-mail", "email address", "primary email", "contact email", "mail"],
   phone: ["phone", "phone number", "cell", "cell phone", "mobile", "mobile phone", "telephone", "home phone", "primary phone"],
   address: ["address", "street", "street address", "address line 1", "mailing address", "home address", "city state zip", "shipping address"],
+  address_line2: ["address line 2", "address 2", "apt", "apartment", "unit", "suite", "street 2", "address line two", "apt suite"],
+  address_line3: ["address line 3", "address 3", "extra address line", "additional address", "care of", "c/o"],
+  city: ["city", "town", "city name", "billing city", "shipping city"],
+  state: ["state", "province", "region", "st", "billing state", "shipping state"],
+  postal_code: ["zip", "zip code", "zipcode", "postal code", "postcode", "billing zip", "shipping zip"],
+  county: ["county", "county name", "district"],
   billing_address: ["billing address", "billing street", "bill to address", "billing address line 1", "card address"],
   household_name: ["household", "household name", "family", "family name"],
   birth_date: ["birthday", "birth date", "birthdate", "dob", "date of birth"],
+  anniversary_date: ["anniversary", "wedding anniversary", "anniversary date", "wedding date"],
   school: ["school", "school name", "grade school", "yeshiva", "day school"],
   person_notes: ["about", "occupation", "job title", "employer", "additional info", "other information", "details"],
   spouse_full_name: ["spouse", "spouse name", "partner", "partner name", "husband", "wife", "second parent", "parent 2", "parent 2 name"],
