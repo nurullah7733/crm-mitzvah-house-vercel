@@ -604,7 +604,7 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
       const due = form.due_date || null;
       const overdue = !!due && due < todayISO();
       const { error } = await supabase.from("tasks").insert({
-        person_id: personId ?? form.person_id || null,
+        person_id: personId ?? (form.person_id || null),
         text: form.text.trim(),
         due_date: due,
         priority: form.priority,
