@@ -108,6 +108,16 @@ function PersonPage() {
         supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
         supabase.from("field_sources").select("*").eq("person_id", personId),
       ]);
+      const householdId = person.data?.household_id ?? null;
+      const relatives = householdId
+        ? await supabase
+            .from("people")
+            .select("id, first_name, last_name, display_name, role, phone, email")
+            .eq("household_id", householdId)
+            .neq("id", personId)
+            .is("deleted_at", null)
+            .order("role")
+        : { data: [] };
       return {
         person: person.data,
         interactions: interactions.data ?? [],
@@ -116,6 +126,7 @@ function PersonPage() {
         yahrzeits: yahrzeits.data ?? [],
         registrations: registrations.data ?? [],
         sources: sources.data ?? [],
+        relatives: relatives.data ?? [],
       };
     },
   });
@@ -234,6 +245,7 @@ function PersonPage() {
           { key: "email", label: "Email", type: "email" },
           { key: "phone", label: "Phone", type: "tel" },
           { key: "birth_date", label: "Birth date", type: "date" },
+          { key: "anniversary_date", label: "Anniversary", type: "date" },
           { key: "owner", label: "Owner" },
           { key: "met_source", label: "Where we met" },
           { key: "met_date", label: "Date we met", type: "date" },
@@ -296,6 +308,9 @@ function PersonPage() {
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
+          </Card>
+
+          <Card title="Additional info">
             {p.households?.billing_address && p.households.billing_address !== p.households.address && (
               <SourceRow
                 label="Billing address"
