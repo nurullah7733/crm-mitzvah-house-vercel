@@ -59,42 +59,61 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-money: var(--money);
+  --color-money-foreground: var(--money-foreground);
+  --color-suggestion: var(--suggestion);
+  --color-suggestion-foreground: var(--suggestion-foreground);
+  --color-urgent: var(--urgent);
+  --color-urgent-foreground: var(--urgent-foreground);
+  --font-heading: var(--font-heading);
+  --font-sans: var(--font-body);
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
+  --radius: 0.875rem;
+  --font-heading: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --background: oklch(0.9789 0.0029 264.54);
+  --foreground: oklch(0.2681 0.016 264.26);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
+  --card-foreground: oklch(0.2681 0.016 264.26);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.984 0.003 247.858);
-  --sidebar-foreground: oklch(0.129 0.042 264.695);
-  --sidebar-primary: oklch(0.208 0.042 265.755);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.968 0.007 247.896);
-  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
-  --sidebar-border: oklch(0.929 0.013 255.508);
-  --sidebar-ring: oklch(0.704 0.04 256.788);
+  --popover-foreground: oklch(0.2681 0.016 264.26);
+  --primary: oklch(0.4784 0.1273 261.87);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.93 0.0104 261.79);
+  --secondary-foreground: oklch(0.2681 0.016 264.26);
+  --muted: oklch(0.9789 0.0029 264.54);
+  --muted-foreground: oklch(0.5983 0.0247 263.12);
+  --accent: oklch(0.93 0.0104 261.79);
+  --accent-foreground: oklch(0.4784 0.1273 261.87);
+  --destructive: oklch(0.677 0.1673 32.18);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.93 0.0104 261.79);
+  --input: oklch(0.93 0.0104 261.79);
+  --ring: oklch(0.4784 0.1273 261.87);
+
+  --money: oklch(0.6561 0.1463 157.71);
+  --money-foreground: oklch(1 0 0);
+  --suggestion: oklch(0.8445 0.1481 84.3);
+  --suggestion-foreground: oklch(0.2681 0.016 264.26);
+  --urgent: oklch(0.677 0.1673 32.18);
+  --urgent-foreground: oklch(1 0 0);
+
+  --chart-1: oklch(0.4784 0.1273 261.87);
+  --chart-2: oklch(0.6561 0.1463 157.71);
+  --chart-3: oklch(0.8445 0.1481 84.3);
+  --chart-4: oklch(0.677 0.1673 32.18);
+  --chart-5: oklch(0.5983 0.0247 263.12);
+  --sidebar: oklch(0.4784 0.1273 261.87);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(1 0 0);
+  --sidebar-primary-foreground: oklch(0.4784 0.1273 261.87);
+  --sidebar-accent: oklch(0.4284 0.1273 261.87);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(0.4284 0.1273 261.87);
+  --sidebar-ring: oklch(0.8445 0.1481 84.3);
 }
 
 .dark {
@@ -140,5 +159,21 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-body);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+  }
+
+  /* Mobile: 16px inputs prevent iOS from zooming on focus. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
