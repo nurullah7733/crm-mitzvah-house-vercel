@@ -1,9 +1,24 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { ArrowLeft, CalendarDays, FileText, HandCoins, Phone, StickyNote, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
+import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
   head: () => ({
@@ -12,29 +27,40 @@ export const Route = createFileRoute("/_authenticated/people/$personId")({
       { name: "description", content: "One unified timeline of everything we know about this person." },
       { property: "og:title", content: "Person profile | Mitzvah House CRM" },
       { property: "og:description", content: "One unified timeline of everything we know about this person." },
+      { property: "og:type", content: "profile" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: PersonPage,
 });
 
-const HEBREW_MONTHS = [
-  "", "Nisan", "Iyyar", "Sivan", "Tammuz", "Av", "Elul", "Tishrei",
-  "Cheshvan", "Kislev", "Tevet", "Shevat", "Adar", "Adar II",
-];
+const KIND_ICON: Record<string, { icon: typeof StickyNote; className: string }> = {
+  donation: { icon: HandCoins, className: "bg-money/15 text-money" },
+  event: { icon: CalendarDays, className: "bg-primary/10 text-primary" },
+  call: { icon: Phone, className: "bg-suggestion/20 text-suggestion-foreground" },
+  form: { icon: FileText, className: "bg-secondary text-secondary-foreground" },
+  note: { icon: StickyNote, className: "bg-secondary text-secondary-foreground" },
+  volunteer: { icon: CalendarDays, className: "bg-money/15 text-money" },
+};
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function PersonPage() {
   const { personId } = Route.useParams();
+  const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["person", personId],
     queryFn: async () => {
       const [person, interactions, donations, tasks, yahrzeits, registrations, sources] = await Promise.all([
-        supabase.from("people").select("*, households(id, name, address)").eq("id", personId).maybeSingle(),
+        supabase.from("people").select("*, households(id, name, address, phone)").eq("id", personId).maybeSingle(),
         supabase.from("interactions").select("*").eq("person_id", personId).order("date", { ascending: false }),
         supabase.from("donations").select("*").eq("person_id", personId).order("date", { ascending: false }),
         supabase.from("tasks").select("*").eq("person_id", personId).order("due_date"),
         supabase.from("yahrzeits").select("*").eq("person_id", personId),
-        supabase.from("registrations").select("status, events(id, name, date, program)").eq("person_id", personId),
+        supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
         supabase.from("field_sources").select("*").eq("person_id", personId),
       ]);
       return {
@@ -65,12 +91,17 @@ function PersonPage() {
     );
   }
 
+  const sourceFor = (field: string) => {
+    const s = (data?.sources ?? []).find((x) => x.field_name === field);
+    return s ? `${s.source}, ${formatDate(s.recorded_date)}` : "Manual entry";
+  };
+
   type Item = { key: string; date: string; kind: string; title: string; detail?: string | null };
   const timeline: Item[] = [
     ...(data?.interactions ?? []).map((i) => ({
       key: `i-${i.id}`,
       date: i.date,
-      kind: i.type,
+      kind: i.type ?? "note",
       title: i.text ?? "(no text)",
       detail: i.author ? `Logged by ${i.author}` : null,
     })),
@@ -84,13 +115,16 @@ function PersonPage() {
     ...(data?.registrations ?? [])
       .filter((r) => r.events)
       .map((r) => ({
-        key: `r-${r.events!.id}`,
+        key: `r-${r.id}`,
         date: r.events!.date,
         kind: "event",
         title: `${r.events!.name} — ${r.status}`,
         detail: r.events!.program,
       })),
   ].sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  const since = daysSince(p.last_activity_date);
+  const bday = nextBirthday(p.birth_date);
 
   return (
     <AppShell
@@ -99,128 +133,453 @@ function PersonPage() {
       action={
         <Link
           to="/people"
+          search={{}}
           className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
         >
           <ArrowLeft className="size-4" /> People
         </Link>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Lifetime giving" value={currency(p.lifetime_giving)} money />
-        <Stat label="This year" value={currency(p.this_year_giving)} money={Number(p.this_year_giving) > 0} />
-        <Stat label="Last gift" value={`${currency(p.last_gift_amount)} · ${formatDate(p.last_gift_date)}`} />
-      </div>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_320px]">
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="font-heading font-semibold text-foreground">Timeline</h2>
-          <p className="text-xs text-muted-foreground">Everything, newest first</p>
-          <ol className="mt-4 space-y-4">
-            {timeline.length === 0 && <li className="text-sm text-muted-foreground">No activity yet.</li>}
-            {timeline.map((item) => (
-              <li key={item.key} className="flex gap-3">
-                <span
-                  className={`mt-1.5 size-2.5 shrink-0 rounded-full ${
-                    item.kind === "donation" ? "bg-money" : item.kind === "event" ? "bg-primary" : "bg-suggestion"
-                  }`}
-                />
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground">{item.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatDate(item.date)} · {item.kind}
-                    {item.detail ? ` · ${item.detail}` : ""}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <div className="space-y-5">
-          <Card title="Contact">
-            <Row label="Phone" value={p.phone} />
-            <Row label="Email" value={p.email} />
-            <Row label="Role" value={p.role} />
-            <Row label="Birthday" value={formatDate(p.birth_date)} />
-            <Row label="Owner" value={p.owner} />
-            <Row label="Met at" value={p.met_source ? `${p.met_source} · ${formatDate(p.met_date)}` : null} />
-            {p.households?.address && <Row label="Address" value={p.households.address} />}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {[...(p.tags ?? []), ...(p.programs ?? [])].map((t) => (
+      {/* Profile header */}
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4">
+          <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-primary/10 font-heading text-lg font-semibold text-primary">
+            {initials(p.first_name, p.last_name)}
+          </span>
+          <div className="min-w-0">
+            <h2 className="font-heading text-xl font-semibold">
+              {p.first_name} {p.last_name}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {p.households ? (
+                <Link to="/households" className="text-primary hover:underline">
+                  {p.households.name}
+                </Link>
+              ) : (
+                "No household"
+              )}
+              {" · "}
+              {p.role ?? "Adult"}
+              {" · "}
+              {since === null ? "No activity yet" : `last activity: ${since} days ago`}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(p.tags ?? []).map((t) => (
                 <Badge key={t} variant="secondary" className="rounded-full text-[11px] font-normal">
                   {t}
                 </Badge>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_260px]">
+        {/* Left column */}
+        <div className="order-2 space-y-5 lg:order-1">
+          <Card title="Contact">
+            <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
+            <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
+            <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
+            <SourceRow
+              label="How we met"
+              value={p.met_source ? `${p.met_source} · ${formatDate(p.met_date)}` : null}
+              source={sourceFor("met_source")}
+            />
+            <SourceRow label="Owner" value={p.owner} source={sourceFor("owner")} />
           </Card>
 
-          <Card title="Open tasks">
-            {(data?.tasks ?? []).length === 0 && <p className="text-sm text-muted-foreground">No tasks.</p>}
-            {(data?.tasks ?? []).map((t) => (
-              <div key={t.id} className="border-b border-border py-2 last:border-0">
-                <p className="text-sm text-foreground">{t.text}</p>
-                <p className={`text-xs ${t.status === "overdue" ? "text-urgent" : "text-muted-foreground"}`}>
-                  Due {formatDate(t.due_date)} · {t.status} · {t.owner ?? "Unassigned"}
-                </p>
-              </div>
-            ))}
+          <Card title="Giving">
+            <Stat label="Lifetime" value={currency(p.lifetime_giving)} money />
+            <Stat label="This year" value={currency(p.this_year_giving)} money />
+            <Stat
+              label="Last gift"
+              value={`${currency(p.last_gift_amount)} · ${formatDate(p.last_gift_date)}`}
+            />
           </Card>
 
-          <Card title="Special dates">
-            <div className="border-b border-border py-2">
-              <p className="text-sm text-foreground">Birthday</p>
-              <p className="text-xs text-muted-foreground">{formatDate(p.birth_date)}</p>
-            </div>
-            {(data?.yahrzeits ?? []).length === 0 && (
-              <p className="py-2 text-sm text-muted-foreground">No yahrzeits recorded.</p>
+          <Card title="Birthday">
+            {p.birth_date ? (
+              <>
+                <p className="text-sm text-foreground">{formatDate(p.birth_date)}</p>
+                <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
+                {bday && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Next birthday {formatDate(bday.date.toISOString())} — in {bday.days} days
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No birthday on file.</p>
             )}
-            {(data?.yahrzeits ?? []).map((y) => (
-              <div key={y.id} className="border-b border-border py-2 last:border-0">
-                <p className="text-sm text-foreground">Yahrzeit — {y.deceased_name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {y.relationship ?? "Relative"} · {HEBREW_MONTHS[y.hebrew_month] ?? y.hebrew_month} {y.hebrew_day}
-                </p>
-              </div>
-            ))}
           </Card>
 
-          <Card title="Where this data came from">
-            {(data?.sources ?? []).length === 0 && <p className="text-sm text-muted-foreground">No sources recorded.</p>}
-            {(data?.sources ?? []).map((s) => (
-              <p key={s.id} className="py-1 text-xs text-muted-foreground">
-                <span className="text-foreground">{s.field_name}</span> — {s.source}, {formatDate(s.recorded_date)}
-              </p>
-            ))}
+          <Card
+            title="Yahrzeits"
+            action={
+              <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("yahrzeit")}>
+                <Plus className="size-3.5" /> Add yahrzeit
+              </Button>
+            }
+          >
+            {(data?.yahrzeits ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground">No yahrzeits recorded.</p>
+            )}
+            {(data?.yahrzeits ?? []).map((y) => {
+              const next = nextYahrzeit(y.hebrew_month, y.hebrew_day);
+              return (
+                <div key={y.id} className="border-b border-border py-2 last:border-0">
+                  <p className="text-sm text-foreground">{y.deceased_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {y.relationship ?? "Relative"} · {hebrewMonthName(y.hebrew_month)} {y.hebrew_day}
+                  </p>
+                  {next && (
+                    <p className="text-xs text-primary">
+                      next: in {next.days} days ({formatDate(next.date.toISOString())})
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+
+        {/* Timeline */}
+        <section className="order-1 rounded-2xl border border-border bg-card p-5 shadow-sm lg:order-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+            <div className="min-w-0">
+              <h2 className="font-heading font-semibold">Timeline</h2>
+              <p className="text-xs text-muted-foreground">Everything in one feed, newest first</p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("note")}>
+              <Plus className="size-3.5" /> Note
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("call")}>
+              <Plus className="size-3.5" /> Call
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("donation")}>
+              <Plus className="size-3.5" /> Donation
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("event")}>
+              <Plus className="size-3.5" /> Event
+            </Button>
+          </div>
+          <ol className="mt-4 space-y-4">
+            {timeline.length === 0 && <li className="text-sm text-muted-foreground">No activity yet.</li>}
+            {timeline.map((item) => {
+              const meta = KIND_ICON[item.kind] ?? KIND_ICON["note"]!;
+              const Icon = meta.icon;
+              return (
+                <li key={item.key} className="flex gap-3">
+                  <span className={`grid size-8 shrink-0 place-items-center rounded-xl ${meta.className}`}>
+                    <Icon className="size-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground">{item.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDate(item.date)} · {item.kind}
+                      {item.detail ? ` · ${item.detail}` : ""}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+
+        {/* Right column */}
+        <div className="order-3 space-y-5">
+          <Card title="Open tasks">
+            {(data?.tasks ?? []).filter((t) => t.status !== "done").length === 0 && (
+              <p className="text-sm text-muted-foreground">No open tasks.</p>
+            )}
+            {(data?.tasks ?? [])
+              .filter((t) => t.status !== "done")
+              .map((t) => (
+                <div key={t.id} className="border-b border-border py-2 last:border-0">
+                  <p className="text-sm text-foreground">{t.text}</p>
+                  <p className={`text-xs ${t.status === "overdue" ? "text-urgent" : "text-muted-foreground"}`}>
+                    Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"}
+                  </p>
+                </div>
+              ))}
+          </Card>
+
+          <Card title="Programs">
+            {(p.programs ?? []).length === 0 && <p className="text-sm text-muted-foreground">No programs yet.</p>}
+            <div className="flex flex-wrap gap-1.5">
+              {(p.programs ?? []).map((prog) => (
+                <Badge key={prog} variant="secondary" className="rounded-full text-[11px] font-normal">
+                  {prog}
+                </Badge>
+              ))}
+            </div>
           </Card>
         </div>
       </div>
+
+      <ActivityDialog kind={dialog} personId={personId} onClose={() => setDialog(null)} />
     </AppShell>
   );
 }
 
-function Stat({ label, value, money }: { label: string; value: string; money?: boolean }) {
+function ActivityDialog({
+  kind,
+  personId,
+  onClose,
+}: {
+  kind: null | "note" | "call" | "donation" | "event" | "yahrzeit";
+  personId: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState("");
+  const [date, setDate] = useState(today());
+  const [amount, setAmount] = useState("");
+  const [campaign, setCampaign] = useState("");
+  const [eventId, setEventId] = useState("");
+  const [deceased, setDeceased] = useState("");
+  const [relationship, setRelationship] = useState("");
+  const [hMonth, setHMonth] = useState("1");
+  const [hDay, setHDay] = useState("1");
+
+  const { data: events } = useQuery({
+    queryKey: ["events-mini"],
+    enabled: kind === "event",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("events").select("id, name, date").order("date", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (kind === "note" || kind === "call") {
+        const { error } = await supabase.from("interactions").insert({
+          person_id: personId,
+          type: kind,
+          date,
+          text,
+        });
+        if (error) throw error;
+      } else if (kind === "donation") {
+        const { error } = await supabase.from("donations").insert({
+          person_id: personId,
+          amount: Number(amount),
+          date,
+          campaign: campaign || null,
+          method: "Manual",
+          source: "Manual entry",
+        });
+        if (error) throw error;
+      } else if (kind === "event") {
+        const { error } = await supabase
+          .from("registrations")
+          .insert({ person_id: personId, event_id: eventId, status: "attended" });
+        if (error) throw error;
+      } else if (kind === "yahrzeit") {
+        const { error } = await supabase.from("yahrzeits").insert({
+          person_id: personId,
+          deceased_name: deceased,
+          relationship: relationship || null,
+          hebrew_month: Number(hMonth),
+          hebrew_day: Number(hDay),
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Saved");
+      queryClient.invalidateQueries({ queryKey: ["person", personId] });
+      setText("");
+      setAmount("");
+      setCampaign("");
+      setDeceased("");
+      setRelationship("");
+      onClose();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const titles: Record<string, string> = {
+    note: "Add note",
+    call: "Log a call",
+    donation: "Add donation",
+    event: "Record event attendance",
+    yahrzeit: "Add yahrzeit",
+  };
+
+  const disabled =
+    (kind === "note" || kind === "call" ? !text.trim() : false) ||
+    (kind === "donation" ? !amount : false) ||
+    (kind === "event" ? !eventId : false) ||
+    (kind === "yahrzeit" ? !deceased.trim() : false) ||
+    save.isPending;
+
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-heading text-xl font-semibold ${money ? "text-money" : "text-foreground"}`}>{value}</p>
-    </div>
+    <Dialog open={kind !== null} onOpenChange={(o) => (!o ? onClose() : null)}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-heading">{kind ? titles[kind] : ""}</DialogTitle>
+          <DialogDescription>This is added to the person's timeline right away.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {(kind === "note" || kind === "call") && (
+            <>
+              <div>
+                <Label className="text-xs text-muted-foreground">Date</Label>
+                <Input className="mt-1 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">What happened</Label>
+                <Textarea className="mt-1 text-base" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {kind === "donation" && (
+            <>
+              <div>
+                <Label className="text-xs text-muted-foreground">Amount</Label>
+                <Input
+                  className="mt-1 text-base"
+                  type="number"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Date</Label>
+                <Input className="mt-1 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Campaign</Label>
+                <Input className="mt-1 text-base" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {kind === "event" && (
+            <div>
+              <Label className="text-xs text-muted-foreground">Event</Label>
+              <select
+                value={eventId}
+                onChange={(e) => setEventId(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-base"
+              >
+                <option value="">Choose an event</option>
+                {(events ?? []).map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name} — {formatDate(e.date)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {kind === "yahrzeit" && (
+            <>
+              <div>
+                <Label className="text-xs text-muted-foreground">Name of deceased</Label>
+                <Input className="mt-1 text-base" value={deceased} onChange={(e) => setDeceased(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Relationship</Label>
+                <Input
+                  className="mt-1 text-base"
+                  placeholder="Father, mother, grandparent…"
+                  value={relationship}
+                  onChange={(e) => setRelationship(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Hebrew month</Label>
+                  <select
+                    value={hMonth}
+                    onChange={(e) => setHMonth(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-base"
+                  >
+                    {HEBREW_MONTHS.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Hebrew day</Label>
+                  <Input
+                    className="mt-1 text-base"
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={hDay}
+                    onChange={(e) => setHDay(e.target.value)}
+                  />
+                </div>
+              </div>
+              {(() => {
+                const next = nextYahrzeit(Number(hMonth), Number(hDay));
+                return next ? (
+                  <p className="text-xs text-primary">
+                    Next observance: {next.hebrew} — {formatDate(next.date.toISOString())} (in {next.days} days)
+                  </p>
+                ) : null;
+              })()}
+              <p className="text-xs text-muted-foreground">
+                In a Hebrew leap year, an Adar yahrzeit is observed in Adar II.
+              </p>
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" className="rounded-xl" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button className="rounded-xl" disabled={disabled} onClick={() => save.mutate()}>
+            {save.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="font-heading font-semibold text-foreground">{title}</h2>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <h2 className="truncate font-heading font-semibold text-foreground">{title}</h2>
+        {action}
+      </div>
       <div className="mt-3">{children}</div>
     </section>
   );
 }
 
-function Row({ label, value }: { label: string; value?: string | null }) {
+function Stat({ label, value, money }: { label: string; value: string; money?: boolean }) {
   return (
-    <div className="flex justify-between gap-3 border-b border-border py-1.5 text-sm last:border-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right text-foreground">{value ?? "—"}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border py-1.5 last:border-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className={`text-sm font-medium ${money ? "text-money" : "text-foreground"}`}>{value}</span>
+    </div>
+  );
+}
+
+function SourceRow({ label, value, source }: { label: string; value?: string | null | undefined; source: string }) {
+  return (
+    <div className="border-b border-border py-2 last:border-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="break-words text-sm text-foreground">{value ?? "—"}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{source}</p>
     </div>
   );
 }
