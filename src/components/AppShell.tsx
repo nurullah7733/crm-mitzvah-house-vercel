@@ -205,15 +205,17 @@ export function currency(value: number | null | undefined) {
 
 export function formatDate(value: string | null | undefined) {
   if (!value) return "—";
-  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [y, m, d] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
   const date = y && m && d ? new Date(y, m - 1, d) : new Date(value);
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function daysSince(value: string | null | undefined) {
   if (!value) return null;
-  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
-  if (!y) return null;
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [y, m, d] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+  if (!y || !m || !d) return null;
   const then = new Date(y, m - 1, d).getTime();
   const today = new Date();
   return Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - then) / 86400000);

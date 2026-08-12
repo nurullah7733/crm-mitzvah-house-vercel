@@ -23,7 +23,8 @@ export function hebrewMonthName(month: number) {
 /** English (Gregorian) date string -> Hebrew date, e.g. "21st of Av, 5750". */
 export function hebrewDateFromEnglish(value: string | null | undefined): string | null {
   if (!value) return null;
-  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [y, m, d] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
   if (!y || !m || !d) return null;
   try {
     return new HDate(new Date(y, m - 1, d)).render("en");
@@ -44,7 +45,8 @@ export function daysUntil(date: Date) {
 /** Next Gregorian occurrence of a birthday (month/day only, year ignored). */
 export function nextBirthday(value: string | null | undefined) {
   if (!value) return null;
-  const [, m, d] = value.slice(0, 10).split("-").map(Number);
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [m, d] = [parts[1] ?? 0, parts[2] ?? 0];
   if (!m || !d) return null;
   const today = startOfToday();
   let next = new Date(today.getFullYear(), m - 1, d);

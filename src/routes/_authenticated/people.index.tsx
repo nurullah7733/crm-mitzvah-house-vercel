@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronDown, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
+import { AppShell, EmptyState, currency, daysSince, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,7 +19,9 @@ import { Label } from "@/components/ui/label";
 import { hebrewDateFromEnglish, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 
 export const Route = createFileRoute("/_authenticated/people/")({
-  validateSearch: (search: Record<string, unknown>) => ({ q: (search.q as string) ?? "" }),
+  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
+    q: typeof search["q"] === "string" && search["q"] ? (search["q"] as string) : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "People | Mitzvah House CRM" },
@@ -43,14 +45,15 @@ const SORTS = [
 
 function monthDay(value: string | null | undefined) {
   if (!value) return null;
-  const [, m, d] = value.slice(0, 10).split("-").map(Number);
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [m, d] = [parts[1] ?? 0, parts[2] ?? 0];
   if (!m || !d) return null;
   return m * 100 + d;
 }
 
 function PeoplePage() {
-  const { q: initialQ } = Route.useSearch();
-  const [q, setQ] = useState(initialQ);
+  const search = Route.useSearch();
+  const [q, setQ] = useState(search.q ?? "");
   const [chip, setChip] = useState<Chip>("All");
   const [sort, setSort] = useState("name");
   const [bdayOpen, setBdayOpen] = useState(false);
