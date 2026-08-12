@@ -45,7 +45,7 @@ function SearchPage() {
     queryKey: ["search-corpus"],
     queryFn: async () => {
       const lastYear = new Date().getFullYear() - 1;
-      const [people, interactions, donations, programs, tags] = await Promise.all([
+      const [people, interactions, donations, programs, tags, metSources] = await Promise.all([
         fetchAll((f, t) => supabase.from("people").select("*, households(name)").is("deleted_at", null).order("id").range(f, t)),
         fetchAll((f, t) => supabase.from("interactions").select("person_id, text, type").order("id").range(f, t)),
         fetchAll((f, t) =>
@@ -60,6 +60,7 @@ function SearchPage() {
         ),
         supabase.from("program_options").select("label"),
         supabase.from("tag_options").select("label"),
+        supabase.from("met_source_options").select("label"),
       ]);
       const notes = new Map<string, string[]>();
       for (const i of interactions) {
@@ -81,11 +82,16 @@ function SearchPage() {
         people: rows,
         programs: (programs.data ?? []).map((p) => p.label),
         tags: (tags.data ?? []).map((t) => t.label),
+        metSources: (metSources.data ?? []).map((m) => m.label),
       };
     },
   });
 
-  const intents = parseQuery(q, { programs: data?.programs ?? [], tags: data?.tags ?? [] });
+  const intents = parseQuery(q, {
+    programs: data?.programs ?? [],
+    tags: data?.tags ?? [],
+    metSources: data?.metSources ?? [],
+  });
   const matches = data ? runIntents(intents, data.people) : [];
 
   return (
