@@ -343,7 +343,14 @@ function ImportCenter() {
             personId = created.id;
           } else if (personId) {
             const existing = item.match.candidates[0]!;
-            const patch: Record<string, string> = {};
+            const patch: {
+              email?: string;
+              phone?: string;
+              birth_date?: string;
+              met_source?: string;
+              school?: string;
+              notes?: string;
+            } = {};
             if (v.email && !existing.email) patch["email"] = v.email;
             if (v.phone && !existing.phone) patch["phone"] = v.phone;
             const dob = isoDate(v.birth_date);
@@ -368,7 +375,7 @@ function ImportCenter() {
               householdId = household?.id ?? null;
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
             } else if (householdId && (v.address || v.billing_address)) {
-              const housePatch: Record<string, string> = {};
+              const housePatch: { billing_address?: string } = {};
               if (v.billing_address) housePatch["billing_address"] = v.billing_address;
               if (Object.keys(housePatch).length > 0)
                 await supabase.from("households").update(housePatch).eq("id", householdId);
