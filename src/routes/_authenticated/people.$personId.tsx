@@ -174,9 +174,9 @@ function PersonPage() {
         </div>
       </section>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_260px]">
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
         {/* Left column */}
-        <div className="order-2 space-y-5 lg:order-1">
+        <div className="order-2 space-y-5 lg:col-start-2 lg:row-start-1">
           <Card title="Contact">
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
@@ -246,7 +246,7 @@ function PersonPage() {
         </div>
 
         {/* Timeline */}
-        <section className="order-1 rounded-2xl border border-border bg-card p-5 shadow-sm lg:order-2">
+        <section className="order-1 rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="min-w-0">
               <h2 className="font-heading font-semibold">Timeline</h2>
@@ -291,7 +291,7 @@ function PersonPage() {
         </section>
 
         {/* Right column */}
-        <div className="order-3 space-y-5">
+        <div className="order-3 space-y-5 lg:col-start-2 lg:row-start-2">
           <Card title="Open tasks">
             {(data?.tasks ?? []).filter((t) => t.status !== "done").length === 0 && (
               <p className="text-sm text-muted-foreground">No open tasks.</p>
