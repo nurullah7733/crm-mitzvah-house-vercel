@@ -19,6 +19,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
 import { Route as AuthenticatedEventsIndexRouteImport } from './routes/_authenticated/events.index'
 import { Route as AuthenticatedHouseholdsIndexRouteImport } from './routes/_authenticated/households.index'
+import { Route as AuthenticatedHouseholdsHouseholdIdRouteImport } from './routes/_authenticated/households.$householdId'
 import { Route as AuthenticatedPeopleIndexRouteImport } from './routes/_authenticated/people.index'
 import { Route as AuthenticatedPeoplePersonIdRouteImport } from './routes/_authenticated/people.$personId'
 
@@ -73,6 +74,12 @@ const AuthenticatedHouseholdsIndexRoute =
     path: '/households/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedHouseholdsHouseholdIdRoute =
+  AuthenticatedHouseholdsHouseholdIdRouteImport.update({
+    id: '/households/$householdId',
+    path: '/households/$householdId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPeopleIndexRoute =
   AuthenticatedPeopleIndexRouteImport.update({
     id: '/people/',
@@ -94,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/inbox': typeof AuthenticatedInboxRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
+  '/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
   '/events/': typeof AuthenticatedEventsIndexRoute
   '/households/': typeof AuthenticatedHouseholdsIndexRoute
@@ -107,6 +115,7 @@ export interface FileRoutesByTo {
   '/inbox': typeof AuthenticatedInboxRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
+  '/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
   '/events': typeof AuthenticatedEventsIndexRoute
   '/households': typeof AuthenticatedHouseholdsIndexRoute
@@ -122,6 +131,7 @@ export interface FileRoutesById {
   '/_authenticated/inbox': typeof AuthenticatedInboxRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
+  '/_authenticated/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
   '/_authenticated/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
   '/_authenticated/events/': typeof AuthenticatedEventsIndexRoute
   '/_authenticated/households/': typeof AuthenticatedHouseholdsIndexRoute
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/settings'
     | '/tasks'
+    | '/households/$householdId'
     | '/people/$personId'
     | '/events/'
     | '/households/'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/settings'
     | '/tasks'
+    | '/households/$householdId'
     | '/people/$personId'
     | '/events'
     | '/households'
@@ -164,6 +176,7 @@ export interface FileRouteTypes {
     | '/_authenticated/inbox'
     | '/_authenticated/settings'
     | '/_authenticated/tasks'
+    | '/_authenticated/households/$householdId'
     | '/_authenticated/people/$personId'
     | '/_authenticated/events/'
     | '/_authenticated/households/'
@@ -248,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHouseholdsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/households/$householdId': {
+      id: '/_authenticated/households/$householdId'
+      path: '/households/$householdId'
+      fullPath: '/households/$householdId'
+      preLoaderRoute: typeof AuthenticatedHouseholdsHouseholdIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/people/': {
       id: '/_authenticated/people/'
       path: '/people'
@@ -271,6 +291,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
+  AuthenticatedHouseholdsHouseholdIdRoute: typeof AuthenticatedHouseholdsHouseholdIdRoute
   AuthenticatedPeoplePersonIdRoute: typeof AuthenticatedPeoplePersonIdRoute
   AuthenticatedEventsIndexRoute: typeof AuthenticatedEventsIndexRoute
   AuthenticatedHouseholdsIndexRoute: typeof AuthenticatedHouseholdsIndexRoute
@@ -283,6 +304,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedInboxRoute: AuthenticatedInboxRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
+  AuthenticatedHouseholdsHouseholdIdRoute:
+    AuthenticatedHouseholdsHouseholdIdRoute,
   AuthenticatedPeoplePersonIdRoute: AuthenticatedPeoplePersonIdRoute,
   AuthenticatedEventsIndexRoute: AuthenticatedEventsIndexRoute,
   AuthenticatedHouseholdsIndexRoute: AuthenticatedHouseholdsIndexRoute,
