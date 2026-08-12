@@ -181,6 +181,7 @@ function PersonPage() {
 
   const since = daysSince(p.last_activity_date);
   const bday = nextBirthday(p.birth_date);
+  const anniversary = nextBirthday(p.anniversary_date);
 
   const gifts = data?.donations ?? [];
   const lifetime = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
@@ -357,31 +358,50 @@ function PersonPage() {
             </div>
           </Card>
 
-          <Card title="Birthday">
-            {p.birth_date ? (
-              <>
-                <p className="text-sm text-foreground">{formatDate(p.birth_date)}</p>
-                <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
-                {bday && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Next birthday {formatDate(bday.date.toISOString())} — in {bday.days} days
-                  </p>
-                )}
-                <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No birthday on file.</p>
-            )}
-          </Card>
-
           <Card
-            title="Yahrzeits"
+            title="Special dates"
             action={
               <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("yahrzeit")}>
                 <Plus className="size-3.5" /> Add yahrzeit
               </Button>
             }
           >
+            <div className="border-b border-border pb-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Birthday</p>
+              {p.birth_date ? (
+                <>
+                  <p className="text-sm text-foreground">{formatDate(p.birth_date)}</p>
+                  <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
+                  {bday && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Next birthday {formatDate(bday.date.toISOString())} — in {bday.days} days
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No birthday on file.</p>
+              )}
+            </div>
+
+            <div className="border-b border-border py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Anniversary</p>
+              {p.anniversary_date ? (
+                <>
+                  <p className="text-sm text-foreground">{formatDate(p.anniversary_date)}</p>
+                  <p className="text-sm text-primary">{hebrewDateFromEnglish(p.anniversary_date)}</p>
+                  {anniversary && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Next anniversary {formatDate(anniversary.date.toISOString())} — in {anniversary.days} days
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No anniversary on file.</p>
+              )}
+            </div>
+
+            <p className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Yahrzeits</p>
             {(data?.yahrzeits ?? []).length === 0 && (
               <p className="text-sm text-muted-foreground">No yahrzeits recorded.</p>
             )}
