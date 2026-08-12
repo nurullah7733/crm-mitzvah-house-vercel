@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Trash2, Plug, RefreshCw } from "lucide-react";
+import { Plus, Trash2, RefreshCw, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
+import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
@@ -143,6 +144,18 @@ type RestorableTable = (typeof RESTORABLE)[number];
 function ChangeHistoryPanel() {
   const queryClient = useQueryClient();
 
+  // History is kept for two months and then cleared automatically, so this list
+  // stays short enough to actually read.
+  useQuery({
+    queryKey: ["audit-log-purge"],
+    staleTime: 1000 * 60 * 60,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("purge_old_audit_log");
+      if (error) throw error;
+      return data as number;
+    },
+  });
+
   const { data: entries } = useQuery({
     queryKey: ["audit-log"],
     queryFn: async () => {
@@ -155,6 +168,7 @@ function ChangeHistoryPanel() {
       return data;
     },
   });
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const restore = useMutation({
     mutationFn: async ({ table, id }: { table: RestorableTable; id: string }) => {
@@ -172,7 +186,9 @@ function ChangeHistoryPanel() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Everything anyone has added, edited or removed, newest first. Removed records can be put back.
+        Everything anyone has added, edited or removed in the last two months, newest first. Anything
+        older is cleared automatically. Removed records can be put back, and you can open any entry to
+        see exactly what changed.
       </p>
       <div className="space-y-2">
         {(entries ?? []).map((row) => {
@@ -182,13 +198,22 @@ function ChangeHistoryPanel() {
             row.action === "deleted" &&
             row.record_id &&
             (RESTORABLE as readonly string[]).includes(row.table_name);
+          const open = openRow === row.id;
           return (
             <div key={row.id} className="rounded-xl border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-foreground">
-                  {HISTORY_TABLES[row.table_name] ?? row.table_name} {row.action.replace("_", " ")}
-                  {fields.length > 0 ? ` — ${fields.join(", ")}` : ""}
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenRow(open ? null : row.id)}
+                  className="flex min-w-0 items-center gap-2 text-left"
+                  aria-expanded={open}
+                >
+                  <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition ${open ? "rotate-180" : ""}`} />
+                  <span className="text-sm text-foreground">
+                    {HISTORY_TABLES[row.table_name] ?? row.table_name} {row.action.replace("_", " ")}
+                    {fields.length > 0 ? ` — ${fields.join(", ")}` : ""}
+                  </span>
+                </button>
                 {canRestore && (
                   <Button
                     variant="outline"
@@ -204,11 +229,63 @@ function ChangeHistoryPanel() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {row.actor_email ?? "System"} · {formatDate(row.created_at.slice(0, 10))}
               </p>
+              {open && <ChangeDetail action={row.action} changes={changes} recordId={row.record_id} table={row.table_name} />}
             </div>
           );
         })}
         {(entries ?? []).length === 0 && <p className="text-sm text-muted-foreground">No changes recorded yet.</p>}
       </div>
+    </div>
+  );
+}
+
+const HIDDEN_DETAIL_FIELDS = new Set(["id", "updated_at", "created_at", "import_batch_id"]);
+
+function showValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "empty";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "empty";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function ChangeDetail({
+  action,
+  changes,
+  recordId,
+  table,
+}: {
+  action: string;
+  changes: Record<string, unknown>;
+  recordId: string | null;
+  table: string;
+}) {
+  const rows = Object.entries(changes).filter(([key]) => !HIDDEN_DETAIL_FIELDS.has(key));
+  const isEdit = action === "edited";
+
+  return (
+    <div className="mt-3 space-y-2 rounded-xl bg-muted/50 p-3">
+      {rows.length === 0 && <p className="text-xs text-muted-foreground">No field details were recorded.</p>}
+      {rows.map(([key, value]) => {
+        const pair = isEdit && value && typeof value === "object" && "from" in (value as object)
+          ? (value as { from?: unknown; to?: unknown })
+          : null;
+        return (
+          <div key={key} className="grid gap-0.5 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{key.replace(/_/g, " ")}</p>
+            {pair ? (
+              <p className="break-words text-xs text-foreground">
+                <span className="line-through text-muted-foreground">{showValue(pair.from)}</span>{" "}
+                <span aria-hidden>→</span> <span className="font-medium">{showValue(pair.to)}</span>
+              </p>
+            ) : (
+              <p className="break-words text-xs text-foreground">{showValue(value)}</p>
+            )}
+          </div>
+        );
+      })}
+      {recordId && (RESTORABLE as readonly string[]).includes(table) ? (
+        <p className="pt-1 text-xs text-muted-foreground">Record ID: {recordId}</p>
+      ) : null}
     </div>
   );
 }
