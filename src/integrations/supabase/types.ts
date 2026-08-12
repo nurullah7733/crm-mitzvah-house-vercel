@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_log: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          changes: Json
+          created_at: string
+          id: string
+          record_id: string | null
+          table_name: string
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_id?: string | null
+          changes?: Json
+          created_at?: string
+          id?: string
+          record_id?: string | null
+          table_name: string
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          changes?: Json
+          created_at?: string
+          id?: string
+          record_id?: string | null
+          table_name?: string
+        }
+        Relationships: []
+      }
       campaigns: {
         Row: {
           created_at: string
@@ -68,8 +101,10 @@ export type Database = {
           campaign_id: string | null
           created_at: string
           date: string
+          deleted_at: string | null
           grant_id: string | null
           id: string
+          import_batch_id: string | null
           method: string | null
           notes: string | null
           person_id: string
@@ -81,8 +116,10 @@ export type Database = {
           campaign_id?: string | null
           created_at?: string
           date?: string
+          deleted_at?: string | null
           grant_id?: string | null
           id?: string
+          import_batch_id?: string | null
           method?: string | null
           notes?: string | null
           person_id: string
@@ -94,8 +131,10 @@ export type Database = {
           campaign_id?: string | null
           created_at?: string
           date?: string
+          deleted_at?: string | null
           grant_id?: string | null
           id?: string
+          import_batch_id?: string | null
           method?: string | null
           notes?: string | null
           person_id?: string
@@ -117,6 +156,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "donations_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "donations_person_id_fkey"
             columns: ["person_id"]
             isOneToOne: false
@@ -130,6 +176,7 @@ export type Database = {
           capacity: number | null
           created_at: string
           date: string
+          deleted_at: string | null
           description: string | null
           id: string
           location: string | null
@@ -142,6 +189,7 @@ export type Database = {
           capacity?: number | null
           created_at?: string
           date: string
+          deleted_at?: string | null
           description?: string | null
           id?: string
           location?: string | null
@@ -154,6 +202,7 @@ export type Database = {
           capacity?: number | null
           created_at?: string
           date?: string
+          deleted_at?: string | null
           description?: string | null
           id?: string
           location?: string | null
@@ -169,6 +218,7 @@ export type Database = {
           created_at: string
           field_name: string
           id: string
+          import_batch_id: string | null
           person_id: string
           recorded_date: string
           source: string
@@ -177,6 +227,7 @@ export type Database = {
           created_at?: string
           field_name: string
           id?: string
+          import_batch_id?: string | null
           person_id: string
           recorded_date?: string
           source: string
@@ -185,11 +236,19 @@ export type Database = {
           created_at?: string
           field_name?: string
           id?: string
+          import_batch_id?: string | null
           person_id?: string
           recorded_date?: string
           source?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "field_sources_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "field_sources_person_id_fkey"
             columns: ["person_id"]
@@ -280,6 +339,7 @@ export type Database = {
           address: string | null
           created_at: string
           id: string
+          import_batch_id: string | null
           name: string
           notes: string | null
           phone: string | null
@@ -288,6 +348,7 @@ export type Database = {
           address?: string | null
           created_at?: string
           id?: string
+          import_batch_id?: string | null
           name: string
           notes?: string | null
           phone?: string | null
@@ -296,11 +357,20 @@ export type Database = {
           address?: string | null
           created_at?: string
           id?: string
+          import_batch_id?: string | null
           name?: string
           notes?: string | null
           phone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "households_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       import_batches: {
         Row: {
@@ -380,6 +450,7 @@ export type Database = {
           created_at: string
           date: string
           id: string
+          import_batch_id: string | null
           person_id: string
           text: string | null
           type: string
@@ -389,6 +460,7 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          import_batch_id?: string | null
           person_id: string
           text?: string | null
           type: string
@@ -398,11 +470,19 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          import_batch_id?: string | null
           person_id?: string
           text?: string | null
           type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "interactions_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "interactions_person_id_fkey"
             columns: ["person_id"]
@@ -476,11 +556,13 @@ export type Database = {
           birth_date: string | null
           contact_type: string
           created_at: string
+          deleted_at: string | null
           display_name: string | null
           email: string | null
           first_name: string | null
           household_id: string | null
           id: string
+          import_batch_id: string | null
           last_activity_date: string | null
           last_gift_amount: number | null
           last_gift_date: string | null
@@ -500,11 +582,13 @@ export type Database = {
           birth_date?: string | null
           contact_type?: string
           created_at?: string
+          deleted_at?: string | null
           display_name?: string | null
           email?: string | null
           first_name?: string | null
           household_id?: string | null
           id?: string
+          import_batch_id?: string | null
           last_activity_date?: string | null
           last_gift_amount?: number | null
           last_gift_date?: string | null
@@ -524,11 +608,13 @@ export type Database = {
           birth_date?: string | null
           contact_type?: string
           created_at?: string
+          deleted_at?: string | null
           display_name?: string | null
           email?: string | null
           first_name?: string | null
           household_id?: string | null
           id?: string
+          import_batch_id?: string | null
           last_activity_date?: string | null
           last_gift_amount?: number | null
           last_gift_date?: string | null
@@ -550,6 +636,13 @@ export type Database = {
             columns: ["household_id"]
             isOneToOne: false
             referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "people_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
             referencedColumns: ["id"]
           },
           {
@@ -715,6 +808,7 @@ export type Database = {
           completed_at: string | null
           completion_note: string | null
           created_at: string
+          deleted_at: string | null
           due_date: string | null
           grant_id: string | null
           id: string
@@ -729,6 +823,7 @@ export type Database = {
           completed_at?: string | null
           completion_note?: string | null
           created_at?: string
+          deleted_at?: string | null
           due_date?: string | null
           grant_id?: string | null
           id?: string
@@ -743,6 +838,7 @@ export type Database = {
           completed_at?: string | null
           completion_note?: string | null
           created_at?: string
+          deleted_at?: string | null
           due_date?: string | null
           grant_id?: string | null
           id?: string
@@ -851,6 +947,7 @@ export type Database = {
       }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
+      undo_import: { Args: { _batch_id: string }; Returns: Json }
     }
     Enums: {
       app_role: "admin" | "marketing" | "va"
