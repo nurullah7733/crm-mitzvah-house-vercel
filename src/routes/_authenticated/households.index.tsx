@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { downloadCsv, stamp } from "@/lib/csv";
+import { fetchAll } from "@/lib/fetch-all";
 
 type HouseholdRow = {
   id: string;
@@ -195,14 +196,15 @@ function HouseholdsPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["households-list"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("households")
-        .select("*, people(id, first_name, last_name, role, email, phone, lifetime_giving, this_year_giving)")
-        .order("name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((f, t) =>
+        supabase
+          .from("households")
+          .select("*, people(id, first_name, last_name, role, email, phone, lifetime_giving, this_year_giving)")
+          .order("name")
+          .order("id")
+          .range(f, t),
+      ),
   });
 
   return (
