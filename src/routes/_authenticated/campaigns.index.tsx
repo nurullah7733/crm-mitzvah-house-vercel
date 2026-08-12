@@ -7,6 +7,7 @@ import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShel
 import { Button } from "@/components/ui/button";
 import { AddCampaignDialog } from "@/components/forms/CampaignGrantDialogs";
 import { CAMPAIGN_STATUSES } from "@/lib/names";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/campaigns/")({
   head: () => ({
