@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
