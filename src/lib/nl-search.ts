@@ -84,6 +84,8 @@ export type SearchPerson = {
   this_year_giving: number | null;
   tags: string[] | null;
   programs: string[] | null;
+  notes?: string | null;
+  school?: string | null;
   household_name?: string | null;
   last_year_giving?: number;
   interaction_text?: string;
@@ -169,8 +171,19 @@ export function parseQuery(
 
   if (intents.length === 0) {
     for (const t of options.tags ?? []) {
-      if (q === t.toLowerCase()) {
+      const score = fuzzyScore(t.toLowerCase(), q);
+      if (score !== null && score <= 1) {
         intents.push({ kind: "tag", tag: t });
+        break;
+      }
+    }
+  }
+
+  if (intents.length === 0) {
+    for (const s of options.metSources ?? []) {
+      const score = fuzzyScore(s.toLowerCase(), q);
+      if (score !== null && score <= 1) {
+        intents.push({ kind: "met_at", term: s });
         break;
       }
     }
@@ -295,6 +308,8 @@ export function runIntents(intents: Intent[], people: SearchPerson[]) {
               (p.phone ?? "").replace(/\D/g, ""),
               p.household_name,
               p.met_source,
+              p.notes,
+              p.school,
               (p.tags ?? []).join(" "),
               (p.programs ?? []).join(" "),
             ]);
