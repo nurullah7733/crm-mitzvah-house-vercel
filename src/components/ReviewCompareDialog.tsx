@@ -71,8 +71,8 @@ export function ReviewCompareDialog({
     const { error } = await supabase.rpc("log_review_decision", {
       _item_id: item.id,
       _decision: decision,
-      _reason: reason.trim() || null,
-      _person_id: personId,
+      ...(reason.trim() ? { _reason: reason.trim() } : {}),
+      ...(personId ? { _person_id: personId } : {}),
     });
     if (error) throw error;
   };
