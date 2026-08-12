@@ -165,6 +165,35 @@ export function digits(value: string | null | undefined) {
   return (value ?? "").replace(/\D/g, "");
 }
 
+/** Build one readable address out of whatever address columns the file had. */
+export function composeAddress(v: Partial<Record<FieldKey, string>>): string | null {
+  const cityLine = [
+    [v.city, v.state].filter(Boolean).join(", "),
+    v.postal_code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const lines = [v.address, v.address_line2, v.address_line3, cityLine, v.county ? `${v.county} County` : ""]
+    .map((l) => (l ?? "").trim())
+    .filter(Boolean);
+  return lines.length ? lines.join("\n") : null;
+}
+
+/**
+ * A key used to spot the same person appearing twice inside one uploaded file.
+ * Email wins, then phone, then name.
+ */
+export function rowDedupeKey(v: RowValues): string | null {
+  const email = (v.email ?? "").trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const phone = digits(v.phone);
+  if (phone.length >= 7) return `phone:${phone.slice(-10)}`;
+  const { first, last } = splitName(v);
+  const name = `${first} ${last}`.trim().toLowerCase();
+  return name ? `name:${name}` : null;
+}
+
 export type ExistingPerson = {
   id: string;
   first_name: string;
