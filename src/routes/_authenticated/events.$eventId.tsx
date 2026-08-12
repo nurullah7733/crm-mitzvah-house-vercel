@@ -167,15 +167,29 @@ function EventPage() {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {suggested.map((p) => (
-            <Button
+            <div
               key={p.id}
-              variant="outline"
-              className="rounded-full"
-              onClick={() => invite.mutate(p.id)}
-              disabled={invite.isPending}
+              className="flex items-center gap-1 rounded-full border border-border bg-card pl-1 pr-1"
             >
-              <UserPlus className="size-4" /> {p.first_name} {p.last_name}
-            </Button>
+              <Link
+                to="/people/$personId"
+                params={{ personId: p.id }}
+                className="rounded-full px-3 py-1.5 text-sm font-medium text-foreground hover:text-primary"
+              >
+                {p.first_name} {p.last_name}
+              </Link>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full text-primary"
+                onClick={() => invite.mutate(p.id)}
+                disabled={invite.isPending}
+                aria-label={`Register ${p.first_name} ${p.last_name}`}
+                title="Register for this event"
+              >
+                <UserPlus className="size-4" />
+              </Button>
+            </div>
           ))}
           {suggested.length === 0 && <p className="text-sm text-muted-foreground">No suggestions right now.</p>}
         </div>
