@@ -269,14 +269,15 @@ function IntegrationsPanel() {
   });
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="flex items-center gap-2 font-heading font-semibold">
-        <Plug className="size-4 text-primary" /> Integrations
-      </h2>
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Plug className="size-4 text-primary" />
+        <h2 className="font-heading font-semibold">Integrations</h2>
+      </div>
       <p className="text-xs text-muted-foreground">
         Where information comes from and goes to, and when each one last synced.
       </p>
-      <div className="mt-3 space-y-2">
+      <div className="space-y-2">
         {(data ?? []).map((i) => (
           <div key={i.id} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
             <div className="min-w-0">
@@ -301,6 +302,6 @@ function IntegrationsPanel() {
           </div>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
