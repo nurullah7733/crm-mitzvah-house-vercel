@@ -12,7 +12,6 @@ import { selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
 import {
   FIELD_LABELS,
-  REPEATABLE_FIELDS,
   guessMapping,
   matchRow,
   splitFullName,
@@ -648,7 +647,6 @@ function ImportCenter() {
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       {FIELD_LABELS[m.field]}
-                      {REPEATABLE_FIELDS.includes(m.field) ? " ·" : ""}
                     </p>
                   )}
                   <span
