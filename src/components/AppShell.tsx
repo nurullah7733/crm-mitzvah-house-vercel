@@ -65,7 +65,7 @@ export function AppShell({
           <p className="text-xs text-primary-foreground/70">Relationship CRM</p>
         </div>
         <nav className="mt-8 flex flex-1 flex-col gap-1">
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {[...NAV, INBOX].map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
               to={to}
