@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { selectClass } from "@/components/forms/fields";
+import { fetchAll } from "@/lib/fetch-all";
 import {
   FIELD_LABELS,
   guessMapping,
