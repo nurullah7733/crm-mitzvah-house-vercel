@@ -175,12 +175,12 @@ export const testIntegration = createServerFn({ method: "POST" })
     let result: { ok: boolean; message: string };
 
     if (data.provider === "stripe") {
-      if (!credentials.secret_key) {
+      if (!credentials['secret_key']) {
         result = { ok: false, message: "No secret key saved yet." };
       } else {
         try {
           const res = await fetch("https://api.stripe.com/v1/balance", {
-            headers: { Authorization: `Bearer ${credentials.secret_key}` },
+            headers: { Authorization: `Bearer ${credentials['secret_key']}` },
           });
           result = res.ok
             ? { ok: true, message: "Connected — Stripe accepted the secret key." }
@@ -190,11 +190,11 @@ export const testIntegration = createServerFn({ method: "POST" })
         }
       }
     } else if (data.provider === "donorbox") {
-      if (!credentials.email || !credentials.api_key) {
+      if (!credentials['email'] || !credentials['api_key']) {
         result = { ok: false, message: "Account email and API key are both required." };
       } else {
         try {
-          const basic = Buffer.from(`${credentials.email}:${credentials.api_key}`).toString("base64");
+          const basic = Buffer.from(`${credentials['email']}:${credentials['api_key']}`).toString("base64");
           const res = await fetch("https://donorbox.org/api/v1/campaigns?page=1&per_page=1", {
             headers: { Authorization: `Basic ${basic}` },
           });
