@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { hebrewDateFromEnglish, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 
 export const Route = createFileRoute("/_authenticated/people/")({
-  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
     q: typeof search["q"] === "string" && search["q"] ? (search["q"] as string) : undefined,
   }),
   head: () => ({

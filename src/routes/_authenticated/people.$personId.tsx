@@ -574,7 +574,7 @@ function Stat({ label, value, money }: { label: string; value: string; money?: b
   );
 }
 
-function SourceRow({ label, value, source }: { label: string; value?: string | null; source: string }) {
+function SourceRow({ label, value, source }: { label: string; value?: string | null | undefined; source: string }) {
   return (
     <div className="border-b border-border py-2 last:border-0">
       <p className="text-xs text-muted-foreground">{label}</p>
