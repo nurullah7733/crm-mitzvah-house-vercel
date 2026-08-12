@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 
 export const Route = createFileRoute("/_authenticated/inbox/review")({
   head: () => ({
@@ -24,6 +26,7 @@ export const Route = createFileRoute("/_authenticated/inbox/review")({
 
 function DataInbox() {
   const queryClient = useQueryClient();
+  const [mergeFor, setMergeFor] = useState<string[] | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["review-queue"],
@@ -79,6 +82,15 @@ function DataInbox() {
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  {(r.candidate_person_ids ?? []).length > 0 && (
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => setMergeFor(r.candidate_person_ids ?? [])}
+                    >
+                      Merge duplicates
+                    </Button>
+                  )}
                   <Button
                     className="rounded-xl"
                     onClick={() => resolve.mutate({ id: r.id, status: "resolved" })}
@@ -133,6 +145,13 @@ function DataInbox() {
           </div>
         </section>
       )}
+
+      <MergeContactsDialog
+        open={mergeFor !== null}
+        onOpenChange={(v) => !v && setMergeFor(null)}
+        {...(mergeFor?.[0] ? { primaryId: mergeFor[0] } : {})}
+        suggestedIds={mergeFor?.slice(1) ?? []}
+      />
     </AppShell>
   );
 }
