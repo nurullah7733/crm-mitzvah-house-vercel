@@ -515,6 +515,8 @@ export function AddDonationDialog({
 
 export function AddEventDialog({ open, onOpenChange }: DialogProps) {
   const refresh = useRefresh();
+  const { data: programOptions } = useProgramOptions();
+  const [newProgram, setNewProgram] = useState(false);
   const [form, setForm] = useState({
     name: "",
     date: todayISO(),
@@ -582,8 +584,55 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
         <Field label="Location">
           <Input className="text-base" value={form.location} onChange={(e) => set("location", e.target.value)} />
         </Field>
-        <Field label="Program">
-          <Input className="text-base" placeholder="Mitzvah Kitchen, Shabbat…" value={form.program} onChange={(e) => set("program", e.target.value)} />
+        <Field label="Program / event type">
+          {newProgram ? (
+            <div className="flex gap-2">
+              <Input
+                autoFocus
+                className="text-base"
+                placeholder="New program name"
+                value={form.program}
+                onChange={(e) => set("program", e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => {
+                  setNewProgram(false);
+                  set("program", "");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <select
+                className={selectClass}
+                value={form.program}
+                onChange={(e) => set("program", e.target.value)}
+              >
+                <option value="">No program</option>
+                {(programOptions ?? []).map((o) => (
+                  <option key={o.id} value={o.label}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0 rounded-xl"
+                onClick={() => {
+                  setNewProgram(true);
+                  set("program", "");
+                }}
+              >
+                <Plus className="size-3.5" /> New
+              </Button>
+            </div>
+          )}
         </Field>
         <Field label="Capacity">
           <Input className="text-base" type="number" inputMode="numeric" min="0" value={form.capacity} onChange={(e) => set("capacity", e.target.value)} />
