@@ -11,9 +11,16 @@ export type FieldKey =
   | "email"
   | "phone"
   | "address"
+  | "address_line2"
+  | "address_line3"
+  | "city"
+  | "state"
+  | "postal_code"
+  | "county"
   | "billing_address"
   | "household_name"
   | "birth_date"
+  | "anniversary_date"
   | "school"
   | "person_notes"
   | "spouse_full_name"
@@ -43,9 +50,16 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   email: "Email",
   phone: "Phone",
   address: "Home address",
+  address_line2: "Address line 2 (apt, unit)",
+  address_line3: "Extra address line",
+  city: "City",
+  state: "State",
+  postal_code: "ZIP / postal code",
+  county: "County",
   billing_address: "Billing address",
   household_name: "Household name",
   birth_date: "Birth date",
+  anniversary_date: "Anniversary",
   school: "School",
   person_notes: "Notes about this person",
   spouse_full_name: "Partner — full name",
@@ -80,9 +94,16 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
   email: ["email", "e-mail", "email address", "primary email", "contact email", "mail"],
   phone: ["phone", "phone number", "cell", "cell phone", "mobile", "mobile phone", "telephone", "home phone", "primary phone"],
   address: ["address", "street", "street address", "address line 1", "mailing address", "home address", "city state zip", "shipping address"],
+  address_line2: ["address line 2", "address 2", "apt", "apartment", "unit", "suite", "street 2", "address line two", "apt suite"],
+  address_line3: ["address line 3", "address 3", "extra address line", "additional address", "care of", "c/o"],
+  city: ["city", "town", "city name", "billing city", "shipping city"],
+  state: ["state", "province", "region", "st", "billing state", "shipping state"],
+  postal_code: ["zip", "zip code", "zipcode", "postal code", "postcode", "billing zip", "shipping zip"],
+  county: ["county", "county name", "district"],
   billing_address: ["billing address", "billing street", "bill to address", "billing address line 1", "card address"],
   household_name: ["household", "household name", "family", "family name"],
   birth_date: ["birthday", "birth date", "birthdate", "dob", "date of birth"],
+  anniversary_date: ["anniversary", "wedding anniversary", "anniversary date", "wedding date"],
   school: ["school", "school name", "grade school", "yeshiva", "day school"],
   person_notes: ["about", "occupation", "job title", "employer", "additional info", "other information", "details"],
   spouse_full_name: ["spouse", "spouse name", "partner", "partner name", "husband", "wife", "second parent", "parent 2", "parent 2 name"],
@@ -144,6 +165,35 @@ export function digits(value: string | null | undefined) {
   return (value ?? "").replace(/\D/g, "");
 }
 
+/** Build one readable address out of whatever address columns the file had. */
+export function composeAddress(v: Partial<Record<FieldKey, string>>): string | null {
+  const cityLine = [
+    [v.city, v.state].filter(Boolean).join(", "),
+    v.postal_code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const lines = [v.address, v.address_line2, v.address_line3, cityLine, v.county ? `${v.county} County` : ""]
+    .map((l) => (l ?? "").trim())
+    .filter(Boolean);
+  return lines.length ? lines.join("\n") : null;
+}
+
+/**
+ * A key used to spot the same person appearing twice inside one uploaded file.
+ * Email wins, then phone, then name.
+ */
+export function rowDedupeKey(v: RowValues): string | null {
+  const email = (v.email ?? "").trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const phone = digits(v.phone);
+  if (phone.length >= 7) return `phone:${phone.slice(-10)}`;
+  const { first, last } = splitName(v);
+  const name = `${first} ${last}`.trim().toLowerCase();
+  return name ? `name:${name}` : null;
+}
+
 export type ExistingPerson = {
   id: string;
   first_name: string;
@@ -189,15 +239,19 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
         (p.last_name ?? "").trim().toLowerCase() === last.toLowerCase(),
     );
     const address = (values.address ?? "").trim().toLowerCase();
+    const sameAddress = (stored: string | null | undefined) => {
+      const s = (stored ?? "").trim().toLowerCase();
+      return Boolean(s) && (s === address || s.startsWith(address));
+    };
     if (nameHits.length === 1) {
-      if (!address || (nameHits[0]?.households?.address ?? "").trim().toLowerCase() === address) {
+      if (!address || sameAddress(nameHits[0]?.households?.address)) {
         return { status: "matched", reason: "Matched on name + address", candidates: nameHits };
       }
       return { status: "ambiguous", reason: "Same name, different address", candidates: nameHits };
     }
     if (nameHits.length > 1) {
       const withAddress = address
-        ? nameHits.filter((p) => (p.households?.address ?? "").trim().toLowerCase() === address)
+        ? nameHits.filter((p) => sameAddress(p.households?.address))
         : [];
       if (withAddress.length === 1)
         return { status: "matched", reason: "Matched on name + address", candidates: withAddress };

@@ -108,6 +108,16 @@ function PersonPage() {
         supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
         supabase.from("field_sources").select("*").eq("person_id", personId),
       ]);
+      const householdId = person.data?.household_id ?? null;
+      const relatives = householdId
+        ? await supabase
+            .from("people")
+            .select("id, first_name, last_name, display_name, role, phone, email")
+            .eq("household_id", householdId)
+            .neq("id", personId)
+            .is("deleted_at", null)
+            .order("role")
+        : { data: [] };
       return {
         person: person.data,
         interactions: interactions.data ?? [],
@@ -116,6 +126,7 @@ function PersonPage() {
         yahrzeits: yahrzeits.data ?? [],
         registrations: registrations.data ?? [],
         sources: sources.data ?? [],
+        relatives: relatives.data ?? [],
       };
     },
   });
@@ -170,6 +181,7 @@ function PersonPage() {
 
   const since = daysSince(p.last_activity_date);
   const bday = nextBirthday(p.birth_date);
+  const anniversary = nextBirthday(p.anniversary_date);
 
   const gifts = data?.donations ?? [];
   const lifetime = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
@@ -234,6 +246,7 @@ function PersonPage() {
           { key: "email", label: "Email", type: "email" },
           { key: "phone", label: "Phone", type: "tel" },
           { key: "birth_date", label: "Birth date", type: "date" },
+          { key: "anniversary_date", label: "Anniversary", type: "date" },
           { key: "owner", label: "Owner" },
           { key: "met_source", label: "Where we met" },
           { key: "met_date", label: "Date we met", type: "date" },
@@ -296,6 +309,9 @@ function PersonPage() {
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
+          </Card>
+
+          <Card title="Additional info">
             {p.households?.billing_address && p.households.billing_address !== p.households.address && (
               <SourceRow
                 label="Billing address"
@@ -342,31 +358,50 @@ function PersonPage() {
             </div>
           </Card>
 
-          <Card title="Birthday">
-            {p.birth_date ? (
-              <>
-                <p className="text-sm text-foreground">{formatDate(p.birth_date)}</p>
-                <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
-                {bday && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Next birthday {formatDate(bday.date.toISOString())} — in {bday.days} days
-                  </p>
-                )}
-                <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No birthday on file.</p>
-            )}
-          </Card>
-
           <Card
-            title="Yahrzeits"
+            title="Special dates"
             action={
               <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("yahrzeit")}>
                 <Plus className="size-3.5" /> Add yahrzeit
               </Button>
             }
           >
+            <div className="border-b border-border pb-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Birthday</p>
+              {p.birth_date ? (
+                <>
+                  <p className="text-sm text-foreground">{formatDate(p.birth_date)}</p>
+                  <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
+                  {bday && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Next birthday {formatDate(bday.date.toISOString())} — in {bday.days} days
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No birthday on file.</p>
+              )}
+            </div>
+
+            <div className="border-b border-border py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Anniversary</p>
+              {p.anniversary_date ? (
+                <>
+                  <p className="text-sm text-foreground">{formatDate(p.anniversary_date)}</p>
+                  <p className="text-sm text-primary">{hebrewDateFromEnglish(p.anniversary_date)}</p>
+                  {anniversary && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Next anniversary {formatDate(anniversary.date.toISOString())} — in {anniversary.days} days
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No anniversary on file.</p>
+              )}
+            </div>
+
+            <p className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Yahrzeits</p>
             {(data?.yahrzeits ?? []).length === 0 && (
               <p className="text-sm text-muted-foreground">No yahrzeits recorded.</p>
             )}
@@ -454,6 +489,40 @@ function PersonPage() {
 
         </div>
       </div>
+
+      {/* Relatives — everyone else we have in this household */}
+      <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="font-heading font-semibold text-foreground">Relatives</h2>
+        <p className="text-xs text-muted-foreground">
+          Other people we have in {p.households?.name ?? "this household"} — tap to open their profile
+        </p>
+        {(data?.relatives ?? []).length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No relatives linked yet. Adding people to the same household links them here.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {(data?.relatives ?? []).map((r) => (
+              <Link
+                key={r.id}
+                to="/people/$personId"
+                params={{ personId: r.id }}
+                className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/40"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">
+                  {personInitials(r)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-foreground">{personName(r)}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {[r.role ?? "Adult", r.phone, r.email].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
       <ActivityDialog kind={dialog} personId={personId} onClose={() => setDialog(null)} />
     </AppShell>

@@ -337,33 +337,51 @@ export type Database = {
       households: {
         Row: {
           address: string | null
+          address_line2: string | null
+          address_line3: string | null
           billing_address: string | null
+          city: string | null
+          county: string | null
           created_at: string
           id: string
           import_batch_id: string | null
           name: string
           notes: string | null
           phone: string | null
+          postal_code: string | null
+          state: string | null
         }
         Insert: {
           address?: string | null
+          address_line2?: string | null
+          address_line3?: string | null
           billing_address?: string | null
+          city?: string | null
+          county?: string | null
           created_at?: string
           id?: string
           import_batch_id?: string | null
           name: string
           notes?: string | null
           phone?: string | null
+          postal_code?: string | null
+          state?: string | null
         }
         Update: {
           address?: string | null
+          address_line2?: string | null
+          address_line3?: string | null
           billing_address?: string | null
+          city?: string | null
+          county?: string | null
           created_at?: string
           id?: string
           import_batch_id?: string | null
           name?: string
           notes?: string | null
           phone?: string | null
+          postal_code?: string | null
+          state?: string | null
         }
         Relationships: [
           {
@@ -556,6 +574,7 @@ export type Database = {
       }
       people: {
         Row: {
+          anniversary_date: string | null
           birth_date: string | null
           contact_type: string
           created_at: string
@@ -584,6 +603,7 @@ export type Database = {
           this_year_giving: number
         }
         Insert: {
+          anniversary_date?: string | null
           birth_date?: string | null
           contact_type?: string
           created_at?: string
@@ -612,6 +632,7 @@ export type Database = {
           this_year_giving?: number
         }
         Update: {
+          anniversary_date?: string | null
           birth_date?: string | null
           contact_type?: string
           created_at?: string
