@@ -532,12 +532,16 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
   const save = useMutation({
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("An event name is required");
+      const program = form.program.trim();
+      if (program && !(programOptions ?? []).some((o) => o.label === program)) {
+        await supabase.from("program_options").insert({ label: program });
+      }
       const { error } = await supabase.from("events").insert({
         name: form.name.trim(),
         date: form.date || todayISO(),
         time: form.time || null,
         location: form.location.trim() || null,
-        program: form.program.trim() || null,
+        program: program || null,
         capacity: form.capacity ? Number(form.capacity) : null,
         staff_lead: form.staff_lead.trim() || null,
         description: form.description.trim() || null,
