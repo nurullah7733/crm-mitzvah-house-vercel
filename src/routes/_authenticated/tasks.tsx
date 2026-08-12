@@ -279,7 +279,6 @@ function TasksPage() {
 
         {[
           { label: "Overdue", items: overdue },
-
           { label: "Upcoming", items: upcoming },
         ].map(({ label, items }) =>
           items.length === 0 ? null : (
