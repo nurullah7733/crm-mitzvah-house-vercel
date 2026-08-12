@@ -95,7 +95,7 @@ function PersonPage() {
     queryKey: ["person", personId],
     queryFn: async () => {
       const [person, interactions, donations, tasks, yahrzeits, registrations, sources] = await Promise.all([
-        supabase.from("people").select("*, households(id, name, address, phone)").eq("id", personId).maybeSingle(),
+        supabase.from("people").select("*, households(id, name, address, billing_address, phone)").eq("id", personId).maybeSingle(),
         supabase.from("interactions").select("*").eq("person_id", personId).order("date", { ascending: false }),
         supabase
           .from("donations")
@@ -237,6 +237,8 @@ function PersonPage() {
           { key: "owner", label: "Owner" },
           { key: "met_source", label: "Where we met" },
           { key: "met_date", label: "Date we met", type: "date" },
+          { key: "school", label: "School" },
+          { key: "notes", label: "Notes", type: "textarea" },
         ]}
       />
       {/* Profile header */}
@@ -294,6 +296,15 @@ function PersonPage() {
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
+            {p.households?.billing_address && p.households.billing_address !== p.households.address && (
+              <SourceRow
+                label="Billing address"
+                value={p.households.billing_address}
+                source={sourceFor("billing_address")}
+              />
+            )}
+            <SourceRow label="School" value={p.school} source={sourceFor("school")} />
+            <SourceRow label="Notes" value={p.notes} source={sourceFor("notes")} />
             <SourceRow
               label="How we met"
               value={p.met_source ? `${p.met_source} · ${formatDate(p.met_date)}` : null}
