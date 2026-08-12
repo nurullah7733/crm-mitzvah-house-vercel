@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Trash2, Plug } from "lucide-react";
+import { Plus, Trash2, Plug, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
@@ -60,6 +60,8 @@ function SettingsPage() {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+
+        <RecalculateTotalsPanel />
 
         <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
           <AccordionItem value="lists" className="border-0">
