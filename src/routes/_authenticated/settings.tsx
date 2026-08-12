@@ -1,12 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Plug } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { AppShell } from "@/components/AppShell";
+import { AppShell, formatDate } from "@/components/AppShell";
+import { EditableList } from "@/components/EditableList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field, selectClass } from "@/components/forms/fields";
+
+const ROLES = [
+  { value: "admin", label: "Admin" },
+  { value: "marketing", label: "Marketing" },
+  { value: "va", label: "VA" },
+] as const;
+type Role = (typeof ROLES)[number]["value"];
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
