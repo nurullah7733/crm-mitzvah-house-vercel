@@ -159,6 +159,78 @@ export type Database = {
         }
         Relationships: []
       }
+      import_batches: {
+        Row: {
+          ambiguous_rows: number
+          created_at: string
+          filename: string
+          id: string
+          import_date: string
+          mapping: Json
+          matched_rows: number
+          new_rows: number
+          status: string
+          total_rows: number
+          uploaded_by: string | null
+        }
+        Insert: {
+          ambiguous_rows?: number
+          created_at?: string
+          filename: string
+          id?: string
+          import_date?: string
+          mapping?: Json
+          matched_rows?: number
+          new_rows?: number
+          status?: string
+          total_rows?: number
+          uploaded_by?: string | null
+        }
+        Update: {
+          ambiguous_rows?: number
+          created_at?: string
+          filename?: string
+          id?: string
+          import_date?: string
+          mapping?: Json
+          matched_rows?: number
+          new_rows?: number
+          status?: string
+          total_rows?: number
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      integrations: {
+        Row: {
+          created_at: string
+          id: string
+          last_sync_at: string | null
+          name: string
+          notes: string | null
+          purpose: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          name: string
+          notes?: string | null
+          purpose?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          name?: string
+          notes?: string | null
+          purpose?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       interactions: {
         Row: {
           author: string | null
@@ -289,6 +361,24 @@ export type Database = {
           },
         ]
       }
+      program_options: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+        }
+        Relationships: []
+      }
       registrations: {
         Row: {
           created_at: string
@@ -327,6 +417,98 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      review_queue: {
+        Row: {
+          batch_id: string | null
+          candidate_person_ids: string[]
+          created_at: string
+          filename: string | null
+          id: string
+          reason: string
+          resolution_note: string | null
+          row_data: Json
+          status: string
+        }
+        Insert: {
+          batch_id?: string | null
+          candidate_person_ids?: string[]
+          created_at?: string
+          filename?: string | null
+          id?: string
+          reason: string
+          resolution_note?: string | null
+          row_data?: Json
+          status?: string
+        }
+        Update: {
+          batch_id?: string | null
+          candidate_person_ids?: string[]
+          created_at?: string
+          filename?: string | null
+          id?: string
+          reason?: string
+          resolution_note?: string | null
+          row_data?: Json
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_queue_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_members: {
+        Row: {
+          active: boolean
+          created_at: string
+          email: string
+          id: string
+          name: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          email: string
+          id?: string
+          name: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: []
+      }
+      tag_options: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          label: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          id?: string
+          label: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          label?: string
+        }
+        Relationships: []
       }
       tasks: {
         Row: {
@@ -375,6 +557,27 @@ export type Database = {
           },
         ]
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       yahrzeits: {
         Row: {
           created_at: string
@@ -418,10 +621,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "marketing" | "va"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -548,6 +757,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "marketing", "va"],
+    },
   },
 } as const

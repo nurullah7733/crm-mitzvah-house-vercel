@@ -14,13 +14,15 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDonationsRouteImport } from './routes/_authenticated/donations'
-import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
+import { Route as AuthenticatedSearchRouteImport } from './routes/_authenticated/search'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
 import { Route as AuthenticatedEventsIndexRouteImport } from './routes/_authenticated/events.index'
 import { Route as AuthenticatedEventsEventIdRouteImport } from './routes/_authenticated/events.$eventId'
 import { Route as AuthenticatedHouseholdsIndexRouteImport } from './routes/_authenticated/households.index'
 import { Route as AuthenticatedHouseholdsHouseholdIdRouteImport } from './routes/_authenticated/households.$householdId'
+import { Route as AuthenticatedInboxIndexRouteImport } from './routes/_authenticated/inbox.index'
+import { Route as AuthenticatedInboxReviewRouteImport } from './routes/_authenticated/inbox.review'
 import { Route as AuthenticatedPeopleIndexRouteImport } from './routes/_authenticated/people.index'
 import { Route as AuthenticatedPeoplePersonIdRouteImport } from './routes/_authenticated/people.$personId'
 
@@ -48,9 +50,9 @@ const AuthenticatedDonationsRoute = AuthenticatedDonationsRouteImport.update({
   path: '/donations',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedInboxRoute = AuthenticatedInboxRouteImport.update({
-  id: '/inbox',
-  path: '/inbox',
+const AuthenticatedSearchRoute = AuthenticatedSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
@@ -87,6 +89,17 @@ const AuthenticatedHouseholdsHouseholdIdRoute =
     path: '/households/$householdId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedInboxIndexRoute = AuthenticatedInboxIndexRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedInboxReviewRoute =
+  AuthenticatedInboxReviewRouteImport.update({
+    id: '/inbox/review',
+    path: '/inbox/review',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPeopleIndexRoute =
   AuthenticatedPeopleIndexRouteImport.update({
     id: '/people/',
@@ -105,14 +118,16 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/donations': typeof AuthenticatedDonationsRoute
-  '/inbox': typeof AuthenticatedInboxRoute
+  '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRoute
   '/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
+  '/inbox/review': typeof AuthenticatedInboxReviewRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
   '/events/': typeof AuthenticatedEventsIndexRoute
   '/households/': typeof AuthenticatedHouseholdsIndexRoute
+  '/inbox/': typeof AuthenticatedInboxIndexRoute
   '/people/': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRoutesByTo {
@@ -120,14 +135,16 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/donations': typeof AuthenticatedDonationsRoute
-  '/inbox': typeof AuthenticatedInboxRoute
+  '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRoute
   '/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
+  '/inbox/review': typeof AuthenticatedInboxReviewRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
   '/events': typeof AuthenticatedEventsIndexRoute
   '/households': typeof AuthenticatedHouseholdsIndexRoute
+  '/inbox': typeof AuthenticatedInboxIndexRoute
   '/people': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRoutesById {
@@ -137,14 +154,16 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/donations': typeof AuthenticatedDonationsRoute
-  '/_authenticated/inbox': typeof AuthenticatedInboxRoute
+  '/_authenticated/search': typeof AuthenticatedSearchRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/events/$eventId': typeof AuthenticatedEventsEventIdRoute
   '/_authenticated/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
+  '/_authenticated/inbox/review': typeof AuthenticatedInboxReviewRoute
   '/_authenticated/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
   '/_authenticated/events/': typeof AuthenticatedEventsIndexRoute
   '/_authenticated/households/': typeof AuthenticatedHouseholdsIndexRoute
+  '/_authenticated/inbox/': typeof AuthenticatedInboxIndexRoute
   '/_authenticated/people/': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRouteTypes {
@@ -154,14 +173,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/donations'
-    | '/inbox'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/events/$eventId'
     | '/households/$householdId'
+    | '/inbox/review'
     | '/people/$personId'
     | '/events/'
     | '/households/'
+    | '/inbox/'
     | '/people/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -169,14 +190,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/donations'
-    | '/inbox'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/events/$eventId'
     | '/households/$householdId'
+    | '/inbox/review'
     | '/people/$personId'
     | '/events'
     | '/households'
+    | '/inbox'
     | '/people'
   id:
     | '__root__'
@@ -185,14 +208,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/dashboard'
     | '/_authenticated/donations'
-    | '/_authenticated/inbox'
+    | '/_authenticated/search'
     | '/_authenticated/settings'
     | '/_authenticated/tasks'
     | '/_authenticated/events/$eventId'
     | '/_authenticated/households/$householdId'
+    | '/_authenticated/inbox/review'
     | '/_authenticated/people/$personId'
     | '/_authenticated/events/'
     | '/_authenticated/households/'
+    | '/_authenticated/inbox/'
     | '/_authenticated/people/'
   fileRoutesById: FileRoutesById
 }
@@ -239,11 +264,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDonationsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/inbox': {
-      id: '/_authenticated/inbox'
-      path: '/inbox'
-      fullPath: '/inbox'
-      preLoaderRoute: typeof AuthenticatedInboxRouteImport
+    '/_authenticated/search': {
+      id: '/_authenticated/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AuthenticatedSearchRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/settings': {
@@ -288,6 +313,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHouseholdsHouseholdIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/inbox/': {
+      id: '/_authenticated/inbox/'
+      path: '/inbox'
+      fullPath: '/inbox/'
+      preLoaderRoute: typeof AuthenticatedInboxIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/inbox/review': {
+      id: '/_authenticated/inbox/review'
+      path: '/inbox/review'
+      fullPath: '/inbox/review'
+      preLoaderRoute: typeof AuthenticatedInboxReviewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/people/': {
       id: '/_authenticated/people/'
       path: '/people'
@@ -308,29 +347,33 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDonationsRoute: typeof AuthenticatedDonationsRoute
-  AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
+  AuthenticatedSearchRoute: typeof AuthenticatedSearchRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
   AuthenticatedEventsEventIdRoute: typeof AuthenticatedEventsEventIdRoute
   AuthenticatedHouseholdsHouseholdIdRoute: typeof AuthenticatedHouseholdsHouseholdIdRoute
+  AuthenticatedInboxReviewRoute: typeof AuthenticatedInboxReviewRoute
   AuthenticatedPeoplePersonIdRoute: typeof AuthenticatedPeoplePersonIdRoute
   AuthenticatedEventsIndexRoute: typeof AuthenticatedEventsIndexRoute
   AuthenticatedHouseholdsIndexRoute: typeof AuthenticatedHouseholdsIndexRoute
+  AuthenticatedInboxIndexRoute: typeof AuthenticatedInboxIndexRoute
   AuthenticatedPeopleIndexRoute: typeof AuthenticatedPeopleIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDonationsRoute: AuthenticatedDonationsRoute,
-  AuthenticatedInboxRoute: AuthenticatedInboxRoute,
+  AuthenticatedSearchRoute: AuthenticatedSearchRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
   AuthenticatedEventsEventIdRoute: AuthenticatedEventsEventIdRoute,
   AuthenticatedHouseholdsHouseholdIdRoute:
     AuthenticatedHouseholdsHouseholdIdRoute,
+  AuthenticatedInboxReviewRoute: AuthenticatedInboxReviewRoute,
   AuthenticatedPeoplePersonIdRoute: AuthenticatedPeoplePersonIdRoute,
   AuthenticatedEventsIndexRoute: AuthenticatedEventsIndexRoute,
   AuthenticatedHouseholdsIndexRoute: AuthenticatedHouseholdsIndexRoute,
+  AuthenticatedInboxIndexRoute: AuthenticatedInboxIndexRoute,
   AuthenticatedPeopleIndexRoute: AuthenticatedPeopleIndexRoute,
 }
 

@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
+import logoAsset from "@/assets/mitzvah-house-logo.png.asset.json";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -58,13 +58,71 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col bg-[linear-gradient(180deg,var(--sidebar),var(--sidebar-accent))] px-4 py-6 lg:flex">
-        <div className="px-2">
-          <p className="font-heading text-lg font-semibold text-primary-foreground">Mitzvah House</p>
-          <p className="text-xs text-primary-foreground/70">Relationship CRM</p>
+      {/* Brand header — azure, stuck to the top of every page */}
+      <header className="sticky top-0 z-30 bg-[linear-gradient(120deg,var(--sidebar),var(--sidebar-accent))] shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+          <Link to="/dashboard" className="flex shrink-0 items-center rounded-xl bg-white px-3 py-2">
+            <img src={logoAsset.url} alt="Mitzvah House" className="h-7 w-auto sm:h-8" />
+          </Link>
+          <form
+            className="relative min-w-0 flex-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              navigate({ to: "/search", search: { q: search } });
+            }}
+          >
+            <Sparkles className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-suggestion" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Ask about a household, event, or person…"
+              aria-label="Search"
+              className="w-full rounded-full border border-white/30 bg-white/95 py-2.5 pl-11 pr-4 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-white"
+            />
+          </form>
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-label="Open menu"
+              className="flex size-11 items-center justify-center rounded-xl border border-white/30 text-primary-foreground transition hover:bg-white/15"
+            >
+              <Menu className="size-5" />
+            </button>
+            {menuOpen && (
+              <>
+                <button
+                  className="fixed inset-0 z-30 cursor-default"
+                  aria-label="Close menu"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="absolute right-0 z-40 mt-2 w-56 overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-lg">
+                  {MENU_NAV.map(({ to, label, icon: Icon }) => (
+                    <Link
+                      key={to}
+                      to={to}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-muted"
+                      activeProps={{ className: "!text-primary font-medium bg-primary/10" }}
+                    >
+                      <Icon className="size-4" /> {label}
+                    </Link>
+                  ))}
+                  <button
+                    onClick={signOut}
+                    className="mt-1 flex w-full items-center gap-2.5 rounded-xl border-t border-border px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted"
+                  >
+                    <LogOut className="size-4" /> Sign out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-        <nav className="mt-8 flex flex-1 flex-col gap-1">
+      </header>
+
+      {/* Desktop sidebar */}
+      <aside className="fixed bottom-0 left-0 top-[76px] hidden w-60 flex-col bg-[linear-gradient(180deg,var(--sidebar),var(--sidebar-accent))] px-4 py-6 lg:flex">
+        <nav className="flex flex-1 flex-col gap-1">
           {[...NAV, INBOX].map(({ to, label, icon: Icon }) => (
             <Link
               key={to}
@@ -92,76 +150,17 @@ export function AppShell({
       </aside>
 
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-10 border-b border-border bg-card/95 px-5 py-3 backdrop-blur sm:px-8">
+        <div className="border-b border-border bg-card px-5 py-3 sm:px-8">
           <div className="mx-auto max-w-5xl">
-            {/* Global search */}
-            <form
-              className="relative"
-              onSubmit={(e) => {
-                e.preventDefault();
-                navigate({ to: "/people", search: { q: search } });
-              }}
-            >
-              <Sparkles className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-suggestion" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Ask about a household, event, or person…"
-                aria-label="Search"
-                className="w-full rounded-full border border-border bg-background py-2.5 pl-11 pr-4 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/50"
-              />
-            </form>
-
-            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
               <div className="min-w-0">
                 <h1 className="truncate font-heading text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
                 {subtitle ? <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p> : null}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {action}
-                <div className="relative">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => setMenuOpen((o) => !o)}
-                    aria-label="Open menu"
-                  >
-                    <Menu className="size-4" />
-                  </Button>
-                  {menuOpen && (
-                    <>
-                      <button
-                        className="fixed inset-0 z-30 cursor-default"
-                        aria-label="Close menu"
-                        onClick={() => setMenuOpen(false)}
-                      />
-                      <div className="absolute right-0 z-40 mt-2 w-52 overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-lg">
-                        {MENU_NAV.map(({ to, label, icon: Icon }) => (
-                          <Link
-                            key={to}
-                            to={to}
-                            onClick={() => setMenuOpen(false)}
-                            className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-muted"
-                            activeProps={{ className: "!text-primary font-medium bg-primary/10" }}
-                          >
-                            <Icon className="size-4" /> {label}
-                          </Link>
-                        ))}
-                        <button
-                          onClick={signOut}
-                          className="mt-1 flex w-full items-center gap-2.5 rounded-xl border-t border-border px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted"
-                        >
-                          <LogOut className="size-4" /> Sign out
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{action}</div>
             </div>
           </div>
-        </header>
+        </div>
 
         <main className="mx-auto max-w-5xl px-5 pb-28 pt-6 sm:px-8 lg:pb-12">{children}</main>
       </div>
