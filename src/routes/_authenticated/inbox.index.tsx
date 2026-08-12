@@ -170,7 +170,13 @@ function ImportCenter() {
         .single();
       if (batchError) throw batchError;
 
-      const fieldSources: { person_id: string; field_name: string; source: string; recorded_date: string }[] = [];
+      const fieldSources: {
+        person_id: string;
+        field_name: string;
+        source: string;
+        recorded_date: string;
+        import_batch_id: string;
+      }[] = [];
 
       for (const item of analysed) {
         const v = item.values;
