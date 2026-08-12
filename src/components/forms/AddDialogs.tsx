@@ -100,7 +100,6 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const { data: households } = useHouseholdsMini();
   const { data: metSources } = useMetSourceOptions();
   const hebrew = hebrewDateFromEnglish(form.birth_date);
-  const { data: peopleMini } = usePeopleMini();
   const isOrg = form.contact_type !== "individual";
 
   // Duplicate guard: warn before a second copy of a contact is created.
