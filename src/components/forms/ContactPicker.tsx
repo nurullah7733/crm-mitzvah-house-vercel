@@ -102,7 +102,7 @@ export function ContactPicker({
   });
 
   return (
-    <Field label={label} className={className} hint={hint ?? null}>
+    <Field label={label} className={className ?? ""} hint={hint ?? null}>
       <div className="flex gap-2">
         <select value={value} onChange={(e) => onChange(e.target.value)} className={selectClass}>
           <option value="">{emptyLabel}</option>
