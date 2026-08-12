@@ -519,19 +519,8 @@ export function AddDonationDialog({
       });
       if (error) throw error;
 
-      const person = (people ?? []).find((p) => p.id === pid);
-      const thisYear = (form.date || todayISO()).slice(0, 4) === todayISO().slice(0, 4);
-      await supabase
-        .from("people")
-        .update({
-          lifetime_giving: Number(person?.lifetime_giving ?? 0) + amount,
-          this_year_giving: Number(person?.this_year_giving ?? 0) + (thisYear ? amount : 0),
-          last_gift_amount: amount,
-          last_gift_date: form.date || todayISO(),
-          last_activity_date: todayISO(),
-        })
-        .eq("id", pid);
-
+      // Giving totals and last-activity are maintained by database triggers on
+      // donations and interactions, so they stay correct for form, import and API writes.
       await supabase.from("interactions").insert({
         person_id: pid,
         type: "donation",
@@ -903,7 +892,6 @@ export function CompleteTaskDialog({
           text: note.trim() ? `${task.text} — ${note.trim()}` : `Completed: ${task.text}`,
           author: task.owner ?? null,
         });
-        await supabase.from("people").update({ last_activity_date: todayISO() }).eq("id", task.person_id);
       }
     },
     onSuccess: () => {

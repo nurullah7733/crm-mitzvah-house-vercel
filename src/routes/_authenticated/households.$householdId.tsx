@@ -41,8 +41,8 @@ function HouseholdPage() {
       if (ids.length === 0) return { household, interactions: [], donations: [], tasks: [] };
       const [interactions, donations, tasks] = await Promise.all([
         supabase.from("interactions").select("*").in("person_id", ids).order("date", { ascending: false }),
-        supabase.from("donations").select("*").in("person_id", ids).order("date", { ascending: false }),
-        supabase.from("tasks").select("*").in("person_id", ids).neq("status", "done").order("due_date"),
+        supabase.from("donations").select("*").is("deleted_at", null).in("person_id", ids).order("date", { ascending: false }),
+        supabase.from("tasks").select("*").is("deleted_at", null).in("person_id", ids).neq("status", "done").order("due_date"),
       ]);
       return {
         household,

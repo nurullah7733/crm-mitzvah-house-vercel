@@ -84,6 +84,7 @@ function ImportCenter() {
         supabase
           .from("people")
           .select("id, first_name, last_name, email, phone, household_id, households(name, address)")
+          .is("deleted_at", null)
           .order("id")
           .range(f, t),
       )) as unknown as ExistingPerson[],
@@ -170,7 +171,13 @@ function ImportCenter() {
         .single();
       if (batchError) throw batchError;
 
-      const fieldSources: { person_id: string; field_name: string; source: string; recorded_date: string }[] = [];
+      const fieldSources: {
+        person_id: string;
+        field_name: string;
+        source: string;
+        recorded_date: string;
+        import_batch_id: string;
+      }[] = [];
 
       for (const item of analysed) {
         const v = item.values;
@@ -195,7 +202,11 @@ function ImportCenter() {
           if (v.household_name || v.address) {
             const { data: household } = await supabase
               .from("households")
-              .insert({ name: v.household_name ?? `${last} household`, address: v.address ?? null })
+              .insert({
+                name: v.household_name ?? `${last} household`,
+                address: v.address ?? null,
+                import_batch_id: batch.id,
+              })
               .select("id")
               .single();
             householdId = household?.id ?? null;
@@ -212,6 +223,7 @@ function ImportCenter() {
               household_id: householdId,
               tags: v.tags ? v.tags.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [],
               programs: v.programs ? v.programs.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [],
+              import_batch_id: batch.id,
             })
             .select("id")
             .single();
@@ -235,7 +247,14 @@ function ImportCenter() {
         if (!personId) continue;
 
         for (const key of ["email", "phone", "address", "birth_date", "met_source"] as FieldKey[]) {
-          if (v[key]) fieldSources.push({ person_id: personId, field_name: key, source, recorded_date: importDate });
+          if (v[key])
+            fieldSources.push({
+              person_id: personId,
+              field_name: key,
+              source,
+              recorded_date: importDate,
+              import_batch_id: batch.id,
+            });
         }
 
         if (v.amount) {
@@ -248,6 +267,7 @@ function ImportCenter() {
               campaign: v.campaign ?? null,
               source,
               notes: v.notes ?? null,
+              import_batch_id: batch.id,
             });
             await supabase.from("interactions").insert({
               person_id: personId,
@@ -255,6 +275,7 @@ function ImportCenter() {
               date: v.date ?? importDate,
               text: `Imported gift of $${amount}${v.campaign ? ` · ${v.campaign}` : ""}`,
               author: "Import",
+              import_batch_id: batch.id,
             });
           }
         } else if (v.notes) {
@@ -264,6 +285,7 @@ function ImportCenter() {
             date: importDate,
             text: v.notes,
             author: "Import",
+            import_batch_id: batch.id,
           });
         }
       }
@@ -456,7 +478,82 @@ function ImportCenter() {
           <EmptyState label="No file loaded yet." />
         </div>
       )}
+
+      <ImportHistory />
     </AppShell>
+  );
+}
+
+function ImportHistory() {
+  const queryClient = useQueryClient();
+  const [undoing, setUndoing] = useState<string | null>(null);
+
+  const { data: batches } = useQuery({
+    queryKey: ["import-batches"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("import_batches")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  async function undo(id: string) {
+    setUndoing(id);
+    try {
+      const { data, error } = await supabase.rpc("undo_import", { _batch_id: id });
+      if (error) throw error;
+      const counts = (data ?? {}) as Record<string, number>;
+      toast.success(
+        `Import undone — removed ${counts["people"] ?? 0} contacts and ${counts["donations"] ?? 0} gifts it had added.`,
+      );
+      await queryClient.invalidateQueries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not undo that import");
+    } finally {
+      setUndoing(null);
+    }
+  }
+
+  if (!batches || batches.length === 0) return null;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="font-heading font-semibold text-foreground">Past imports</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Undoing an import removes only the records that import created. Anything you added or edited by hand stays.
+      </p>
+      <div className="mt-3 space-y-2">
+        {batches.map((b) => (
+          <div key={b.id} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">{b.filename}</p>
+              <p className="text-xs text-muted-foreground">
+                {b.import_date} · {b.total_rows} rows · {b.new_rows} new · {b.matched_rows} matched
+                {b.status === "reverted" ? " · undone" : ""}
+              </p>
+            </div>
+            {b.status === "reverted" ? (
+              <span className="justify-self-start rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                Undone
+              </span>
+            ) : (
+              <Button
+                variant="outline"
+                className="justify-self-start rounded-xl text-urgent"
+                disabled={undoing === b.id}
+                onClick={() => void undo(b.id)}
+              >
+                {undoing === b.id ? "Undoing…" : "Undo this import"}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

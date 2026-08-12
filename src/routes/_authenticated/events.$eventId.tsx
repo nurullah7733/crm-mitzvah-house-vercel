@@ -1,9 +1,11 @@
 import { personInitials, personName } from "@/lib/names";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { ArrowLeft, Sparkles, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { AppShell, EmptyState, formatDate, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { fetchAll } from "@/lib/fetch-all";
@@ -26,6 +28,8 @@ const STATUSES = ["registered", "attended", "no_show"] as const;
 
 function EventPage() {
   const { eventId } = Route.useParams();
+  const navigate = useNavigate();
+  const [editOpen, setEditOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -46,6 +50,7 @@ function EventPage() {
           supabase
             .from("people")
             .select("id, display_name, first_name, last_name, programs, tags")
+            .is("deleted_at", null)
             .order("id")
             .range(f, t),
         ),
@@ -107,7 +112,36 @@ function EventPage() {
     <AppShell
       title={e.name}
       subtitle={`${formatDate(e.date)}${e.time ? ` · ${e.time}` : ""} · ${e.location ?? "Location TBD"}`}
+      action={
+        <button
+          type="button"
+          onClick={() => setEditOpen(true)}
+          className="rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
+        >
+          Edit event
+        </button>
+      }
     >
+      <EditRecordDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        table="events"
+        id={eventId}
+        record={e as unknown as Record<string, unknown>}
+        title="Edit event"
+        deleteLabel="Remove this event"
+        onDeleted={() => navigate({ to: "/events" })}
+        fields={[
+          { key: "name", label: "Name" },
+          { key: "date", label: "Date", type: "date" },
+          { key: "time", label: "Time", type: "time" },
+          { key: "location", label: "Location" },
+          { key: "program", label: "Program" },
+          { key: "capacity", label: "Capacity", type: "number" },
+          { key: "staff_lead", label: "Staff lead" },
+          { key: "description", label: "Description", type: "textarea" },
+        ]}
+      />
       <Link to="/events" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
         <ArrowLeft className="size-4" /> All events
       </Link>

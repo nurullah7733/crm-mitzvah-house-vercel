@@ -13,6 +13,7 @@ import {
   type CompletableTask,
 } from "@/components/forms/AddDialogs";
 import { todayISO } from "@/components/forms/fields";
+import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
@@ -33,6 +34,7 @@ function TasksPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
   const [showDone, setShowDone] = useState(false);
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tasks-list"],
@@ -41,6 +43,7 @@ function TasksPage() {
         supabase
           .from("tasks")
           .select("*, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
           .order("due_date")
           .order("id")
           .range(f, t),
@@ -55,6 +58,7 @@ function TasksPage() {
           supabase
             .from("people")
             .select("id, display_name, first_name, last_name, birth_date")
+            .is("deleted_at", null)
             .not("birth_date", "is", null)
             .order("id")
             .range(f, t),
@@ -154,6 +158,13 @@ function TasksPage() {
             </Link>
           )}
           {t.completion_note && <p className="mt-1 text-xs text-muted-foreground">{t.completion_note}</p>}
+          <button
+            type="button"
+            className="mt-2 block text-xs text-primary hover:underline"
+            onClick={() => setEditing(t as unknown as Record<string, unknown>)}
+          >
+            Edit or remove this task
+          </button>
         </div>
       </div>
     );
@@ -243,6 +254,34 @@ function TasksPage() {
 
       <AddTaskDialog open={addOpen} onOpenChange={setAddOpen} />
       <CompleteTaskDialog task={completing} onOpenChange={(v) => !v && setCompleting(null)} />
+      {editing && (
+        <EditRecordDialog
+          open
+          onOpenChange={(v) => !v && setEditing(null)}
+          table="tasks"
+          id={String(editing["id"])}
+          record={editing}
+          title="Edit task"
+          deleteLabel="Remove this task"
+          onDeleted={() => setEditing(null)}
+          fields={[
+            { key: "text", label: "Task", type: "textarea" },
+            { key: "due_date", label: "Due date", type: "date" },
+            { key: "owner", label: "Owner" },
+            {
+              key: "priority",
+              label: "Priority",
+              type: "select",
+              options: [
+                { value: "High", label: "High" },
+                { value: "Normal", label: "Normal" },
+                { value: "Low", label: "Low" },
+              ],
+            },
+            { key: "notes", label: "Notes", type: "textarea" },
+          ]}
+        />
+      )}
     </AppShell>
   );
 }

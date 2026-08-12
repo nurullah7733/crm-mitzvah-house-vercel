@@ -28,6 +28,7 @@ function CampaignPage() {
         supabase
           .from("donations")
           .select("*, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
           .eq("campaign_id", campaignId)
           .order("date", { ascending: false }),
         supabase.from("grants").select("id, name, stage, amount_awarded").eq("campaign_id", campaignId),
