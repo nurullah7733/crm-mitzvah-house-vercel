@@ -960,12 +960,29 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      find_duplicate_people: {
+        Args: never
+        Returns: {
+          person_a: string
+          person_b: string
+          reason: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      log_review_decision: {
+        Args: {
+          _decision: string
+          _item_id: string
+          _person_id?: string
+          _reason?: string
+        }
+        Returns: undefined
       }
       merge_people: {
         Args: {
