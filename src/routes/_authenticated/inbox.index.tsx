@@ -216,12 +216,17 @@ function ImportCenter() {
           if (createError) throw createError;
           personId = created.id;
         } else if (personId) {
-          const patch: Record<string, string> = {};
+          const patch: {
+            email?: string;
+            phone?: string;
+            birth_date?: string;
+            met_source?: string;
+          } = {};
           const existing = item.match.candidates[0]!;
-          if (v.email && !existing.email) patch["email"] = v.email;
-          if (v.phone && !existing.phone) patch["phone"] = v.phone;
-          if (v.birth_date) patch["birth_date"] = v.birth_date;
-          if (v.met_source) patch["met_source"] = v.met_source;
+          if (v.email && !existing.email) patch.email = v.email;
+          if (v.phone && !existing.phone) patch.phone = v.phone;
+          if (v.birth_date) patch.birth_date = v.birth_date;
+          if (v.met_source) patch.met_source = v.met_source;
           if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
         }
 
