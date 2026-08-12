@@ -150,8 +150,9 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
 function mainName(v: RowValues) {
   const base = splitName(v);
   const first = [base.first, base.middle].filter(Boolean).join(" ").trim();
-  const last = [base.last, base.suffix].filter(Boolean).join(" ").trim();
-  return { first, last };
+  const last = base.last.trim();
+  const display = [first, last, base.suffix].filter(Boolean).join(" ").trim();
+  return { first, last, display };
 }
 
 function isoDate(raw: string | undefined) {
@@ -415,8 +416,8 @@ function ImportCenter() {
 
           let personId = item.match.candidates[0]?.id ?? null;
           let householdId = item.match.candidates[0]?.household_id ?? null;
-          const { first, last } = mainName(v);
-          const displayName = [first, last].filter(Boolean).join(" ").trim() || null;
+          const { first, last, display } = mainName(v);
+          const displayName = display || null;
           const personRole = roleFromRow({
             ...(v.role ? { role: v.role } : {}),
             ...(v.age ? { age: v.age } : {}),
