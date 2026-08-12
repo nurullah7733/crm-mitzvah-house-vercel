@@ -10,6 +10,7 @@ import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { logChange } from "@/lib/session-log";
 import { CAMPAIGN_STATUSES, GRANT_STAGES, personName } from "@/lib/names";
 import { useProgramOptions } from "@/components/forms/AddDialogs";
+import { fetchAll } from "@/lib/fetch-all";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
