@@ -239,15 +239,19 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
         (p.last_name ?? "").trim().toLowerCase() === last.toLowerCase(),
     );
     const address = (values.address ?? "").trim().toLowerCase();
+    const sameAddress = (stored: string | null | undefined) => {
+      const s = (stored ?? "").trim().toLowerCase();
+      return Boolean(s) && (s === address || s.startsWith(address));
+    };
     if (nameHits.length === 1) {
-      if (!address || (nameHits[0]?.households?.address ?? "").trim().toLowerCase() === address) {
+      if (!address || sameAddress(nameHits[0]?.households?.address)) {
         return { status: "matched", reason: "Matched on name + address", candidates: nameHits };
       }
       return { status: "ambiguous", reason: "Same name, different address", candidates: nameHits };
     }
     if (nameHits.length > 1) {
       const withAddress = address
-        ? nameHits.filter((p) => (p.households?.address ?? "").trim().toLowerCase() === address)
+        ? nameHits.filter((p) => sameAddress(p.households?.address))
         : [];
       if (withAddress.length === 1)
         return { status: "matched", reason: "Matched on name + address", candidates: withAddress };
