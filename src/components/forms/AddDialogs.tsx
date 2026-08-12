@@ -436,12 +436,31 @@ export function AddDonationDialog({
     person_id: personId ?? "",
     amount: "",
     date: todayISO(),
-    campaign: "",
+    campaign_id: "",
+    grant_id: "",
     method: "",
     source: "",
     notes: "",
   });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const { data: campaigns } = useQuery({
+    queryKey: ["campaigns-picker"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("campaigns").select("id, name").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: grants } = useQuery({
+    queryKey: ["grants-picker"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("grants").select("id, name").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+  const campaignName = (campaigns ?? []).find((c) => c.id === form.campaign_id)?.name ?? "";
 
   const save = useMutation({
     mutationFn: async () => {
@@ -454,7 +473,9 @@ export function AddDonationDialog({
         person_id: pid,
         amount,
         date: form.date || todayISO(),
-        campaign: form.campaign.trim() || null,
+        campaign_id: form.campaign_id || null,
+        campaign: campaignName || null,
+        grant_id: form.grant_id || null,
         method: form.method.trim() || null,
         source: form.source.trim() || null,
         notes: form.notes.trim() || null,
@@ -478,7 +499,7 @@ export function AddDonationDialog({
         person_id: pid,
         type: "donation",
         date: form.date || todayISO(),
-        text: `Gift of $${amount.toLocaleString()}${form.campaign ? ` — ${form.campaign}` : ""}${
+        text: `Gift of $${amount.toLocaleString()}${campaignName ? ` — ${campaignName}` : ""}${
           form.notes ? ` · ${form.notes}` : ""
         }`,
         author: null,
@@ -488,7 +509,7 @@ export function AddDonationDialog({
       toast.success("Donation logged");
       logChange("Logged a donation");
       refresh();
-      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign: "", method: "", source: "", notes: "" });
+      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", method: "", source: "", notes: "" });
       onOpenChange(false);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -539,7 +560,24 @@ export function AddDonationDialog({
           <Input className="text-base" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
         </Field>
         <Field label="Campaign">
-          <Input className="text-base" value={form.campaign} onChange={(e) => set("campaign", e.target.value)} />
+          <select value={form.campaign_id} onChange={(e) => set("campaign_id", e.target.value)} className={selectClass}>
+            <option value="">No campaign</option>
+            {(campaigns ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Grant payment (optional)" className="sm:col-span-2">
+          <select value={form.grant_id} onChange={(e) => set("grant_id", e.target.value)} className={selectClass}>
+            <option value="">Not a grant payment</option>
+            {(grants ?? []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="Method">
           <Input className="text-base" placeholder="Check, card, cash…" value={form.method} onChange={(e) => set("method", e.target.value)} />
