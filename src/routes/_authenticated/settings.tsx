@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Plus, Trash2, Plug } from "lucide-react";
 import { toast } from "sonner";
+import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
@@ -51,7 +52,14 @@ function SettingsPage() {
           <p className="mt-2 text-sm text-foreground">{user?.email ?? "—"}</p>
         </section>
 
-        <StaffPanel />
+        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+          <AccordionItem value="staff" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">Staff</AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <StaffPanel />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
         <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
           <AccordionItem value="lists" className="border-0">
@@ -136,6 +144,7 @@ function StaffPanel() {
       setRole("va");
       refresh();
       toast.success("Staff member added");
+      logChange("Added a staff member");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -148,6 +157,7 @@ function StaffPanel() {
     onSuccess: () => {
       refresh();
       toast.success("Role updated");
+      logChange("Changed a staff role");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -160,13 +170,13 @@ function StaffPanel() {
     onSuccess: () => {
       refresh();
       toast.success("Staff member removed");
+      logChange("Removed a staff member");
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <h2 className="font-heading font-semibold">Staff</h2>
+    <div className="space-y-1">
       <p className="text-xs text-muted-foreground">
         Add the people who work in the CRM and set what each one does. They sign in with this email address.
       </p>
@@ -231,7 +241,7 @@ function StaffPanel() {
           <Plus className="size-4" /> Add staff
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
 

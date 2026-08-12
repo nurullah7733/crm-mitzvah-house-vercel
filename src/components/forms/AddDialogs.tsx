@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { logChange } from "@/lib/session-log";
 import { Plus, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
@@ -167,6 +168,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
     },
     onSuccess: () => {
       toast.success("Person added");
+      logChange("Added a person");
       refresh();
       setForm(EMPTY_PERSON);
       onOpenChange(false);
@@ -323,6 +325,7 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
     },
     onSuccess: () => {
       toast.success("Household added");
+      logChange("Added a household");
       refresh();
       setForm({ name: "", address: "", phone: "", notes: "" });
       onOpenChange(false);
@@ -428,6 +431,7 @@ export function AddDonationDialog({
     },
     onSuccess: () => {
       toast.success("Donation logged");
+      logChange("Logged a donation");
       refresh();
       setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign: "", method: "", source: "", notes: "" });
       onOpenChange(false);
@@ -529,6 +533,7 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
     },
     onSuccess: () => {
       toast.success("Event added");
+      logChange("Added an event");
       refresh();
       setForm({ name: "", date: todayISO(), time: "", location: "", program: "", capacity: "", staff_lead: "", description: "" });
       onOpenChange(false);
@@ -616,6 +621,7 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
     },
     onSuccess: () => {
       toast.success("Task added");
+      logChange("Added a task");
       refresh();
       setForm({ person_id: personId ?? "", text: "", due_date: "", priority: "Normal", owner: "", notes: "" });
       onOpenChange(false);
@@ -719,6 +725,7 @@ export function CompleteTaskDialog({
     },
     onSuccess: () => {
       toast.success("Task completed");
+      logChange("Completed a task");
       refresh();
       setNote("");
       setKind("note");

@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useCurrentStaff } from "@/lib/current-staff";
 import logoAsset from "@/assets/mitzvah-house-logo.png.asset.json";
 
 const NAV = [
@@ -45,6 +46,7 @@ export function AppShell({
   const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
   const [search, setSearch] = useState("");
+  useCurrentStaff();
 
   async function signOut() {
     await queryClient.cancelQueries();
