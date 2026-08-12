@@ -51,7 +51,14 @@ function SettingsPage() {
           <p className="mt-2 text-sm text-foreground">{user?.email ?? "—"}</p>
         </section>
 
-        <StaffPanel />
+        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+          <AccordionItem value="staff" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">Staff</AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <StaffPanel />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
         <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
           <AccordionItem value="lists" className="border-0">
