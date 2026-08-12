@@ -412,6 +412,47 @@ export type Database = {
           },
         ]
       }
+      merge_log: {
+        Row: {
+          created_at: string
+          id: string
+          merged_person_id: string
+          merged_snapshot: Json
+          moved_counts: Json
+          performed_by: string | null
+          performed_by_email: string | null
+          surviving_person_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          merged_person_id: string
+          merged_snapshot?: Json
+          moved_counts?: Json
+          performed_by?: string | null
+          performed_by_email?: string | null
+          surviving_person_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          merged_person_id?: string
+          merged_snapshot?: Json
+          moved_counts?: Json
+          performed_by?: string | null
+          performed_by_email?: string | null
+          surviving_person_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merge_log_surviving_person_id_fkey"
+            columns: ["surviving_person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       met_source_options: {
         Row: {
           created_at: string
@@ -799,6 +840,14 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      merge_people: {
+        Args: {
+          _field_values?: Json
+          _merged_id: string
+          _surviving_id: string
+        }
+        Returns: string
       }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
