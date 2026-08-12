@@ -490,6 +490,40 @@ function PersonPage() {
         </div>
       </div>
 
+      {/* Relatives — everyone else we have in this household */}
+      <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="font-heading font-semibold text-foreground">Relatives</h2>
+        <p className="text-xs text-muted-foreground">
+          Other people we have in {p.households?.name ?? "this household"} — tap to open their profile
+        </p>
+        {(data?.relatives ?? []).length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No relatives linked yet. Adding people to the same household links them here.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {(data?.relatives ?? []).map((r) => (
+              <Link
+                key={r.id}
+                to="/people/$personId"
+                params={{ personId: r.id }}
+                className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-primary/40"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-xs font-semibold text-primary">
+                  {personInitials(r)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-foreground">{personName(r)}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {[r.role ?? "Adult", r.phone, r.email].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
       <ActivityDialog kind={dialog} personId={personId} onClose={() => setDialog(null)} />
     </AppShell>
   );
