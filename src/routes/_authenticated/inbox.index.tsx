@@ -406,10 +406,25 @@ function ImportCenter() {
               householdId = household?.id ?? null;
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
             } else if (householdId && (fullAddress || v.billing_address)) {
-              const housePatch: Record<string, string> = {};
+              const housePatch: {
+                billing_address?: string;
+                address?: string;
+                address_line2?: string;
+                address_line3?: string;
+                city?: string;
+                state?: string;
+                postal_code?: string;
+                county?: string;
+              } = {};
               if (v.billing_address) housePatch["billing_address"] = v.billing_address;
               if (fullAddress) {
-                for (const [k, val] of Object.entries(addressParts)) if (val) housePatch[k] = val;
+                housePatch["address"] = fullAddress;
+                if (v.address_line2) housePatch["address_line2"] = v.address_line2;
+                if (v.address_line3) housePatch["address_line3"] = v.address_line3;
+                if (v.city) housePatch["city"] = v.city;
+                if (v.state) housePatch["state"] = v.state;
+                if (v.postal_code) housePatch["postal_code"] = v.postal_code;
+                if (v.county) housePatch["county"] = v.county;
               }
               if (Object.keys(housePatch).length > 0)
                 await supabase.from("households").update(housePatch).eq("id", householdId);
