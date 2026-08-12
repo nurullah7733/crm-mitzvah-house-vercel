@@ -17,7 +17,7 @@ export function useCurrentStaff() {
         .select("name, role, email")
         .ilike("email", email)
         .maybeSingle();
-      const fallback = email.split("@")[0].replace(/[._-]+/g, " ");
+      const fallback = (email.split("@")[0] ?? "").replace(/[._-]+/g, " ");
       const name = staff?.name?.trim() || fallback.replace(/\b\w/g, (c) => c.toUpperCase());
       return { name, role: staff?.role ?? null, email };
     },
