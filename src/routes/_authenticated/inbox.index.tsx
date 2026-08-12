@@ -195,7 +195,11 @@ function ImportCenter() {
           if (v.household_name || v.address) {
             const { data: household } = await supabase
               .from("households")
-              .insert({ name: v.household_name ?? `${last} household`, address: v.address ?? null })
+              .insert({
+                name: v.household_name ?? `${last} household`,
+                address: v.address ?? null,
+                import_batch_id: batch.id,
+              })
               .select("id")
               .single();
             householdId = household?.id ?? null;
@@ -212,6 +216,7 @@ function ImportCenter() {
               household_id: householdId,
               tags: v.tags ? v.tags.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [],
               programs: v.programs ? v.programs.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [],
+              import_batch_id: batch.id,
             })
             .select("id")
             .single();
@@ -235,7 +240,14 @@ function ImportCenter() {
         if (!personId) continue;
 
         for (const key of ["email", "phone", "address", "birth_date", "met_source"] as FieldKey[]) {
-          if (v[key]) fieldSources.push({ person_id: personId, field_name: key, source, recorded_date: importDate });
+          if (v[key])
+            fieldSources.push({
+              person_id: personId,
+              field_name: key,
+              source,
+              recorded_date: importDate,
+              import_batch_id: batch.id,
+            });
         }
 
         if (v.amount) {
@@ -248,6 +260,7 @@ function ImportCenter() {
               campaign: v.campaign ?? null,
               source,
               notes: v.notes ?? null,
+              import_batch_id: batch.id,
             });
             await supabase.from("interactions").insert({
               person_id: personId,
@@ -255,6 +268,7 @@ function ImportCenter() {
               date: v.date ?? importDate,
               text: `Imported gift of $${amount}${v.campaign ? ` · ${v.campaign}` : ""}`,
               author: "Import",
+              import_batch_id: batch.id,
             });
           }
         } else if (v.notes) {
@@ -264,6 +278,7 @@ function ImportCenter() {
             date: importDate,
             text: v.notes,
             author: "Import",
+            import_batch_id: batch.id,
           });
         }
       }
