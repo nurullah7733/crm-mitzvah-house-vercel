@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { hebrewDateFromEnglish } from "@/lib/hebrew";
 import { personName } from "@/lib/names";
+import { fetchAll } from "@/lib/fetch-all";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -22,25 +23,23 @@ function useRefresh() {
 function usePeopleMini() {
   return useQuery({
     queryKey: ["people-mini"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
-        .order("display_name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
+          .order("display_name")
+          .order("id")
+          .range(f, t),
+      ),
   });
 }
 
 function useHouseholdsMini() {
   return useQuery({
     queryKey: ["households-mini"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("households").select("id, name, address").order("name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((f, t) => supabase.from("households").select("id, name, address").order("name").order("id").range(f, t)),
   });
 }
 
