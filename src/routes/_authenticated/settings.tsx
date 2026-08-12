@@ -117,6 +117,65 @@ function SettingsPage() {
 }
 
 function StaffPanel() {
+  return <StaffPanelInner />;
+}
+
+function RecalculateTotalsPanel() {
+  const queryClient = useQueryClient();
+
+  const { data: isAdmin } = useQuery({
+    queryKey: ["is-admin"],
+    queryFn: async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id;
+      if (!uid) return false;
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", uid)
+        .eq("role", "admin");
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    },
+  });
+
+  const recalc = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("recalculate_all_giving_totals");
+      if (error) throw error;
+      return data as number;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries();
+      toast.success(`Rebuilt giving totals for ${count} contacts`);
+      logChange("Recalculated all giving totals");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  if (!isAdmin) return null;
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="font-heading font-semibold">Giving totals</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Totals update themselves whenever a gift is added, changed or removed. Use this only if you
+        suspect a figure looks wrong — it rebuilds every contact's lifetime and this-year giving from
+        the actual donation records.
+      </p>
+      <Button
+        className="mt-3 rounded-xl"
+        variant="outline"
+        disabled={recalc.isPending}
+        onClick={() => recalc.mutate()}
+      >
+        <RefreshCw className="size-4" /> {recalc.isPending ? "Recalculating…" : "Recalculate all totals"}
+      </Button>
+    </section>
+  );
+}
+
+function StaffPanelInner() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
