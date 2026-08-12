@@ -286,6 +286,25 @@ function PersonPage() {
           { key: "first_name", label: "First name" },
           { key: "last_name", label: "Last name" },
           { key: "display_name", label: "Name shown" },
+          {
+            key: "role",
+            label: "Adult or child",
+            type: "select",
+            options: [
+              { value: "Adult", label: "Adult" },
+              { value: "Child", label: "Child" },
+            ],
+          },
+          {
+            key: "contact_type",
+            label: "Contact type",
+            type: "select",
+            options: [
+              { value: "individual", label: "Individual" },
+              { value: "organization", label: "Organization" },
+              { value: "foundation", label: "Foundation" },
+            ],
+          },
           { key: "email", label: "Email", type: "email" },
           { key: "phone", label: "Phone", type: "tel" },
           { key: "birth_date", label: "Birth date", type: "date" },

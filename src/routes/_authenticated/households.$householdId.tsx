@@ -1,8 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarDays, HandCoins, Phone, StickyNote } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
+import { EditableCard } from "@/components/EditableCard";
+import { logChange } from "@/lib/session-log";
 
 export const Route = createFileRoute("/_authenticated/households/$householdId")({
   head: () => ({
@@ -27,6 +30,7 @@ const ICONS: Record<string, typeof StickyNote> = {
 
 function HouseholdPage() {
   const { householdId } = Route.useParams();
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ["household", householdId],
@@ -78,6 +82,15 @@ function HouseholdPage() {
   const lifetime = members.reduce((s, p) => s + Number(p.lifetime_giving ?? 0), 0);
   const thisYear = members.reduce((s, p) => s + Number(p.this_year_giving ?? 0), 0);
 
+  async function saveHousehold(patch: Record<string, string | null>) {
+    const { error } = await supabase.from("households").update(patch as never).eq("id", householdId);
+    if (error) throw error;
+    toast.success("Saved");
+    logChange("Edited a household");
+    await queryClient.invalidateQueries({ queryKey: ["household", householdId] });
+    await queryClient.invalidateQueries({ queryKey: ["households"] });
+  }
+
   const feed = [
     ...(data?.interactions ?? []).map((i) => ({
       id: `i-${i.id}`,
@@ -118,6 +131,49 @@ function HouseholdPage() {
         {h.phone && <p className="mt-2 text-sm text-muted-foreground">Phone: {h.phone}</p>}
         {h.notes && <p className="mt-1 text-sm text-muted-foreground">{h.notes}</p>}
       </section>
+
+      <EditableCard
+        className="mt-5"
+        title="Household details"
+        values={h as unknown as Record<string, unknown>}
+        fields={[
+          { key: "name", label: "Household name", full: true },
+          { key: "address", label: "Address", full: true },
+          { key: "address_line2", label: "Address line 2" },
+          { key: "address_line3", label: "Address line 3" },
+          { key: "city", label: "City" },
+          { key: "state", label: "State" },
+          { key: "postal_code", label: "ZIP / postal code" },
+          { key: "county", label: "County" },
+          { key: "billing_address", label: "Billing address", full: true },
+          { key: "phone", label: "Phone", type: "tel" },
+          { key: "notes", label: "Notes", type: "textarea" },
+        ]}
+        onSave={saveHousehold}
+        editHint="Used for mailings. Gifts always stay attached to the individual who gave them."
+      >
+        <div className="space-y-2 text-sm">
+          {(
+            [
+              ["Address", h.address],
+              ["Address line 2", h.address_line2],
+              ["Address line 3", h.address_line3],
+              ["City", h.city],
+              ["State", h.state],
+              ["ZIP / postal code", h.postal_code],
+              ["County", h.county],
+              ["Billing address", h.billing_address],
+              ["Phone", h.phone],
+              ["Notes", h.notes],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="grid gap-0.5 border-b border-border py-1.5 last:border-0 sm:grid-cols-[170px_minmax(0,1fr)] sm:gap-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+              <p className="break-words text-sm text-foreground">{value ?? "—"}</p>
+            </div>
+          ))}
+        </div>
+      </EditableCard>
 
       <section className="mt-5">
         <h2 className="font-heading font-semibold text-foreground">Members</h2>
