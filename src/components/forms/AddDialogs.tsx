@@ -12,6 +12,7 @@ import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { hebrewDateFromEnglish } from "@/lib/hebrew";
 import { personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
+import { ContactPicker } from "@/components/forms/ContactPicker";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -274,22 +275,15 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
             <Field label="Last name">
               <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
             </Field>
-            <Field label="Works for (organization or foundation)" className="sm:col-span-2">
-              <select
-                value={form.parent_org_id}
-                onChange={(e) => set("parent_org_id", e.target.value)}
-                className={selectClass}
-              >
-                <option value="">Not linked</option>
-                {(peopleMini ?? [])
-                  .filter((p) => p.contact_type && p.contact_type !== "individual")
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {personName(p)}
-                    </option>
-                  ))}
-              </select>
-            </Field>
+            <ContactPicker
+              label="Works for (organization or foundation)"
+              className="sm:col-span-2"
+              types={["foundation", "organization"]}
+              value={form.parent_org_id}
+              onChange={(id) => set("parent_org_id", id)}
+              emptyLabel="Not linked"
+              newLabel="New organization"
+            />
           </>
         )}
         <Field label="Phone">
