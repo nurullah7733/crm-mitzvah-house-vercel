@@ -165,12 +165,12 @@ function PersonPage() {
     }
 
     if (Object.keys(personPatch).length) {
-      const { error } = await supabase.from("people").update(personPatch).eq("id", personId);
+      const { error } = await supabase.from("people").update(personPatch as never).eq("id", personId);
       if (error) throw error;
     }
     if (Object.keys(householdPatch).length) {
       if (!householdId) throw new Error("Add this person to a household before saving an address");
-      const { error } = await supabase.from("households").update(householdPatch).eq("id", householdId);
+      const { error } = await supabase.from("households").update(householdPatch as never).eq("id", householdId);
       if (error) throw error;
     }
 
