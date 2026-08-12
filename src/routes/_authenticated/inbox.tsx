@@ -66,7 +66,7 @@ function InboxPage() {
     }
     setParsed({
       name: file.name,
-      headers: splitCsvLine(lines[0]),
+      headers: splitCsvLine(lines[0] ?? ""),
       rows: lines.slice(1).map(splitCsvLine),
     });
   }

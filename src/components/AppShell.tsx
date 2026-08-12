@@ -8,8 +8,7 @@ import {
   CalendarDays,
   HandCoins,
   ListChecks,
-  MessageSquare,
-  Flame,
+  Inbox as InboxIcon,
   LogOut,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,8 +21,7 @@ const NAV = [
   { to: "/events", label: "Events", icon: CalendarDays },
   { to: "/donations", label: "Donations", icon: HandCoins },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
-  { to: "/interactions", label: "Inbox", icon: MessageSquare },
-  { to: "/yahrzeits", label: "Yahrzeits", icon: Flame },
+  { to: "/inbox", label: "Inbox", icon: InboxIcon },
 ] as const;
 
 export function AppShell({
