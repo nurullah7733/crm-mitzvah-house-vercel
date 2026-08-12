@@ -12,8 +12,10 @@ import { selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
 import {
   FIELD_LABELS,
+  composeAddress,
   guessMapping,
   matchRow,
+  rowDedupeKey,
   splitFullName,
   splitName,
   splitPeopleList,
@@ -197,8 +199,24 @@ function ImportCenter() {
 
   const analysed = useMemo<{ row: string[]; values: RowValues; match: MatchResult }[]>(() => {
     if (!sheet || !people) return [];
-    return sheet.rows.map((row) => {
+    const seen = new Map<string, number>();
+    return sheet.rows.map((row, index) => {
       const values = buildRowValues(row, mapping);
+      const key = rowDedupeKey(values);
+      // The same person listed twice in one file goes to review instead of being created twice.
+      if (key && seen.has(key)) {
+        const first = (seen.get(key) ?? 0) + 1;
+        return {
+          row,
+          values,
+          match: {
+            status: "ambiguous" as const,
+            reason: `Appears more than once in this file (also row ${first})`,
+            candidates: matchRow(values, people).candidates,
+          },
+        };
+      }
+      if (key) seen.set(key, index);
       return { row, values, match: matchRow(values, people) };
     });
   }, [sheet, people, mapping]);
@@ -301,8 +319,18 @@ function ImportCenter() {
           let personId = item.match.candidates[0]?.id ?? null;
           let householdId = item.match.candidates[0]?.household_id ?? null;
           const { first, last } = mainName(v);
+          const fullAddress = composeAddress(v);
+          const addressParts = {
+            address: fullAddress,
+            address_line2: v.address_line2 ?? null,
+            address_line3: v.address_line3 ?? null,
+            city: v.city ?? null,
+            state: v.state ?? null,
+            postal_code: v.postal_code ?? null,
+            county: v.county ?? null,
+          };
           const hasFamily = Boolean(
-            v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || v.address,
+            v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
           );
 
           if (item.match.status === "new") {
@@ -311,7 +339,7 @@ function ImportCenter() {
                 .from("households")
                 .insert({
                   name: v.household_name ?? `${last || first || "New"} household`,
-                  address: v.address ?? null,
+                  ...addressParts,
                   billing_address: v.billing_address ?? null,
                   import_batch_id: batch.id,
                 })
@@ -327,6 +355,7 @@ function ImportCenter() {
                 email: v.email ?? null,
                 phone: v.phone ?? null,
                 birth_date: isoDate(v.birth_date),
+                anniversary_date: isoDate(v.anniversary_date),
                 met_source: v.met_source ?? null,
                 school: v.school ?? null,
                 notes: v.person_notes ?? null,
@@ -346,6 +375,7 @@ function ImportCenter() {
               email?: string;
               phone?: string;
               birth_date?: string;
+              anniversary_date?: string;
               met_source?: string;
               school?: string;
               notes?: string;
@@ -354,18 +384,20 @@ function ImportCenter() {
             if (v.phone && !existing.phone) patch["phone"] = v.phone;
             const dob = isoDate(v.birth_date);
             if (dob) patch["birth_date"] = dob;
+            const anniversary = isoDate(v.anniversary_date);
+            if (anniversary) patch["anniversary_date"] = anniversary;
             if (v.met_source) patch["met_source"] = v.met_source;
             if (v.school) patch["school"] = v.school;
             if (v.person_notes) patch["notes"] = v.person_notes;
             if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
 
             // Existing person, new family details on the row: attach a household if they don't have one.
-            if (!householdId && (v.household_name || v.address || v.billing_address || v.children?.length)) {
+            if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
               const { data: household } = await supabase
                 .from("households")
                 .insert({
                   name: v.household_name ?? `${last || first || "New"} household`,
-                  address: v.address ?? null,
+                  ...addressParts,
                   billing_address: v.billing_address ?? null,
                   import_batch_id: batch.id,
                 })
@@ -373,9 +405,12 @@ function ImportCenter() {
                 .single();
               householdId = household?.id ?? null;
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
-            } else if (householdId && (v.address || v.billing_address)) {
-              const housePatch: { billing_address?: string } = {};
+            } else if (householdId && (fullAddress || v.billing_address)) {
+              const housePatch: Record<string, string> = {};
               if (v.billing_address) housePatch["billing_address"] = v.billing_address;
+              if (fullAddress) {
+                for (const [k, val] of Object.entries(addressParts)) if (val) housePatch[k] = val;
+              }
               if (Object.keys(housePatch).length > 0)
                 await supabase.from("households").update(housePatch).eq("id", householdId);
             }
@@ -438,6 +473,7 @@ function ImportCenter() {
             "address",
             "billing_address",
             "birth_date",
+            "anniversary_date",
             "met_source",
             "school",
           ] as FieldKey[]) {
