@@ -477,7 +477,82 @@ function ImportCenter() {
           <EmptyState label="No file loaded yet." />
         </div>
       )}
+
+      <ImportHistory />
     </AppShell>
+  );
+}
+
+function ImportHistory() {
+  const queryClient = useQueryClient();
+  const [undoing, setUndoing] = useState<string | null>(null);
+
+  const { data: batches } = useQuery({
+    queryKey: ["import-batches"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("import_batches")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  async function undo(id: string) {
+    setUndoing(id);
+    try {
+      const { data, error } = await supabase.rpc("undo_import", { _batch_id: id });
+      if (error) throw error;
+      const counts = (data ?? {}) as Record<string, number>;
+      toast.success(
+        `Import undone — removed ${counts["people"] ?? 0} contacts and ${counts["donations"] ?? 0} gifts it had added.`,
+      );
+      await queryClient.invalidateQueries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not undo that import");
+    } finally {
+      setUndoing(null);
+    }
+  }
+
+  if (!batches || batches.length === 0) return null;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="font-heading font-semibold text-foreground">Past imports</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Undoing an import removes only the records that import created. Anything you added or edited by hand stays.
+      </p>
+      <div className="mt-3 space-y-2">
+        {batches.map((b) => (
+          <div key={b.id} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">{b.filename}</p>
+              <p className="text-xs text-muted-foreground">
+                {b.import_date} · {b.total_rows} rows · {b.new_rows} new · {b.matched_rows} matched
+                {b.status === "reverted" ? " · undone" : ""}
+              </p>
+            </div>
+            {b.status === "reverted" ? (
+              <span className="justify-self-start rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                Undone
+              </span>
+            ) : (
+              <Button
+                variant="outline"
+                className="justify-self-start rounded-xl text-urgent"
+                disabled={undoing === b.id}
+                onClick={() => void undo(b.id)}
+              >
+                {undoing === b.id ? "Undoing…" : "Undo this import"}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
