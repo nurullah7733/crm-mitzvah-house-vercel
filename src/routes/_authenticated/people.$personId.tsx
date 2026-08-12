@@ -51,6 +51,7 @@ function today() {
 function PersonPage() {
   const { personId } = Route.useParams();
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
+  const [showAllGifts, setShowAllGifts] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: options } = useQuery({
@@ -91,7 +92,11 @@ function PersonPage() {
       const [person, interactions, donations, tasks, yahrzeits, registrations, sources] = await Promise.all([
         supabase.from("people").select("*, households(id, name, address, phone)").eq("id", personId).maybeSingle(),
         supabase.from("interactions").select("*").eq("person_id", personId).order("date", { ascending: false }),
-        supabase.from("donations").select("*").eq("person_id", personId).order("date", { ascending: false }),
+        supabase
+          .from("donations")
+          .select("*, campaigns(id, name), grants(id, name)")
+          .eq("person_id", personId)
+          .order("date", { ascending: false }),
         supabase.from("tasks").select("*").eq("person_id", personId).order("due_date"),
         supabase.from("yahrzeits").select("*").eq("person_id", personId),
         supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
@@ -159,6 +164,15 @@ function PersonPage() {
 
   const since = daysSince(p.last_activity_date);
   const bday = nextBirthday(p.birth_date);
+
+  const gifts = data?.donations ?? [];
+  const lifetime = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  const currentYear = new Date().getFullYear();
+  const thisYear = gifts
+    .filter((d) => (d.date ?? "").slice(0, 4) === String(currentYear))
+    .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  const giftSource = (d: (typeof gifts)[number]) =>
+    [d.source, d.campaigns?.name ?? d.campaign, d.grants?.name, d.method].filter(Boolean).join(" / ") || "Manual entry";
 
   return (
     <AppShell
@@ -238,12 +252,32 @@ function PersonPage() {
           </Card>
 
           <Card title="Giving">
-            <Stat label="Lifetime" value={currency(p.lifetime_giving)} money />
-            <Stat label="This year" value={currency(p.this_year_giving)} money />
-            <Stat
-              label="Last gift"
-              value={`${currency(p.last_gift_amount)} · ${formatDate(p.last_gift_date)}`}
-            />
+            <Stat label="Lifetime" value={currency(lifetime)} money />
+            <Stat label="This year" value={currency(thisYear)} money />
+            <div className="pt-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {showAllGifts ? `All donations (${gifts.length})` : "Most recent donations"}
+              </p>
+              {gifts.length === 0 && <p className="text-sm text-muted-foreground">No donations yet.</p>}
+              {(showAllGifts ? gifts : gifts.slice(0, 3)).map((d) => (
+                <div key={d.id} className="flex items-start justify-between gap-3 border-b border-border py-2 last:border-0">
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground">{formatDate(d.date)}</p>
+                    <p className="text-xs text-muted-foreground">{giftSource(d)}</p>
+                  </div>
+                  <p className="shrink-0 font-heading text-sm font-semibold text-money">{currency(d.amount)}</p>
+                </div>
+              ))}
+              {gifts.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllGifts((s) => !s)}
+                  className="mt-2 text-xs text-primary hover:underline"
+                >
+                  {showAllGifts ? "Show less" : `Show all ${gifts.length} donations`}
+                </button>
+              )}
+            </div>
           </Card>
 
           <Card title="Birthday">
