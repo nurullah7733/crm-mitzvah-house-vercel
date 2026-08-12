@@ -101,7 +101,7 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
     out.children = childNames.map((name, idx) => ({
       name,
       ...(childDobs[idx] ? { birth_date: childDobs[idx]! } : {}),
-      ...(childSchools[idx] ?? childSchools[0] ? { school: (childSchools[idx] ?? childSchools[0])! } : {}),
+      ...(childSchools[idx] ? { school: childSchools[idx]! } : {}),
     }));
   }
   return out;
