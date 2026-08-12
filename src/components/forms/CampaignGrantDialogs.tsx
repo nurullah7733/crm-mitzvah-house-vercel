@@ -40,12 +40,15 @@ function useContacts(types: readonly string[]) {
   return useQuery({
     queryKey: ["contacts-by-type", types.join(",")],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("id, display_name, first_name, last_name, contact_type")
-        .in("contact_type", [...types]);
-      if (error) throw error;
-      return (data ?? []).sort((a, b) => personName(a).localeCompare(personName(b)));
+      const data = await fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, contact_type")
+          .in("contact_type", [...types])
+          .order("id")
+          .range(f, t),
+      );
+      return data.sort((a, b) => personName(a).localeCompare(personName(b)));
     },
   });
 }
