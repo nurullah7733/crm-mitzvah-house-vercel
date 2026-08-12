@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
+import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -55,6 +56,7 @@ function PersonPage() {
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
   const [showAllGifts, setShowAllGifts] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: options } = useQuery({
@@ -186,6 +188,13 @@ function PersonPage() {
         <>
           <button
             type="button"
+            onClick={() => setEditOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
+          >
+            Edit contact
+          </button>
+          <button
+            type="button"
             onClick={() => setMergeOpen(true)}
             className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
           >
@@ -208,6 +217,27 @@ function PersonPage() {
         onMerged={(survivingId) => {
           if (survivingId !== personId) navigate({ to: "/people/$personId", params: { personId: survivingId } });
         }}
+      />
+      <EditRecordDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        table="people"
+        id={personId}
+        record={p as unknown as Record<string, unknown>}
+        title="Edit contact"
+        deleteLabel="Remove this contact"
+        onDeleted={() => navigate({ to: "/people", search: {} })}
+        fields={[
+          { key: "first_name", label: "First name" },
+          { key: "last_name", label: "Last name" },
+          { key: "display_name", label: "Name shown" },
+          { key: "email", label: "Email", type: "email" },
+          { key: "phone", label: "Phone", type: "tel" },
+          { key: "birth_date", label: "Birth date", type: "date" },
+          { key: "owner", label: "Owner" },
+          { key: "met_source", label: "Where we met" },
+          { key: "met_date", label: "Date we met", type: "date" },
+        ]}
       />
       {/* Profile header */}
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
