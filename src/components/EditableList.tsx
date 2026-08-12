@@ -29,9 +29,16 @@ export function EditableList({
   const { data } = useQuery({
     queryKey,
     queryFn: async () => {
-      let query = supabase.from(table).select("id, label").order("label");
-      if (category) query = supabase.from(table).select("id, label").eq("category", category).order("label");
-      const { data, error } = await query;
+      if (table === "tag_options" && category) {
+        const { data, error } = await supabase
+          .from("tag_options")
+          .select("id, label")
+          .eq("category", category)
+          .order("label");
+        if (error) throw error;
+        return data;
+      }
+      const { data, error } = await supabase.from(table).select("id, label").order("label");
       if (error) throw error;
       return data;
     },
@@ -41,8 +48,12 @@ export function EditableList({
 
   const add = useMutation({
     mutationFn: async (label: string) => {
-      const payload = category ? { label, category } : { label };
-      const { error } = await supabase.from(table).insert(payload);
+      if (table === "tag_options") {
+        const { error } = await supabase.from("tag_options").insert({ label, category: category ?? "general" });
+        if (error) throw error;
+        return;
+      }
+      const { error } = await supabase.from(table).insert({ label });
       if (error) throw error;
     },
     onSuccess: () => {
