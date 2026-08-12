@@ -29,7 +29,7 @@ export function ResponsiveModal({
   open: boolean;
   onOpenChange: (value: boolean) => void;
   title: string;
-  description?: string;
+  description?: string | undefined;
   children: ReactNode;
   footer?: ReactNode;
 }) {
