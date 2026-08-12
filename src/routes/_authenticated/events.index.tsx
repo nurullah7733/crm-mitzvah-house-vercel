@@ -1,10 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
+import { Button } from "@/components/ui/button";
+import { AddEventDialog } from "@/components/forms/AddDialogs";
 
-export const Route = createFileRoute("/_authenticated/events")({
+export const Route = createFileRoute("/_authenticated/events/")({
   head: () => ({
     meta: [
       { title: "Events | Mitzvah House CRM" },
@@ -18,6 +21,7 @@ export const Route = createFileRoute("/_authenticated/events")({
 
 function EventsPage() {
   const [program, setProgram] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["events-list"],
@@ -35,7 +39,15 @@ function EventsPage() {
   const events = (data ?? []).filter((e) => !program || e.program === program);
 
   return (
-    <AppShell title="Events" subtitle="Programs are filters here, not a separate section">
+    <AppShell
+      title="Events"
+      subtitle="Programs are filters here, not a separate section"
+      action={
+        <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
+          <Plus className="size-4" /> Add event
+        </Button>
+      }
+    >
       <div className="flex flex-wrap gap-2">
         {programs.map((p) => (
           <button
@@ -55,7 +67,12 @@ function EventsPage() {
       <div className="mt-5 space-y-3">
         {isLoading && <EmptyState label="Loading events…" />}
         {events.map((e) => (
-          <section key={e.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <Link
+            key={e.id}
+            to="/events/$eventId"
+            params={{ eventId: e.id }}
+            className="block rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/50"
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="font-heading font-semibold text-foreground">{e.name}</h2>
@@ -78,20 +95,19 @@ function EventsPage() {
               {(e.registrations ?? [])
                 .filter((r) => r.people)
                 .map((r) => (
-                  <Link
+                  <span
                     key={r.people!.id}
-                    to="/people/$personId"
-                    params={{ personId: r.people!.id }}
-                    className="rounded-full border border-border px-3 py-1 text-xs text-foreground transition hover:border-primary hover:text-primary"
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground"
                   >
                     {r.people!.first_name} {r.people!.last_name} · {r.status}
-                  </Link>
+                  </span>
                 ))}
             </div>
-          </section>
+          </Link>
         ))}
         {!isLoading && events.length === 0 && <EmptyState label="No events for that program." />}
       </div>
+      <AddEventDialog open={addOpen} onOpenChange={setAddOpen} />
     </AppShell>
   );
 }

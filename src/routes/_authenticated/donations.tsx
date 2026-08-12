@@ -1,7 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AddDonationDialog } from "@/components/forms/AddDialogs";
+import { Field, selectClass } from "@/components/forms/fields";
 
 export const Route = createFileRoute("/_authenticated/donations")({
   head: () => ({
@@ -16,6 +22,11 @@ export const Route = createFileRoute("/_authenticated/donations")({
 });
 
 function DonationsPage() {
+  const [addOpen, setAddOpen] = useState(false);
+  const [year, setYear] = useState("all");
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
+
   const { data, isLoading } = useQuery({
     queryKey: ["donations-list"],
     queryFn: async () => {
@@ -28,13 +39,56 @@ function DonationsPage() {
     },
   });
 
-  const total = (data ?? []).reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  const years = Array.from(new Set((data ?? []).map((d) => (d.date ?? "").slice(0, 4)).filter(Boolean))).sort(
+    (a, b) => Number(b) - Number(a),
+  );
+
+  const gifts = (data ?? []).filter((d) => {
+    if (year !== "all" && (d.date ?? "").slice(0, 4) !== year) return false;
+    const amount = Number(d.amount ?? 0);
+    if (min && amount < Number(min)) return false;
+    if (max && amount > Number(max)) return false;
+    return true;
+  });
+  const total = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
 
   return (
-    <AppShell title="Donations" subtitle={`${data?.length ?? 0} gifts · ${currency(total)} total`}>
-      <div className="space-y-3">
+    <AppShell
+      title="Donations"
+      subtitle={`${gifts.length} gifts shown · ${currency(total)} total`}
+      action={
+        <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
+          <Plus className="size-4" /> Log donation
+        </Button>
+      }
+    >
+      <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-3">
+        <Field label="Year">
+          <select value={year} onChange={(e) => setYear(e.target.value)} className={selectClass}>
+            <option value="all">All years</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Min amount">
+          <Input className="text-base" type="number" inputMode="numeric" value={min} onChange={(e) => setMin(e.target.value)} />
+        </Field>
+        <Field label="Max amount">
+          <Input className="text-base" type="number" inputMode="numeric" value={max} onChange={(e) => setMax(e.target.value)} />
+        </Field>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-money/30 bg-money/5 px-4 py-3 text-sm">
+        Running total of what's shown: <span className="font-heading font-semibold text-money">{currency(total)}</span>
+      </div>
+
+      <div className="mt-4 space-y-3">
         {isLoading && <EmptyState label="Loading donations…" />}
-        {data?.map((d) => (
+        {!isLoading && gifts.length === 0 && <EmptyState label="No gifts match those filters." />}
+        {gifts.map((d) => (
           <div key={d.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -60,6 +114,7 @@ function DonationsPage() {
           </div>
         ))}
       </div>
+      <AddDonationDialog open={addOpen} onOpenChange={setAddOpen} />
     </AppShell>
   );
 }

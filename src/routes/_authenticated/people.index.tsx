@@ -1,22 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChevronDown, Plus } from "lucide-react";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { AddPersonDialog } from "@/components/forms/AddDialogs";
+import { Field } from "@/components/forms/fields";
 import { Label } from "@/components/ui/label";
-import { hebrewDateFromEnglish, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
@@ -286,15 +279,6 @@ function PeoplePage() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <div className="mt-1">{children}</div>
-    </div>
-  );
-}
-
 function Collapsible({
   open,
   onToggle,
@@ -314,145 +298,5 @@ function Collapsible({
       </button>
       {open && <div className="mt-3">{children}</div>}
     </div>
-  );
-}
-
-function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState({
-    first_name: "",
-    last_name: "",
-    phone: "",
-    email: "",
-    role: "Adult",
-    birth_date: "",
-    household_id: "",
-    met_source: "",
-  });
-  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const hebrew = hebrewDateFromEnglish(form.birth_date);
-
-  const { data: households } = useQuery({
-    queryKey: ["households-mini"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("households").select("id, name").order("name");
-      if (error) throw error;
-      return data;
-    },
-  });
-  const { data: metSources } = useQuery({
-    queryKey: ["met-source-options"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("met_source_options").select("label").order("label");
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const save = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from("people").insert({
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        phone: form.phone || null,
-        email: form.email || null,
-        role: form.role,
-        birth_date: form.birth_date || null,
-        household_id: form.household_id || null,
-        met_source: form.met_source || null,
-        met_date: new Date().toISOString().slice(0, 10),
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Person added");
-      queryClient.invalidateQueries({ queryKey: ["people-list"] });
-      onOpenChange(false);
-      setForm({ first_name: "", last_name: "", phone: "", email: "", role: "Adult", birth_date: "", household_id: "", met_source: "" });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="font-heading">Add person</DialogTitle>
-          <DialogDescription>Only a name is required — everything else can come later.</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="First name">
-            <Input className="text-base" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
-          </Field>
-          <Field label="Last name">
-            <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
-          </Field>
-          <Field label="Phone">
-            <Input className="text-base" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
-          </Field>
-          <Field label="Email">
-            <Input className="text-base" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
-          </Field>
-          <Field label="Role">
-            <select
-              value={form.role}
-              onChange={(e) => set("role", e.target.value)}
-              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base"
-            >
-              <option value="Adult">Adult</option>
-              <option value="Child">Child</option>
-            </select>
-          </Field>
-          <Field label="Household">
-            <select
-              value={form.household_id}
-              onChange={(e) => set("household_id", e.target.value)}
-              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base"
-            >
-              <option value="">No household</option>
-              {(households ?? []).map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="sm:col-span-2">
-            <Field label="Birthday">
-              <Input className="text-base" type="date" value={form.birth_date} onChange={(e) => set("birth_date", e.target.value)} />
-            </Field>
-            {hebrew && <p className="mt-1 text-xs text-primary">Hebrew date: {hebrew}</p>}
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="How we met">
-              <select
-                value={form.met_source}
-                onChange={(e) => set("met_source", e.target.value)}
-                className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base"
-              >
-                <option value="">Not recorded</option>
-                {(metSources ?? []).map((m) => (
-                  <option key={m.label} value={m.label}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            className="rounded-xl"
-            disabled={!form.first_name.trim() || !form.last_name.trim() || save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Saving…" : "Save person"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
