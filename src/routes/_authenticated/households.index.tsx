@@ -198,7 +198,7 @@ function HouseholdsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("households")
-        .select("*, people(id, first_name, last_name, role, lifetime_giving, this_year_giving)")
+        .select("*, people(id, first_name, last_name, role, email, phone, lifetime_giving, this_year_giving)")
         .order("name");
       if (error) throw error;
       return data;
