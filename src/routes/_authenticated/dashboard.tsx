@@ -115,28 +115,6 @@ function Dashboard() {
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Upcoming grant deadlines" to="/grants" linkLabel="All grants">
-          {grantDeadlines.length === 0 && <p className="text-sm text-muted-foreground">No grant deadlines ahead.</p>}
-          {grantDeadlines.map((d) => {
-            const days = Math.round((new Date(d.date).getTime() - new Date(today).getTime()) / 86400000);
-            return (
-              <Link
-                key={d.id}
-                to="/grants/$grantId"
-                params={{ grantId: d.grantId }}
-                className="block border-b border-border py-2.5 last:border-0"
-              >
-                <p className="text-sm text-primary">
-                  {d.kind} · {d.name}
-                </p>
-                <p className={`text-xs ${days <= 14 ? "text-urgent" : "text-muted-foreground"}`}>
-                  Due {formatDate(d.date)} — in {days} {days === 1 ? "day" : "days"} · {personName(d.funder)}
-                </p>
-              </Link>
-            );
-          })}
-        </Panel>
-
         <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
           {data?.overdue.length === 0 && <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>}
           {data?.overdue.map((t) => (
@@ -214,6 +192,28 @@ function Dashboard() {
               <p className="shrink-0 text-sm text-muted-foreground">{currency(p.lifetime_giving)} lifetime</p>
             </Link>
           ))}
+        </Panel>
+
+        <Panel title="Upcoming grant deadlines" to="/grants" linkLabel="All grants">
+          {grantDeadlines.length === 0 && <p className="text-sm text-muted-foreground">No grant deadlines ahead.</p>}
+          {grantDeadlines.map((d) => {
+            const days = Math.round((new Date(d.date).getTime() - new Date(today).getTime()) / 86400000);
+            return (
+              <Link
+                key={d.id}
+                to="/grants/$grantId"
+                params={{ grantId: d.grantId }}
+                className="block border-b border-border py-2.5 last:border-0"
+              >
+                <p className="text-sm text-primary">
+                  {d.kind} · {d.name}
+                </p>
+                <p className={`text-xs ${days <= 14 ? "text-urgent" : "text-muted-foreground"}`}>
+                  Due {formatDate(d.date)} — in {days} {days === 1 ? "day" : "days"} · {personName(d.funder)}
+                </p>
+              </Link>
+            );
+          })}
         </Panel>
 
         <SessionLogPanel />
