@@ -72,8 +72,9 @@ export type Intent =
 
 export type SearchPerson = {
   id: string;
-  first_name: string;
-  last_name: string;
+  first_name: string | null;
+  last_name: string | null;
+  display_name?: string | null;
   email: string | null;
   phone: string | null;
   met_source: string | null;
