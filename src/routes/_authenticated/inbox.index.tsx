@@ -150,9 +150,10 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
 function mainName(v: RowValues) {
   const base = splitName(v);
   const first = [base.first, base.middle].filter(Boolean).join(" ").trim();
-  const last = base.last.trim();
-  const display = [first, last, base.suffix].filter(Boolean).join(" ").trim();
-  return { first, last, display };
+  const surname = base.last.trim();
+  const last = [surname, base.suffix].filter(Boolean).join(" ").trim();
+  const display = [first, last].filter(Boolean).join(" ").trim();
+  return { first, last, surname, display };
 }
 
 function isoDate(raw: string | undefined) {
@@ -416,7 +417,7 @@ function ImportCenter() {
 
           let personId = item.match.candidates[0]?.id ?? null;
           let householdId = item.match.candidates[0]?.household_id ?? null;
-          const { first, last, display } = mainName(v);
+          const { first, last, surname, display } = mainName(v);
           const displayName = display || null;
           const personRole = roleFromRow({
             ...(v.role ? { role: v.role } : {}),
@@ -436,7 +437,7 @@ function ImportCenter() {
           const hasFamily = Boolean(
             v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
           );
-          const householdName = v.household_name ?? `${last || first || "New"} household`;
+          const householdName = v.household_name ?? `${surname || first || "New"} household`;
 
           if (item.match.status === "new") {
             if (hasFamily || v.billing_address) {
