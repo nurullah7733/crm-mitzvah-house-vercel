@@ -148,6 +148,47 @@ function PersonPage() {
       </AppShell>
     );
   }
+  const householdId = p.household_id;
+
+  /**
+   * Saves an inline edit. Address fields live on the household, everything else on
+   * the person. Each changed field also records that it was edited by hand, and the
+   * change history is written automatically by the database.
+   */
+  async function savePersonFields(patch: Record<string, string | null>) {
+    const householdKeys = ["address", "billing_address"] as const;
+    const householdPatch: Record<string, string | null> = {};
+    const personPatch: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if ((householdKeys as readonly string[]).includes(key)) householdPatch[key] = value;
+      else personPatch[key] = value;
+    }
+
+    if (Object.keys(personPatch).length) {
+      const { error } = await supabase.from("people").update(personPatch).eq("id", personId);
+      if (error) throw error;
+    }
+    if (Object.keys(householdPatch).length) {
+      if (!householdId) throw new Error("Add this person to a household before saving an address");
+      const { error } = await supabase.from("households").update(householdPatch).eq("id", householdId);
+      if (error) throw error;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    await supabase.from("field_sources").insert(
+      Object.keys(patch).map((field_name) => ({
+        person_id: personId,
+        field_name,
+        source: "Edited by staff",
+        recorded_date: today,
+      })),
+    );
+
+    toast.success("Saved");
+    logChange("Edited a contact");
+    await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+    await queryClient.invalidateQueries({ queryKey: ["people"] });
+  }
 
   const sourceFor = (field: string) => {
     const s = (data?.sources ?? []).find((x) => x.field_name === field);
