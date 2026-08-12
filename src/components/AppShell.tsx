@@ -1,0 +1,140 @@
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import {
+  LayoutDashboard,
+  Users,
+  Home,
+  CalendarDays,
+  HandCoins,
+  ListChecks,
+  MessageSquare,
+  Flame,
+  LogOut,
+} from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+
+const NAV = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/people", label: "People", icon: Users },
+  { to: "/households", label: "Households", icon: Home },
+  { to: "/events", label: "Events", icon: CalendarDays },
+  { to: "/donations", label: "Donations", icon: HandCoins },
+  { to: "/tasks", label: "Tasks", icon: ListChecks },
+  { to: "/interactions", label: "Inbox", icon: MessageSquare },
+  { to: "/yahrzeits", label: "Yahrzeits", icon: Flame },
+] as const;
+
+export function AppShell({
+  title,
+  subtitle,
+  children,
+  action,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  async function signOut() {
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    await supabase.auth.signOut();
+    navigate({ to: "/auth", replace: true });
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-border bg-primary px-4 py-6 lg:flex">
+        <div className="px-2">
+          <p className="font-heading text-lg font-semibold text-primary-foreground">Mitzvah House</p>
+          <p className="text-xs text-primary-foreground/70">Relationship CRM</p>
+        </div>
+        <nav className="mt-8 flex flex-1 flex-col gap-1">
+          {NAV.map(({ to, label, icon: Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-primary-foreground/80 transition hover:bg-white/10 hover:text-primary-foreground"
+              activeProps={{ className: "bg-white/15 !text-primary-foreground font-medium" }}
+            >
+              <Icon className="size-4" />
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <Button
+          variant="ghost"
+          className="justify-start gap-3 rounded-xl px-3 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground"
+          onClick={signOut}
+        >
+          <LogOut className="size-4" /> Sign out
+        </Button>
+      </aside>
+
+      <div className="lg:pl-60">
+        <header className="sticky top-0 z-10 border-b border-border bg-card/95 px-5 py-4 backdrop-blur sm:px-8">
+          <div className="mx-auto flex max-w-5xl items-start justify-between gap-4">
+            <div>
+              <h1 className="font-heading text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
+              {subtitle ? <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {action}
+              <Button variant="outline" size="sm" className="rounded-xl lg:hidden" onClick={signOut}>
+                Sign out
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-5xl px-5 pb-28 pt-6 sm:px-8 lg:pb-12">{children}</main>
+      </div>
+
+      {/* Mobile bottom tabs */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 flex overflow-x-auto border-t border-border bg-card px-1 py-2 lg:hidden">
+        {NAV.map(({ to, label, icon: Icon }) => (
+          <Link
+            key={to}
+            to={to}
+            className="flex min-w-[68px] flex-1 flex-col items-center gap-1 rounded-xl px-2 py-1 text-[11px] text-muted-foreground"
+            activeProps={{ className: "!text-primary font-medium bg-primary/10" }}
+          >
+            <Icon className="size-5" />
+            {label}
+          </Link>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+export function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
+export function currency(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
+}
+
+export function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
