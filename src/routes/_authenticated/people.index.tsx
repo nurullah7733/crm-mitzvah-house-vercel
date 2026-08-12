@@ -11,6 +11,7 @@ import { Field } from "@/components/forms/fields";
 import { Label } from "@/components/ui/label";
 import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { downloadCsv, stamp } from "@/lib/csv";
+import { personInitials, personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
@@ -65,7 +66,7 @@ function PeoplePage() {
       const { data, error } = await supabase
         .from("people")
         .select("*, households(id, name), yahrzeits(hebrew_month, hebrew_day)")
-        .order("last_name");
+        .order("display_name");
       if (error) throw error;
       return data;
     },
@@ -83,7 +84,7 @@ function PeoplePage() {
 
   const people = rows
     .filter((p) => {
-      const hay = `${p.first_name} ${p.last_name} ${p.email ?? ""} ${p.phone ?? ""} ${p.households?.name ?? ""}`.toLowerCase();
+      const hay = `${personName(p)} ${p.email ?? ""} ${p.phone ?? ""} ${p.households?.name ?? ""}`.toLowerCase();
       if (q && !hay.includes(q.toLowerCase())) return false;
 
       if (chip === "Donors" && Number(p.lifetime_giving ?? 0) <= 0) return false;
@@ -109,7 +110,7 @@ function PeoplePage() {
     .sort((a, b) => {
       if (sort === "birthday") return (a.bdayDays ?? 9999) - (b.bdayDays ?? 9999);
       if (sort === "activity") return (a.sinceActivity ?? 99999) - (b.sinceActivity ?? 99999);
-      return `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`);
+      return personName(a).localeCompare(personName(b));
     });
 
   return (
@@ -125,8 +126,10 @@ function PeoplePage() {
               downloadCsv(
                 `people-${stamp()}`,
                 people.map((p) => ({
-                  first_name: p.first_name,
-                  last_name: p.last_name,
+                  name: personName(p),
+                  first_name: p.first_name ?? "",
+                  last_name: p.last_name ?? "",
+                  contact_type: p.contact_type ?? "individual",
                   email: p.email ?? "",
                   phone: p.phone ?? "",
                   household: p.households?.name ?? "",
@@ -252,9 +255,11 @@ function PeoplePage() {
                 <tr key={p.id} className="border-t border-border hover:bg-muted/40">
                   <td className="px-4 py-3">
                     <Link to="/people/$personId" params={{ personId: p.id }} className="font-medium text-primary">
-                      {p.first_name} {p.last_name}
+                      {personName(p)}
                     </Link>
-                    <span className="ml-2 text-xs text-muted-foreground">{p.role}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {p.contact_type && p.contact_type !== "individual" ? p.contact_type : p.role}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.households?.name ?? "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">{p.email ?? p.phone ?? "—"}</td>
@@ -282,11 +287,11 @@ function PeoplePage() {
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
-                  {initials(p.first_name, p.last_name)}
+                  {personInitials(p)}
                 </span>
                 <div className="min-w-0">
                   <p className="truncate font-heading font-semibold">
-                    {p.first_name} {p.last_name}
+                    {personName(p)}
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
                     {p.households?.name ?? "No household"} · {p.email ?? p.phone ?? "No contact"}
