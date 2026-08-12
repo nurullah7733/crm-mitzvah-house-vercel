@@ -25,7 +25,6 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,33 +43,13 @@ function AuthPage() {
     setError(null);
     setMessage(null);
 
-    if (mode === "signin") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setBusy(false);
-      if (error) {
-        setError(error.message);
-        return;
-      }
-      navigate({ to: "/", replace: true });
-      return;
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) {
       setError(error.message);
       return;
     }
-    if (data.session) {
-      navigate({ to: "/", replace: true });
-      return;
-    }
-    setMessage("Account created. Check your email for the confirmation link, then sign in.");
-    setMode("signin");
+    navigate({ to: "/", replace: true });
   }
 
   return (
@@ -81,7 +60,7 @@ function AuthPage() {
             MH
           </div>
           <h1 className="mt-5 text-2xl text-foreground">Mitzvah House</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Staff sign in</p>
+          <p className="mt-1 text-sm text-muted-foreground">Staff sign in — invite only</p>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
@@ -105,7 +84,7 @@ function AuthPage() {
               <Input
                 id="password"
                 type="password"
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                autoComplete="current-password"
                 required
                 minLength={6}
                 value={password}
@@ -118,21 +97,13 @@ function AuthPage() {
             {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
 
             <Button type="submit" className="h-12 w-full rounded-xl text-base" disabled={busy}>
-              {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+              {busy ? "Please wait…" : "Sign in"}
             </Button>
           </form>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMode(mode === "signin" ? "signup" : "signin");
-              setError(null);
-              setMessage(null);
-            }}
-            className="mt-5 w-full text-sm text-primary underline-offset-4 hover:underline"
-          >
-            {mode === "signin" ? "Need an account? Create one" : "Already have an account? Sign in"}
-          </button>
+          <p className="mt-5 text-center text-sm text-muted-foreground">
+            Accounts are created by an administrator. Ask a director if you need access.
+          </p>
         </div>
       </div>
     </main>
