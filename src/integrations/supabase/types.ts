@@ -14,24 +14,7 @@ export type Database = {
   }
   public: {
     Tables: {
-      connection_check: {
-        Row: {
-          created_at: string
-          id: string
-          status: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          status: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          status?: string
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Views: {
       [_ in never]: never
