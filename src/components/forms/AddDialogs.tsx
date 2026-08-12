@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { hebrewDateFromEnglish } from "@/lib/hebrew";
+import { personName } from "@/lib/names";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -24,8 +25,8 @@ function usePeopleMini() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("people")
-        .select("id, first_name, last_name, lifetime_giving, this_year_giving")
-        .order("last_name");
+        .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
+        .order("display_name");
       if (error) throw error;
       return data;
     },
@@ -70,6 +71,9 @@ export function useProgramOptions() {
 const EMPTY_PERSON = {
   first_name: "",
   last_name: "",
+  contact_type: "individual",
+  org_name: "",
+  parent_org_id: "",
   phone: "",
   email: "",
   met_source: "",
@@ -96,6 +100,8 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const { data: households } = useHouseholdsMini();
   const { data: metSources } = useMetSourceOptions();
   const hebrew = hebrewDateFromEnglish(form.birth_date);
+  const { data: peopleMini } = usePeopleMini();
+  const isOrg = form.contact_type !== "individual";
 
   const addSource = useMutation({
     mutationFn: async (label: string) => {
@@ -119,7 +125,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.first_name.trim() && !form.last_name.trim()) throw new Error("A name is required");
+      if (isOrg) {
+        if (!form.org_name.trim()) throw new Error("An organization name is required");
+      } else if (!form.first_name.trim() && !form.last_name.trim()) {
+        throw new Error("A name is required");
+      }
 
       let householdId = form.household_id || null;
       if (form.new_household.trim()) {
@@ -143,8 +153,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       const { data: person, error } = await supabase
         .from("people")
         .insert({
-          first_name: form.first_name.trim() || "—",
-          last_name: form.last_name.trim() || "",
+          contact_type: form.contact_type,
+          display_name: isOrg ? form.org_name.trim() : null,
+          first_name: isOrg ? null : form.first_name.trim() || null,
+          last_name: isOrg ? null : form.last_name.trim() || null,
+          parent_org_id: form.parent_org_id || null,
           phone: form.phone.trim() || null,
           email: form.email.trim() || null,
           met_source: form.met_source || null,
@@ -205,12 +218,43 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       }
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="First name">
-          <Input className="text-base" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
+        <Field label="Contact type" className="sm:col-span-2">
+          <select value={form.contact_type} onChange={(e) => set("contact_type", e.target.value)} className={selectClass}>
+            <option value="individual">Individual</option>
+            <option value="organization">Organization</option>
+            <option value="foundation">Foundation</option>
+          </select>
         </Field>
-        <Field label="Last name">
-          <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
-        </Field>
+        {isOrg ? (
+          <Field label="Organization name" className="sm:col-span-2">
+            <Input className="text-base" value={form.org_name} onChange={(e) => set("org_name", e.target.value)} />
+          </Field>
+        ) : (
+          <>
+            <Field label="First name">
+              <Input className="text-base" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
+            </Field>
+            <Field label="Last name">
+              <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
+            </Field>
+            <Field label="Works for (organization or foundation)" className="sm:col-span-2">
+              <select
+                value={form.parent_org_id}
+                onChange={(e) => set("parent_org_id", e.target.value)}
+                className={selectClass}
+              >
+                <option value="">Not linked</option>
+                {(peopleMini ?? [])
+                  .filter((p) => p.contact_type && p.contact_type !== "individual")
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {personName(p)}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          </>
+        )}
         <Field label="Phone">
           <Input className="text-base" type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         </Field>
@@ -392,12 +436,31 @@ export function AddDonationDialog({
     person_id: personId ?? "",
     amount: "",
     date: todayISO(),
-    campaign: "",
+    campaign_id: "",
+    grant_id: "",
     method: "",
     source: "",
     notes: "",
   });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const { data: campaigns } = useQuery({
+    queryKey: ["campaigns-picker"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("campaigns").select("id, name").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: grants } = useQuery({
+    queryKey: ["grants-picker"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("grants").select("id, name").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+  const campaignName = (campaigns ?? []).find((c) => c.id === form.campaign_id)?.name ?? "";
 
   const save = useMutation({
     mutationFn: async () => {
@@ -410,7 +473,9 @@ export function AddDonationDialog({
         person_id: pid,
         amount,
         date: form.date || todayISO(),
-        campaign: form.campaign.trim() || null,
+        campaign_id: form.campaign_id || null,
+        campaign: campaignName || null,
+        grant_id: form.grant_id || null,
         method: form.method.trim() || null,
         source: form.source.trim() || null,
         notes: form.notes.trim() || null,
@@ -434,7 +499,7 @@ export function AddDonationDialog({
         person_id: pid,
         type: "donation",
         date: form.date || todayISO(),
-        text: `Gift of $${amount.toLocaleString()}${form.campaign ? ` — ${form.campaign}` : ""}${
+        text: `Gift of $${amount.toLocaleString()}${campaignName ? ` — ${campaignName}` : ""}${
           form.notes ? ` · ${form.notes}` : ""
         }`,
         author: null,
@@ -444,7 +509,7 @@ export function AddDonationDialog({
       toast.success("Donation logged");
       logChange("Logged a donation");
       refresh();
-      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign: "", method: "", source: "", notes: "" });
+      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", method: "", source: "", notes: "" });
       onOpenChange(false);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -474,7 +539,7 @@ export function AddDonationDialog({
               <option value="">Choose a person</option>
               {(people ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.first_name} {p.last_name}
+                  {personName(p)}
                 </option>
               ))}
             </select>
@@ -495,7 +560,24 @@ export function AddDonationDialog({
           <Input className="text-base" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
         </Field>
         <Field label="Campaign">
-          <Input className="text-base" value={form.campaign} onChange={(e) => set("campaign", e.target.value)} />
+          <select value={form.campaign_id} onChange={(e) => set("campaign_id", e.target.value)} className={selectClass}>
+            <option value="">No campaign</option>
+            {(campaigns ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Grant payment (optional)" className="sm:col-span-2">
+          <select value={form.grant_id} onChange={(e) => set("grant_id", e.target.value)} className={selectClass}>
+            <option value="">Not a grant payment</option>
+            {(grants ?? []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="Method">
           <Input className="text-base" placeholder="Check, card, cash…" value={form.method} onChange={(e) => set("method", e.target.value)} />
@@ -717,7 +799,7 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
               <option value="">No specific person</option>
               {(people ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.first_name} {p.last_name}
+                  {personName(p)}
                 </option>
               ))}
             </select>

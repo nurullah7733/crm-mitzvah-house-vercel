@@ -7,6 +7,7 @@ import { AppShell, currency, formatDate } from "@/components/AppShell";
 import { greeting, useCurrentStaff } from "@/lib/current-staff";
 import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/session-log";
 import { CompleteTaskDialog, TaskCheckbox, type CompletableTask } from "@/components/forms/AddDialogs";
+import { personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -45,35 +46,56 @@ function Dashboard() {
   const { data } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
-      const [overdue, recentGifts, upcoming, lapsed] = await Promise.all([
+      const [overdue, recentGifts, upcoming, lapsed, grantDeadlines] = await Promise.all([
         supabase
           .from("tasks")
-          .select("*, people(id, first_name, last_name)")
+          .select("*, people(id, display_name, first_name, last_name)")
           .neq("status", "done")
           .lt("due_date", new Date().toISOString().slice(0, 10))
           .order("due_date"),
         supabase
           .from("donations")
-          .select("*, people(id, first_name, last_name)")
+          .select("*, people(id, display_name, first_name, last_name)")
           .order("date", { ascending: false })
           .limit(5),
         supabase.from("events").select("*").gte("date", new Date().toISOString().slice(0, 10)).order("date").limit(4),
         supabase
           .from("people")
-          .select("id, first_name, last_name, lifetime_giving, this_year_giving, last_gift_date")
+          .select("id, display_name, first_name, last_name, lifetime_giving, this_year_giving, last_gift_date")
           .eq("this_year_giving", 0)
           .gt("lifetime_giving", 1000)
           .order("lifetime_giving", { ascending: false })
           .limit(5),
+        supabase
+          .from("grants")
+          .select("id, name, stage, amount_awarded, application_deadline, report_deadline, renewal_deadline, funder:funder_id(id, display_name, first_name, last_name)"),
       ]);
       return {
         overdue: overdue.data ?? [],
         recentGifts: recentGifts.data ?? [],
         upcoming: upcoming.data ?? [],
         lapsed: lapsed.data ?? [],
+        grants: grantDeadlines.data ?? [],
       };
     },
   });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const grantDeadlines = (data?.grants ?? [])
+    .flatMap((g) =>
+      (
+        [
+          ["Application", g.application_deadline],
+          ["Report", g.report_deadline],
+          ["Renewal", g.renewal_deadline],
+        ] as const
+      )
+        .filter(([, date]) => !!date)
+        .map(([kind, date]) => ({ id: `${g.id}-${kind}`, grantId: g.id, name: g.name, funder: g.funder, kind, date: date! })),
+    )
+    .filter((d) => d.date >= today)
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .slice(0, 6);
 
   return (
     <AppShell
@@ -93,6 +115,28 @@ function Dashboard() {
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
+        <Panel title="Upcoming grant deadlines" to="/grants" linkLabel="All grants">
+          {grantDeadlines.length === 0 && <p className="text-sm text-muted-foreground">No grant deadlines ahead.</p>}
+          {grantDeadlines.map((d) => {
+            const days = Math.round((new Date(d.date).getTime() - new Date(today).getTime()) / 86400000);
+            return (
+              <Link
+                key={d.id}
+                to="/grants/$grantId"
+                params={{ grantId: d.grantId }}
+                className="block border-b border-border py-2.5 last:border-0"
+              >
+                <p className="text-sm text-primary">
+                  {d.kind} · {d.name}
+                </p>
+                <p className={`text-xs ${days <= 14 ? "text-urgent" : "text-muted-foreground"}`}>
+                  Due {formatDate(d.date)} — in {days} {days === 1 ? "day" : "days"} · {personName(d.funder)}
+                </p>
+              </Link>
+            );
+          })}
+        </Panel>
+
         <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
           {data?.overdue.length === 0 && <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>}
           {data?.overdue.map((t) => (
@@ -110,7 +154,7 @@ function Dashboard() {
                     params={{ personId: t.people.id }}
                     className="text-sm text-primary hover:underline"
                   >
-                    {t.people.first_name} {t.people.last_name}
+                    {personName(t.people)}
                   </Link>
                 )}
               </div>
@@ -128,7 +172,7 @@ function Dashboard() {
                     params={{ personId: d.people.id }}
                     className="text-sm text-primary hover:underline"
                   >
-                    {d.people.first_name} {d.people.last_name}
+                    {personName(d.people)}
                   </Link>
                 )}
                 <p className="text-xs text-muted-foreground">
@@ -163,7 +207,7 @@ function Dashboard() {
             >
               <div>
                 <p className="text-sm text-primary">
-                  {p.first_name} {p.last_name}
+                  {personName(p)}
                 </p>
                 <p className="text-xs text-muted-foreground">Last gift {formatDate(p.last_gift_date)}</p>
               </div>
@@ -219,7 +263,7 @@ function Panel({
   children,
 }: {
   title: string;
-  to: "/tasks" | "/donations" | "/events" | "/people";
+  to: "/tasks" | "/donations" | "/events" | "/people" | "/grants" | "/campaigns";
   linkLabel: string;
   children: React.ReactNode;
 }) {

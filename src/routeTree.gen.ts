@@ -17,8 +17,12 @@ import { Route as AuthenticatedDonationsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedSearchRouteImport } from './routes/_authenticated/search'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
+import { Route as AuthenticatedCampaignsIndexRouteImport } from './routes/_authenticated/campaigns.index'
+import { Route as AuthenticatedCampaignsCampaignIdRouteImport } from './routes/_authenticated/campaigns.$campaignId'
 import { Route as AuthenticatedEventsIndexRouteImport } from './routes/_authenticated/events.index'
 import { Route as AuthenticatedEventsEventIdRouteImport } from './routes/_authenticated/events.$eventId'
+import { Route as AuthenticatedGrantsIndexRouteImport } from './routes/_authenticated/grants.index'
+import { Route as AuthenticatedGrantsGrantIdRouteImport } from './routes/_authenticated/grants.$grantId'
 import { Route as AuthenticatedHouseholdsIndexRouteImport } from './routes/_authenticated/households.index'
 import { Route as AuthenticatedHouseholdsHouseholdIdRouteImport } from './routes/_authenticated/households.$householdId'
 import { Route as AuthenticatedInboxIndexRouteImport } from './routes/_authenticated/inbox.index'
@@ -65,6 +69,18 @@ const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
   path: '/tasks',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCampaignsIndexRoute =
+  AuthenticatedCampaignsIndexRouteImport.update({
+    id: '/campaigns/',
+    path: '/campaigns/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedCampaignsCampaignIdRoute =
+  AuthenticatedCampaignsCampaignIdRouteImport.update({
+    id: '/campaigns/$campaignId',
+    path: '/campaigns/$campaignId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedEventsIndexRoute =
   AuthenticatedEventsIndexRouteImport.update({
     id: '/events/',
@@ -75,6 +91,18 @@ const AuthenticatedEventsEventIdRoute =
   AuthenticatedEventsEventIdRouteImport.update({
     id: '/events/$eventId',
     path: '/events/$eventId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedGrantsIndexRoute =
+  AuthenticatedGrantsIndexRouteImport.update({
+    id: '/grants/',
+    path: '/grants/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedGrantsGrantIdRoute =
+  AuthenticatedGrantsGrantIdRouteImport.update({
+    id: '/grants/$grantId',
+    path: '/grants/$grantId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedHouseholdsIndexRoute =
@@ -121,11 +149,15 @@ export interface FileRoutesByFullPath {
   '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
+  '/campaigns/$campaignId': typeof AuthenticatedCampaignsCampaignIdRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRoute
+  '/grants/$grantId': typeof AuthenticatedGrantsGrantIdRoute
   '/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
   '/inbox/review': typeof AuthenticatedInboxReviewRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
+  '/campaigns/': typeof AuthenticatedCampaignsIndexRoute
   '/events/': typeof AuthenticatedEventsIndexRoute
+  '/grants/': typeof AuthenticatedGrantsIndexRoute
   '/households/': typeof AuthenticatedHouseholdsIndexRoute
   '/inbox/': typeof AuthenticatedInboxIndexRoute
   '/people/': typeof AuthenticatedPeopleIndexRoute
@@ -138,11 +170,15 @@ export interface FileRoutesByTo {
   '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
+  '/campaigns/$campaignId': typeof AuthenticatedCampaignsCampaignIdRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRoute
+  '/grants/$grantId': typeof AuthenticatedGrantsGrantIdRoute
   '/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
   '/inbox/review': typeof AuthenticatedInboxReviewRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
+  '/campaigns': typeof AuthenticatedCampaignsIndexRoute
   '/events': typeof AuthenticatedEventsIndexRoute
+  '/grants': typeof AuthenticatedGrantsIndexRoute
   '/households': typeof AuthenticatedHouseholdsIndexRoute
   '/inbox': typeof AuthenticatedInboxIndexRoute
   '/people': typeof AuthenticatedPeopleIndexRoute
@@ -157,11 +193,15 @@ export interface FileRoutesById {
   '/_authenticated/search': typeof AuthenticatedSearchRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
+  '/_authenticated/campaigns/$campaignId': typeof AuthenticatedCampaignsCampaignIdRoute
   '/_authenticated/events/$eventId': typeof AuthenticatedEventsEventIdRoute
+  '/_authenticated/grants/$grantId': typeof AuthenticatedGrantsGrantIdRoute
   '/_authenticated/households/$householdId': typeof AuthenticatedHouseholdsHouseholdIdRoute
   '/_authenticated/inbox/review': typeof AuthenticatedInboxReviewRoute
   '/_authenticated/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
+  '/_authenticated/campaigns/': typeof AuthenticatedCampaignsIndexRoute
   '/_authenticated/events/': typeof AuthenticatedEventsIndexRoute
+  '/_authenticated/grants/': typeof AuthenticatedGrantsIndexRoute
   '/_authenticated/households/': typeof AuthenticatedHouseholdsIndexRoute
   '/_authenticated/inbox/': typeof AuthenticatedInboxIndexRoute
   '/_authenticated/people/': typeof AuthenticatedPeopleIndexRoute
@@ -176,11 +216,15 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/tasks'
+    | '/campaigns/$campaignId'
     | '/events/$eventId'
+    | '/grants/$grantId'
     | '/households/$householdId'
     | '/inbox/review'
     | '/people/$personId'
+    | '/campaigns/'
     | '/events/'
+    | '/grants/'
     | '/households/'
     | '/inbox/'
     | '/people/'
@@ -193,11 +237,15 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/tasks'
+    | '/campaigns/$campaignId'
     | '/events/$eventId'
+    | '/grants/$grantId'
     | '/households/$householdId'
     | '/inbox/review'
     | '/people/$personId'
+    | '/campaigns'
     | '/events'
+    | '/grants'
     | '/households'
     | '/inbox'
     | '/people'
@@ -211,11 +259,15 @@ export interface FileRouteTypes {
     | '/_authenticated/search'
     | '/_authenticated/settings'
     | '/_authenticated/tasks'
+    | '/_authenticated/campaigns/$campaignId'
     | '/_authenticated/events/$eventId'
+    | '/_authenticated/grants/$grantId'
     | '/_authenticated/households/$householdId'
     | '/_authenticated/inbox/review'
     | '/_authenticated/people/$personId'
+    | '/_authenticated/campaigns/'
     | '/_authenticated/events/'
+    | '/_authenticated/grants/'
     | '/_authenticated/households/'
     | '/_authenticated/inbox/'
     | '/_authenticated/people/'
@@ -285,6 +337,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTasksRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/campaigns/': {
+      id: '/_authenticated/campaigns/'
+      path: '/campaigns'
+      fullPath: '/campaigns/'
+      preLoaderRoute: typeof AuthenticatedCampaignsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/campaigns/$campaignId': {
+      id: '/_authenticated/campaigns/$campaignId'
+      path: '/campaigns/$campaignId'
+      fullPath: '/campaigns/$campaignId'
+      preLoaderRoute: typeof AuthenticatedCampaignsCampaignIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/events/': {
       id: '/_authenticated/events/'
       path: '/events'
@@ -297,6 +363,20 @@ declare module '@tanstack/react-router' {
       path: '/events/$eventId'
       fullPath: '/events/$eventId'
       preLoaderRoute: typeof AuthenticatedEventsEventIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/grants/': {
+      id: '/_authenticated/grants/'
+      path: '/grants'
+      fullPath: '/grants/'
+      preLoaderRoute: typeof AuthenticatedGrantsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/grants/$grantId': {
+      id: '/_authenticated/grants/$grantId'
+      path: '/grants/$grantId'
+      fullPath: '/grants/$grantId'
+      preLoaderRoute: typeof AuthenticatedGrantsGrantIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/households/': {
@@ -350,11 +430,15 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSearchRoute: typeof AuthenticatedSearchRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
+  AuthenticatedCampaignsCampaignIdRoute: typeof AuthenticatedCampaignsCampaignIdRoute
   AuthenticatedEventsEventIdRoute: typeof AuthenticatedEventsEventIdRoute
+  AuthenticatedGrantsGrantIdRoute: typeof AuthenticatedGrantsGrantIdRoute
   AuthenticatedHouseholdsHouseholdIdRoute: typeof AuthenticatedHouseholdsHouseholdIdRoute
   AuthenticatedInboxReviewRoute: typeof AuthenticatedInboxReviewRoute
   AuthenticatedPeoplePersonIdRoute: typeof AuthenticatedPeoplePersonIdRoute
+  AuthenticatedCampaignsIndexRoute: typeof AuthenticatedCampaignsIndexRoute
   AuthenticatedEventsIndexRoute: typeof AuthenticatedEventsIndexRoute
+  AuthenticatedGrantsIndexRoute: typeof AuthenticatedGrantsIndexRoute
   AuthenticatedHouseholdsIndexRoute: typeof AuthenticatedHouseholdsIndexRoute
   AuthenticatedInboxIndexRoute: typeof AuthenticatedInboxIndexRoute
   AuthenticatedPeopleIndexRoute: typeof AuthenticatedPeopleIndexRoute
@@ -366,12 +450,16 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSearchRoute: AuthenticatedSearchRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
+  AuthenticatedCampaignsCampaignIdRoute: AuthenticatedCampaignsCampaignIdRoute,
   AuthenticatedEventsEventIdRoute: AuthenticatedEventsEventIdRoute,
+  AuthenticatedGrantsGrantIdRoute: AuthenticatedGrantsGrantIdRoute,
   AuthenticatedHouseholdsHouseholdIdRoute:
     AuthenticatedHouseholdsHouseholdIdRoute,
   AuthenticatedInboxReviewRoute: AuthenticatedInboxReviewRoute,
   AuthenticatedPeoplePersonIdRoute: AuthenticatedPeoplePersonIdRoute,
+  AuthenticatedCampaignsIndexRoute: AuthenticatedCampaignsIndexRoute,
   AuthenticatedEventsIndexRoute: AuthenticatedEventsIndexRoute,
+  AuthenticatedGrantsIndexRoute: AuthenticatedGrantsIndexRoute,
   AuthenticatedHouseholdsIndexRoute: AuthenticatedHouseholdsIndexRoute,
   AuthenticatedInboxIndexRoute: AuthenticatedInboxIndexRoute,
   AuthenticatedPeopleIndexRoute: AuthenticatedPeopleIndexRoute,

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { ChipEditor } from "@/components/ChipEditor";
+import { personInitials, personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
   head: () => ({
@@ -161,7 +162,7 @@ function PersonPage() {
 
   return (
     <AppShell
-      title={`${p.first_name} ${p.last_name}`}
+      title={personName(p)}
       subtitle={p.households?.name ?? "No household"}
       action={
         <Link
@@ -177,11 +178,11 @@ function PersonPage() {
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4">
           <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-primary/10 font-heading text-lg font-semibold text-primary">
-            {initials(p.first_name, p.last_name)}
+            {personInitials(p)}
           </span>
           <div className="min-w-0">
             <h2 className="font-heading text-xl font-semibold">
-              {p.first_name} {p.last_name}
+              {personName(p)}
             </h2>
             <p className="text-sm text-muted-foreground">
               {p.households ? (

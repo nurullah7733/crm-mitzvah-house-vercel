@@ -1,3 +1,4 @@
+import { personInitials, personName } from "@/lib/names";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
@@ -121,11 +122,11 @@ function SearchPage() {
             className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/50"
           >
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
-              {initials(p.first_name, p.last_name)}
+              {personInitials(p)}
             </span>
             <div className="min-w-0 flex-1">
               <p className="font-heading font-semibold text-primary">
-                {p.first_name} {p.last_name}
+                {personName(p)}
               </p>
               <p className="truncate text-sm text-muted-foreground">
                 {[p.email, p.phone, p.household_name].filter(Boolean).join(" · ") || "No contact details yet"}
