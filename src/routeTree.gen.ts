@@ -16,10 +16,8 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedDonationsRouteImport } from './routes/_authenticated/donations'
 import { Route as AuthenticatedEventsRouteImport } from './routes/_authenticated/events'
 import { Route as AuthenticatedHouseholdsRouteImport } from './routes/_authenticated/households'
-import { Route as AuthenticatedInteractionsRouteImport } from './routes/_authenticated/interactions'
-import { Route as AuthenticatedPeopleRouteImport } from './routes/_authenticated/people'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
-import { Route as AuthenticatedYahrzeitsRouteImport } from './routes/_authenticated/yahrzeits'
+import { Route as AuthenticatedPeopleIndexRouteImport } from './routes/_authenticated/people.index'
 import { Route as AuthenticatedPeoplePersonIdRouteImport } from './routes/_authenticated/people.$personId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -56,32 +54,22 @@ const AuthenticatedHouseholdsRoute = AuthenticatedHouseholdsRouteImport.update({
   path: '/households',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedInteractionsRoute =
-  AuthenticatedInteractionsRouteImport.update({
-    id: '/interactions',
-    path: '/interactions',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedPeopleRoute = AuthenticatedPeopleRouteImport.update({
-  id: '/people',
-  path: '/people',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedYahrzeitsRoute = AuthenticatedYahrzeitsRouteImport.update({
-  id: '/yahrzeits',
-  path: '/yahrzeits',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+const AuthenticatedPeopleIndexRoute =
+  AuthenticatedPeopleIndexRouteImport.update({
+    id: '/people/',
+    path: '/people/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPeoplePersonIdRoute =
   AuthenticatedPeoplePersonIdRouteImport.update({
-    id: '/$personId',
-    path: '/$personId',
-    getParentRoute: () => AuthenticatedPeopleRoute,
+    id: '/people/$personId',
+    path: '/people/$personId',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -91,11 +79,9 @@ export interface FileRoutesByFullPath {
   '/donations': typeof AuthenticatedDonationsRoute
   '/events': typeof AuthenticatedEventsRoute
   '/households': typeof AuthenticatedHouseholdsRoute
-  '/interactions': typeof AuthenticatedInteractionsRoute
-  '/people': typeof AuthenticatedPeopleRouteWithChildren
   '/tasks': typeof AuthenticatedTasksRoute
-  '/yahrzeits': typeof AuthenticatedYahrzeitsRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
+  '/people/': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -104,11 +90,9 @@ export interface FileRoutesByTo {
   '/donations': typeof AuthenticatedDonationsRoute
   '/events': typeof AuthenticatedEventsRoute
   '/households': typeof AuthenticatedHouseholdsRoute
-  '/interactions': typeof AuthenticatedInteractionsRoute
-  '/people': typeof AuthenticatedPeopleRouteWithChildren
   '/tasks': typeof AuthenticatedTasksRoute
-  '/yahrzeits': typeof AuthenticatedYahrzeitsRoute
   '/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
+  '/people': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -119,11 +103,9 @@ export interface FileRoutesById {
   '/_authenticated/donations': typeof AuthenticatedDonationsRoute
   '/_authenticated/events': typeof AuthenticatedEventsRoute
   '/_authenticated/households': typeof AuthenticatedHouseholdsRoute
-  '/_authenticated/interactions': typeof AuthenticatedInteractionsRoute
-  '/_authenticated/people': typeof AuthenticatedPeopleRouteWithChildren
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
-  '/_authenticated/yahrzeits': typeof AuthenticatedYahrzeitsRoute
   '/_authenticated/people/$personId': typeof AuthenticatedPeoplePersonIdRoute
+  '/_authenticated/people/': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -134,11 +116,9 @@ export interface FileRouteTypes {
     | '/donations'
     | '/events'
     | '/households'
-    | '/interactions'
-    | '/people'
     | '/tasks'
-    | '/yahrzeits'
     | '/people/$personId'
+    | '/people/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -147,11 +127,9 @@ export interface FileRouteTypes {
     | '/donations'
     | '/events'
     | '/households'
-    | '/interactions'
-    | '/people'
     | '/tasks'
-    | '/yahrzeits'
     | '/people/$personId'
+    | '/people'
   id:
     | '__root__'
     | '/'
@@ -161,11 +139,9 @@ export interface FileRouteTypes {
     | '/_authenticated/donations'
     | '/_authenticated/events'
     | '/_authenticated/households'
-    | '/_authenticated/interactions'
-    | '/_authenticated/people'
     | '/_authenticated/tasks'
-    | '/_authenticated/yahrzeits'
     | '/_authenticated/people/$personId'
+    | '/_authenticated/people/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -225,20 +201,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHouseholdsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/interactions': {
-      id: '/_authenticated/interactions'
-      path: '/interactions'
-      fullPath: '/interactions'
-      preLoaderRoute: typeof AuthenticatedInteractionsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/people': {
-      id: '/_authenticated/people'
-      path: '/people'
-      fullPath: '/people'
-      preLoaderRoute: typeof AuthenticatedPeopleRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/tasks': {
       id: '/_authenticated/tasks'
       path: '/tasks'
@@ -246,43 +208,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTasksRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/yahrzeits': {
-      id: '/_authenticated/yahrzeits'
-      path: '/yahrzeits'
-      fullPath: '/yahrzeits'
-      preLoaderRoute: typeof AuthenticatedYahrzeitsRouteImport
+    '/_authenticated/people/': {
+      id: '/_authenticated/people/'
+      path: '/people'
+      fullPath: '/people/'
+      preLoaderRoute: typeof AuthenticatedPeopleIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/people/$personId': {
       id: '/_authenticated/people/$personId'
-      path: '/$personId'
+      path: '/people/$personId'
       fullPath: '/people/$personId'
       preLoaderRoute: typeof AuthenticatedPeoplePersonIdRouteImport
-      parentRoute: typeof AuthenticatedPeopleRoute
+      parentRoute: typeof AuthenticatedRouteRoute
     }
   }
 }
-
-interface AuthenticatedPeopleRouteChildren {
-  AuthenticatedPeoplePersonIdRoute: typeof AuthenticatedPeoplePersonIdRoute
-}
-
-const AuthenticatedPeopleRouteChildren: AuthenticatedPeopleRouteChildren = {
-  AuthenticatedPeoplePersonIdRoute: AuthenticatedPeoplePersonIdRoute,
-}
-
-const AuthenticatedPeopleRouteWithChildren =
-  AuthenticatedPeopleRoute._addFileChildren(AuthenticatedPeopleRouteChildren)
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDonationsRoute: typeof AuthenticatedDonationsRoute
   AuthenticatedEventsRoute: typeof AuthenticatedEventsRoute
   AuthenticatedHouseholdsRoute: typeof AuthenticatedHouseholdsRoute
-  AuthenticatedInteractionsRoute: typeof AuthenticatedInteractionsRoute
-  AuthenticatedPeopleRoute: typeof AuthenticatedPeopleRouteWithChildren
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
-  AuthenticatedYahrzeitsRoute: typeof AuthenticatedYahrzeitsRoute
+  AuthenticatedPeoplePersonIdRoute: typeof AuthenticatedPeoplePersonIdRoute
+  AuthenticatedPeopleIndexRoute: typeof AuthenticatedPeopleIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -290,10 +240,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDonationsRoute: AuthenticatedDonationsRoute,
   AuthenticatedEventsRoute: AuthenticatedEventsRoute,
   AuthenticatedHouseholdsRoute: AuthenticatedHouseholdsRoute,
-  AuthenticatedInteractionsRoute: AuthenticatedInteractionsRoute,
-  AuthenticatedPeopleRoute: AuthenticatedPeopleRouteWithChildren,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
-  AuthenticatedYahrzeitsRoute: AuthenticatedYahrzeitsRoute,
+  AuthenticatedPeoplePersonIdRoute: AuthenticatedPeoplePersonIdRoute,
+  AuthenticatedPeopleIndexRoute: AuthenticatedPeopleIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

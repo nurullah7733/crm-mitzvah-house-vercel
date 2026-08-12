@@ -6,7 +6,7 @@ import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShel
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
-export const Route = createFileRoute("/_authenticated/people")({
+export const Route = createFileRoute("/_authenticated/people/")({
   head: () => ({
     meta: [
       { title: "People | Mitzvah House CRM" },
