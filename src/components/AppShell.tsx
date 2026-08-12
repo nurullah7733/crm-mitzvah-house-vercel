@@ -24,10 +24,11 @@ const NAV = [
   { to: "/events", label: "Events", icon: CalendarDays },
   { to: "/donations", label: "Donations", icon: HandCoins },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
-  { to: "/inbox", label: "Inbox", icon: InboxIcon },
 ] as const;
 
 const SETTINGS = { to: "/settings", label: "Settings", icon: SettingsIcon } as const;
+const INBOX = { to: "/inbox", label: "Inbox", icon: InboxIcon } as const;
+const MENU_NAV = [...NAV, INBOX, SETTINGS] as const;
 
 export function AppShell({
   title,
@@ -136,7 +137,7 @@ export function AppShell({
                         onClick={() => setMenuOpen(false)}
                       />
                       <div className="absolute right-0 z-40 mt-2 w-52 overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-lg">
-                        {[...NAV, SETTINGS].map(({ to, label, icon: Icon }) => (
+                        {MENU_NAV.map(({ to, label, icon: Icon }) => (
                           <Link
                             key={to}
                             to={to}
@@ -167,7 +168,7 @@ export function AppShell({
 
       {/* Mobile bottom tabs */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 flex overflow-x-auto border-t border-border bg-card px-1 py-2 lg:hidden">
-        {[...NAV, SETTINGS].map(({ to, label, icon: Icon }) => (
+        {NAV.map(({ to, label, icon: Icon }) => (
           <Link
             key={to}
             to={to}
