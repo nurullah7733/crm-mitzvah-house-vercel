@@ -29,6 +29,7 @@ export const Route = createFileRoute("/_authenticated/inbox/review")({
 function DataInbox() {
   const queryClient = useQueryClient();
   const [mergeFor, setMergeFor] = useState<string[] | null>(null);
+  const [mergeItemId, setMergeItemId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -117,7 +118,10 @@ function DataInbox() {
                     <Button
                       variant="outline"
                       className="rounded-xl"
-                      onClick={() => setMergeFor(r.candidate_person_ids ?? [])}
+                      onClick={() => {
+                        setMergeFor(r.candidate_person_ids ?? []);
+                        setMergeItemId(r.id);
+                      }}
                     >
                       Merge
                     </Button>
@@ -176,7 +180,15 @@ function DataInbox() {
 
       <MergeContactsDialog
         open={mergeFor !== null}
-        onOpenChange={(v) => !v && setMergeFor(null)}
+        onOpenChange={(v) => {
+          if (!v) {
+            setMergeFor(null);
+            setMergeItemId(null);
+          }
+        }}
+        onMerged={() => {
+          if (mergeItemId) resolve.mutate({ id: mergeItemId, status: "resolved" });
+        }}
         {...(mergeFor?.[0] ? { primaryId: mergeFor[0] } : {})}
         suggestedIds={mergeFor?.slice(1) ?? []}
       />
