@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/events/$eventId")({
   head: () => ({
@@ -33,13 +34,23 @@ function EventPage() {
       const { data: event, error } = await supabase.from("events").select("*").eq("id", eventId).maybeSingle();
       if (error) throw error;
       const [registrations, people] = await Promise.all([
-        supabase
-          .from("registrations")
-          .select("id, status, people(id, display_name, first_name, last_name, email, phone)")
-          .eq("event_id", eventId),
-        supabase.from("people").select("id, display_name, first_name, last_name, programs, tags"),
+        fetchAll((f, t) =>
+          supabase
+            .from("registrations")
+            .select("id, status, people(id, display_name, first_name, last_name, email, phone)")
+            .eq("event_id", eventId)
+            .order("id")
+            .range(f, t),
+        ),
+        fetchAll((f, t) =>
+          supabase
+            .from("people")
+            .select("id, display_name, first_name, last_name, programs, tags")
+            .order("id")
+            .range(f, t),
+        ),
       ]);
-      return { event, registrations: registrations.data ?? [], people: people.data ?? [] };
+      return { event, registrations, people };
     },
   });
 

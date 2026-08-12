@@ -10,6 +10,7 @@ import { AddDonationDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/donations")({
   head: () => ({
@@ -32,14 +33,15 @@ function DonationsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["donations-list"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("donations")
-        .select("*, people(id, display_name, first_name, last_name), campaigns(id, name), grants(id, name)")
-        .order("date", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((from, to) =>
+        supabase
+          .from("donations")
+          .select("*, people(id, display_name, first_name, last_name), campaigns(id, name), grants(id, name)")
+          .order("date", { ascending: false })
+          .order("id")
+          .range(from, to),
+      ),
   });
 
   const gifts = (data ?? []).filter((d) => {

@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { selectClass } from "@/components/forms/fields";
+import { fetchAll } from "@/lib/fetch-all";
 import {
   FIELD_LABELS,
   guessMapping,
@@ -78,13 +79,14 @@ function ImportCenter() {
 
   const { data: people } = useQuery({
     queryKey: ["import-people"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("id, first_name, last_name, email, phone, household_id, households(name, address)");
-      if (error) throw error;
-      return (data ?? []) as ExistingPerson[];
-    },
+    queryFn: async () =>
+      (await fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, first_name, last_name, email, phone, household_id, households(name, address)")
+          .order("id")
+          .range(f, t),
+      )) as unknown as ExistingPerson[],
   });
 
   const { data: pendingCount } = useQuery({

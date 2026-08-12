@@ -10,6 +10,7 @@ import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { logChange } from "@/lib/session-log";
 import { CAMPAIGN_STATUSES, GRANT_STAGES, personName } from "@/lib/names";
 import { useProgramOptions } from "@/components/forms/AddDialogs";
+import { fetchAll } from "@/lib/fetch-all";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -39,12 +40,15 @@ function useContacts(types: readonly string[]) {
   return useQuery({
     queryKey: ["contacts-by-type", types.join(",")],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("id, display_name, first_name, last_name, contact_type")
-        .in("contact_type", [...types]);
-      if (error) throw error;
-      return (data ?? []).sort((a, b) => personName(a).localeCompare(personName(b)));
+      const data = await fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, contact_type")
+          .in("contact_type", [...types])
+          .order("id")
+          .range(f, t),
+      );
+      return data.sort((a, b) => personName(a).localeCompare(personName(b)));
     },
   });
 }

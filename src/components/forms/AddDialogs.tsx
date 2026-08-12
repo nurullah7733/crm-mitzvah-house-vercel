@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { hebrewDateFromEnglish } from "@/lib/hebrew";
 import { personName } from "@/lib/names";
+import { fetchAll } from "@/lib/fetch-all";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -22,25 +23,23 @@ function useRefresh() {
 function usePeopleMini() {
   return useQuery({
     queryKey: ["people-mini"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
-        .order("display_name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
+          .order("display_name")
+          .order("id")
+          .range(f, t),
+      ),
   });
 }
 
 function useHouseholdsMini() {
   return useQuery({
     queryKey: ["households-mini"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("households").select("id, name, address").order("name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((f, t) => supabase.from("households").select("id, name, address").order("name").order("id").range(f, t)),
   });
 }
 
@@ -102,6 +101,29 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const hebrew = hebrewDateFromEnglish(form.birth_date);
   const { data: peopleMini } = usePeopleMini();
   const isOrg = form.contact_type !== "individual";
+
+  // Duplicate guard: warn before a second copy of a contact is created.
+  const dupEmail = form.email.trim();
+  const dupPhone = form.phone.replace(/\D/g, "");
+  const dupName = isOrg ? form.org_name.trim() : `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
+  const { data: duplicates } = useQuery({
+    queryKey: ["duplicate-check", dupEmail, dupPhone, dupName],
+    enabled: dupEmail.length > 3 || dupPhone.length >= 7 || dupName.length > 2,
+    queryFn: async () => {
+      const filters: string[] = [];
+      if (dupEmail.length > 3) filters.push(`email.ilike.${dupEmail}`);
+      if (dupPhone.length >= 7) filters.push(`phone.ilike.%${dupPhone.slice(-7)}%`);
+      if (dupName.length > 2) filters.push(`display_name.ilike.${dupName}`);
+      if (!filters.length) return [];
+      const { data, error } = await supabase
+        .from("people")
+        .select("id, display_name, first_name, last_name, email, phone")
+        .or(filters.join(","))
+        .limit(5);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const addSource = useMutation({
     mutationFn: async (label: string) => {
@@ -218,6 +240,21 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       }
     >
       <div className="grid gap-3 sm:grid-cols-2">
+        {(duplicates ?? []).length > 0 && (
+          <div className="rounded-xl border border-suggestion/50 bg-suggestion/15 p-3 text-sm sm:col-span-2">
+            <p className="font-medium text-foreground">This may already be in the CRM</p>
+            <ul className="mt-1 space-y-1 text-muted-foreground">
+              {(duplicates ?? []).map((d) => (
+                <li key={d.id}>
+                  {personName(d)} · {d.email ?? d.phone ?? "no contact info"}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Check the existing record first so you do not create a duplicate.
+            </p>
+          </div>
+        )}
         <Field label="Contact type" className="sm:col-span-2">
           <select value={form.contact_type} onChange={(e) => set("contact_type", e.target.value)} className={selectClass}>
             <option value="individual">Individual</option>

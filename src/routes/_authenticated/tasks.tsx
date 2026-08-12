@@ -14,6 +14,7 @@ import {
 } from "@/components/forms/AddDialogs";
 import { todayISO } from "@/components/forms/fields";
 import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
@@ -35,31 +36,40 @@ function TasksPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["tasks-list"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*, people(id, display_name, first_name, last_name)")
-        .order("due_date");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((f, t) =>
+        supabase
+          .from("tasks")
+          .select("*, people(id, display_name, first_name, last_name)")
+          .order("due_date")
+          .order("id")
+          .range(f, t),
+      ),
   });
 
   const { data: dates } = useQuery({
     queryKey: ["upcoming-special-dates"],
     queryFn: async () => {
       const [people, yahrzeits] = await Promise.all([
-        supabase
-          .from("people")
-          .select("id, display_name, first_name, last_name, birth_date")
-          .not("birth_date", "is", null),
-        supabase
-          .from("yahrzeits")
-          .select(
-            "id, deceased_name, relationship, hebrew_month, hebrew_day, people(id, display_name, first_name, last_name)",
-          ),
+        fetchAll((f, t) =>
+          supabase
+            .from("people")
+            .select("id, display_name, first_name, last_name, birth_date")
+            .not("birth_date", "is", null)
+            .order("id")
+            .range(f, t),
+        ),
+        fetchAll((f, t) =>
+          supabase
+            .from("yahrzeits")
+            .select(
+              "id, deceased_name, relationship, hebrew_month, hebrew_day, people(id, display_name, first_name, last_name)",
+            )
+            .order("id")
+            .range(f, t),
+        ),
       ]);
-      return { people: people.data ?? [], yahrzeits: yahrzeits.data ?? [] };
+      return { people, yahrzeits };
     },
   });
 

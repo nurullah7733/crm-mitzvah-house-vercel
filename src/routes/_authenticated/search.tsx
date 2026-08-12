@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
 import { describeIntents, parseQuery, runIntents, type SearchPerson } from "@/lib/nl-search";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/search")({
   validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
@@ -45,23 +46,31 @@ function SearchPage() {
     queryFn: async () => {
       const lastYear = new Date().getFullYear() - 1;
       const [people, interactions, donations, programs, tags] = await Promise.all([
-        supabase.from("people").select("*, households(name)"),
-        supabase.from("interactions").select("person_id, text, type"),
-        supabase.from("donations").select("person_id, amount, date").gte("date", `${lastYear}-01-01`).lte("date", `${lastYear}-12-31`),
+        fetchAll((f, t) => supabase.from("people").select("*, households(name)").order("id").range(f, t)),
+        fetchAll((f, t) => supabase.from("interactions").select("person_id, text, type").order("id").range(f, t)),
+        fetchAll((f, t) =>
+          supabase
+            .from("donations")
+            .select("person_id, amount, date")
+            .gte("date", `${lastYear}-01-01`)
+            .lte("date", `${lastYear}-12-31`)
+            .order("id")
+            .range(f, t),
+        ),
         supabase.from("program_options").select("label"),
         supabase.from("tag_options").select("label"),
       ]);
       const notes = new Map<string, string[]>();
-      for (const i of interactions.data ?? []) {
+      for (const i of interactions) {
         const list = notes.get(i.person_id) ?? [];
         list.push(`${i.type ?? ""} ${i.text ?? ""}`);
         notes.set(i.person_id, list);
       }
       const lastYearTotals = new Map<string, number>();
-      for (const d of donations.data ?? []) {
+      for (const d of donations) {
         lastYearTotals.set(d.person_id, (lastYearTotals.get(d.person_id) ?? 0) + Number(d.amount ?? 0));
       }
-      const rows: (SearchPerson & { household_name: string | null })[] = (people.data ?? []).map((p) => ({
+      const rows: (SearchPerson & { household_name: string | null })[] = people.map((p) => ({
         ...p,
         household_name: p.households?.name ?? null,
         interaction_text: (notes.get(p.id) ?? []).join(" | "),
