@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
+import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
+import { personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/inbox/review")({
   head: () => ({
@@ -27,6 +29,8 @@ export const Route = createFileRoute("/_authenticated/inbox/review")({
 function DataInbox() {
   const queryClient = useQueryClient();
   const [mergeFor, setMergeFor] = useState<string[] | null>(null);
+  const [mergeItemId, setMergeItemId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["review-queue"],
@@ -55,6 +59,25 @@ function DataInbox() {
 
   const pending = (data ?? []).filter((r) => r.status === "pending");
   const handled = (data ?? []).filter((r) => r.status !== "pending");
+
+  const candidateIds = Array.from(
+    new Set((pending ?? []).flatMap((r) => r.candidate_person_ids ?? [])),
+  );
+
+  const { data: candidates } = useQuery({
+    queryKey: ["review-candidates", candidateIds.join(",")],
+    enabled: candidateIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("people")
+        .select("*")
+        .in("id", candidateIds);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const editRecord = (candidates ?? []).find((p) => p.id === editId);
 
   return (
     <AppShell
@@ -86,17 +109,23 @@ function DataInbox() {
                     <Button
                       variant="outline"
                       className="rounded-xl"
-                      onClick={() => setMergeFor(r.candidate_person_ids ?? [])}
+                      onClick={() => setEditId((r.candidate_person_ids ?? [])[0] ?? null)}
                     >
-                      Merge duplicates
+                      Edit
                     </Button>
                   )}
-                  <Button
-                    className="rounded-xl"
-                    onClick={() => resolve.mutate({ id: r.id, status: "resolved" })}
-                  >
-                    Mark reviewed
-                  </Button>
+                  {(r.candidate_person_ids ?? []).length > 0 && (
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => {
+                        setMergeFor(r.candidate_person_ids ?? []);
+                        setMergeItemId(r.id);
+                      }}
+                    >
+                      Merge
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="rounded-xl text-urgent"
@@ -116,16 +145,19 @@ function DataInbox() {
               </dl>
               {(r.candidate_person_ids ?? []).length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {(r.candidate_person_ids ?? []).map((id) => (
-                    <Link
-                      key={id}
-                      to="/people/$personId"
-                      params={{ personId: id }}
-                      className="rounded-full border border-border px-3 py-1 text-xs text-primary"
-                    >
-                      Open possible match
-                    </Link>
-                  ))}
+                  {(r.candidate_person_ids ?? []).map((id) => {
+                    const match = (candidates ?? []).find((p) => p.id === id);
+                    return (
+                      <Link
+                        key={id}
+                        to="/people/$personId"
+                        params={{ personId: id }}
+                        className="rounded-full border border-border px-3 py-1 text-xs text-primary"
+                      >
+                        {match ? `Open ${personName(match)}` : "Open possible match"}
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -148,10 +180,41 @@ function DataInbox() {
 
       <MergeContactsDialog
         open={mergeFor !== null}
-        onOpenChange={(v) => !v && setMergeFor(null)}
+        onOpenChange={(v) => {
+          if (!v) {
+            setMergeFor(null);
+            setMergeItemId(null);
+          }
+        }}
+        onMerged={() => {
+          if (mergeItemId) resolve.mutate({ id: mergeItemId, status: "resolved" });
+        }}
         {...(mergeFor?.[0] ? { primaryId: mergeFor[0] } : {})}
         suggestedIds={mergeFor?.slice(1) ?? []}
       />
+
+      {editId && editRecord && (
+        <EditRecordDialog
+          open
+          onOpenChange={(v) => !v && setEditId(null)}
+          table="people"
+          id={editId}
+          record={editRecord as Record<string, unknown>}
+          title="Edit contact"
+          deleteLabel="Remove this contact"
+          onDeleted={() => setEditId(null)}
+          fields={[
+            { key: "first_name", label: "First name" },
+            { key: "last_name", label: "Last name" },
+            { key: "display_name", label: "Name shown" },
+            { key: "email", label: "Email", type: "email" },
+            { key: "phone", label: "Phone", type: "tel" },
+            { key: "birth_date", label: "Birth date", type: "date" },
+            { key: "school", label: "School" },
+            { key: "notes", label: "Notes", type: "textarea" },
+          ]}
+        />
+      )}
     </AppShell>
   );
 }
