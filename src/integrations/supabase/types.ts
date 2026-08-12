@@ -337,6 +337,7 @@ export type Database = {
       households: {
         Row: {
           address: string | null
+          billing_address: string | null
           created_at: string
           id: string
           import_batch_id: string | null
@@ -346,6 +347,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          billing_address?: string | null
           created_at?: string
           id?: string
           import_batch_id?: string | null
@@ -355,6 +357,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          billing_address?: string | null
           created_at?: string
           id?: string
           import_batch_id?: string | null
@@ -570,11 +573,13 @@ export type Database = {
           lifetime_giving: number
           met_date: string | null
           met_source: string | null
+          notes: string | null
           owner: string | null
           parent_org_id: string | null
           phone: string | null
           programs: string[]
           role: string
+          school: string | null
           tags: string[]
           this_year_giving: number
         }
@@ -596,11 +601,13 @@ export type Database = {
           lifetime_giving?: number
           met_date?: string | null
           met_source?: string | null
+          notes?: string | null
           owner?: string | null
           parent_org_id?: string | null
           phone?: string | null
           programs?: string[]
           role?: string
+          school?: string | null
           tags?: string[]
           this_year_giving?: number
         }
@@ -622,11 +629,13 @@ export type Database = {
           lifetime_giving?: number
           met_date?: string | null
           met_source?: string | null
+          notes?: string | null
           owner?: string | null
           parent_org_id?: string | null
           phone?: string | null
           programs?: string[]
           role?: string
+          school?: string | null
           tags?: string[]
           this_year_giving?: number
         }
