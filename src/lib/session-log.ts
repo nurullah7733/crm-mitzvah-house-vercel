@@ -67,5 +67,7 @@ export function getSessionLog() {
 
 export function subscribeSessionLog(fn: () => void) {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
