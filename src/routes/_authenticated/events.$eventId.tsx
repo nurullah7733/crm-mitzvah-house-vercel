@@ -1,3 +1,4 @@
+import { personInitials, personName } from "@/lib/names";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Sparkles, UserPlus } from "lucide-react";
@@ -34,9 +35,9 @@ function EventPage() {
       const [registrations, people] = await Promise.all([
         supabase
           .from("registrations")
-          .select("id, status, people(id, first_name, last_name, email, phone)")
+          .select("id, status, people(id, display_name, first_name, last_name, email, phone)")
           .eq("event_id", eventId),
-        supabase.from("people").select("id, first_name, last_name, programs, tags"),
+        supabase.from("people").select("id, display_name, first_name, last_name, programs, tags"),
       ]);
       return { event, registrations: registrations.data ?? [], people: people.data ?? [] };
     },
@@ -121,7 +122,7 @@ function EventPage() {
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-xs font-semibold text-primary">
-                    {initials(r.people.first_name, r.people.last_name)}
+                    {personInitials(r.people)}
                   </span>
                   <div className="min-w-0">
                     <Link
@@ -129,7 +130,7 @@ function EventPage() {
                       params={{ personId: r.people.id }}
                       className="font-medium text-primary hover:underline"
                     >
-                      {r.people.first_name} {r.people.last_name}
+                      {personName(r.people)}
                     </Link>
                     <p className="truncate text-xs text-muted-foreground">
                       {r.people.email ?? r.people.phone ?? "No contact on file"}
@@ -176,7 +177,7 @@ function EventPage() {
                 params={{ personId: p.id }}
                 className="rounded-full px-3 py-1.5 text-sm font-medium text-foreground hover:text-primary"
               >
-                {p.first_name} {p.last_name}
+                {personName(p)}
               </Link>
               <Button
                 variant="ghost"
@@ -184,7 +185,7 @@ function EventPage() {
                 className="rounded-full text-primary"
                 onClick={() => invite.mutate(p.id)}
                 disabled={invite.isPending}
-                aria-label={`Register ${p.first_name} ${p.last_name}`}
+                aria-label={`Register ${personName(p)}`}
                 title="Register for this event"
               >
                 <UserPlus className="size-4" />
