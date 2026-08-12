@@ -24,7 +24,8 @@ export const Route = createFileRoute("/_authenticated/donations")({
 
 function DonationsPage() {
   const [addOpen, setAddOpen] = useState(false);
-  const [year, setYear] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
 
@@ -40,12 +41,10 @@ function DonationsPage() {
     },
   });
 
-  const years = Array.from(new Set((data ?? []).map((d) => (d.date ?? "").slice(0, 4)).filter(Boolean))).sort(
-    (a, b) => Number(b) - Number(a),
-  );
-
   const gifts = (data ?? []).filter((d) => {
-    if (year !== "all" && (d.date ?? "").slice(0, 4) !== year) return false;
+    const date = (d.date ?? "").slice(0, 10);
+    if (from && date < from) return false;
+    if (to && date > to) return false;
     const amount = Number(d.amount ?? 0);
     if (min && amount < Number(min)) return false;
     if (max && amount > Number(max)) return false;
@@ -86,16 +85,12 @@ function DonationsPage() {
         </>
       }
     >
-      <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-3">
-        <Field label="Year">
-          <select value={year} onChange={(e) => setYear(e.target.value)} className={selectClass}>
-            <option value="all">All years</option>
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
+      <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Start date">
+          <Input className="text-base" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <Field label="End date">
+          <Input className="text-base" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </Field>
         <Field label="Min amount">
           <Input className="text-base" type="number" inputMode="numeric" value={min} onChange={(e) => setMin(e.target.value)} />
@@ -103,6 +98,20 @@ function DonationsPage() {
         <Field label="Max amount">
           <Input className="text-base" type="number" inputMode="numeric" value={max} onChange={(e) => setMax(e.target.value)} />
         </Field>
+        {(from || to || min || max) && (
+          <button
+            type="button"
+            className="justify-self-start text-xs text-primary hover:underline sm:col-span-2 lg:col-span-4"
+            onClick={() => {
+              setFrom("");
+              setTo("");
+              setMin("");
+              setMax("");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div className="mt-4 rounded-2xl border border-money/30 bg-money/5 px-4 py-3 text-sm">
