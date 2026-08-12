@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personInitials, personName } from "@/lib/names";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
@@ -62,14 +63,15 @@ function PeoplePage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["people-list"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("*, households(id, name), yahrzeits(hebrew_month, hebrew_day)")
-        .order("display_name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      fetchAll((from, to) =>
+        supabase
+          .from("people")
+          .select("*, households(id, name), yahrzeits(hebrew_month, hebrew_day)")
+          .order("display_name")
+          .order("id")
+          .range(from, to),
+      ),
   });
 
   const rows = (data ?? []).map((p) => {
