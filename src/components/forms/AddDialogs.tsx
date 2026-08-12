@@ -892,7 +892,6 @@ export function CompleteTaskDialog({
           text: note.trim() ? `${task.text} — ${note.trim()}` : `Completed: ${task.text}`,
           author: task.owner ?? null,
         });
-        await supabase.from("people").update({ last_activity_date: todayISO() }).eq("id", task.person_id);
       }
     },
     onSuccess: () => {
