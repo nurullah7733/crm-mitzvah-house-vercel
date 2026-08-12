@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronDown, Download, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { AddPersonDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { Label } from "@/components/ui/label";
 import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { downloadCsv, stamp } from "@/lib/csv";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
@@ -116,9 +117,38 @@ function PeoplePage() {
       title="People"
       subtitle={`${people.length} of ${data?.length ?? 0} people`}
       action={
-        <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
-          <Plus className="size-4" /> Add person
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() =>
+              downloadCsv(
+                `people-${stamp()}`,
+                people.map((p) => ({
+                  first_name: p.first_name,
+                  last_name: p.last_name,
+                  email: p.email ?? "",
+                  phone: p.phone ?? "",
+                  household: p.households?.name ?? "",
+                  role: p.role ?? "",
+                  birth_date: p.birth_date ?? "",
+                  lifetime_giving: p.lifetime_giving ?? 0,
+                  this_year_giving: p.this_year_giving ?? 0,
+                  last_gift_date: p.last_gift_date ?? "",
+                  last_activity_date: p.last_activity_date ?? "",
+                  tags: p.tags ?? [],
+                  programs: p.programs ?? [],
+                  met_source: p.met_source ?? "",
+                })),
+              )
+            }
+          >
+            <Download className="size-4" /> Export to CSV
+          </Button>
+          <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
+            <Plus className="size-4" /> Add person
+          </Button>
+        </>
       }
     >
       <Input
