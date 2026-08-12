@@ -166,11 +166,17 @@ function PersonPage() {
             ))}
           </Card>
 
-          <Card title="Yahrzeits">
-            {(data?.yahrzeits ?? []).length === 0 && <p className="text-sm text-muted-foreground">None recorded.</p>}
+          <Card title="Special dates">
+            <div className="border-b border-border py-2">
+              <p className="text-sm text-foreground">Birthday</p>
+              <p className="text-xs text-muted-foreground">{formatDate(p.birth_date)}</p>
+            </div>
+            {(data?.yahrzeits ?? []).length === 0 && (
+              <p className="py-2 text-sm text-muted-foreground">No yahrzeits recorded.</p>
+            )}
             {(data?.yahrzeits ?? []).map((y) => (
               <div key={y.id} className="border-b border-border py-2 last:border-0">
-                <p className="text-sm text-foreground">{y.deceased_name}</p>
+                <p className="text-sm text-foreground">Yahrzeit — {y.deceased_name}</p>
                 <p className="text-xs text-muted-foreground">
                   {y.relationship ?? "Relative"} · {HEBREW_MONTHS[y.hebrew_month] ?? y.hebrew_month} {y.hebrew_day}
                 </p>
