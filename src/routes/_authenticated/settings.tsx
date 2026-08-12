@@ -111,8 +111,105 @@ function SettingsPage() {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+
+        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+          <AccordionItem value="history" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Change history
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <ChangeHistoryPanel />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </AppShell>
+  );
+}
+
+const HISTORY_TABLES: Record<string, string> = {
+  people: "Contact",
+  donations: "Gift",
+  events: "Event",
+  tasks: "Task",
+  campaigns: "Campaign",
+  grants: "Grant",
+  import_batches: "Import",
+};
+
+const RESTORABLE = ["people", "donations", "events", "tasks"] as const;
+type RestorableTable = (typeof RESTORABLE)[number];
+
+function ChangeHistoryPanel() {
+  const queryClient = useQueryClient();
+
+  const { data: entries } = useQuery({
+    queryKey: ["audit-log"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("audit_log")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const restore = useMutation({
+    mutationFn: async ({ table, id }: { table: RestorableTable; id: string }) => {
+      const { error } = await supabase.from(table).update({ deleted_at: null } as never).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast.success("Restored");
+      logChange("Restored a removed record");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Everything anyone has added, edited or removed, newest first. Removed records can be put back.
+      </p>
+      <div className="space-y-2">
+        {(entries ?? []).map((row) => {
+          const changes = (row.changes ?? {}) as Record<string, unknown>;
+          const fields = row.action === "edited" ? Object.keys(changes).filter((k) => k !== "updated_at") : [];
+          const canRestore =
+            row.action === "deleted" &&
+            row.record_id &&
+            (RESTORABLE as readonly string[]).includes(row.table_name);
+          return (
+            <div key={row.id} className="rounded-xl border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-foreground">
+                  {HISTORY_TABLES[row.table_name] ?? row.table_name} {row.action.replace("_", " ")}
+                  {fields.length > 0 ? ` — ${fields.join(", ")}` : ""}
+                </p>
+                {canRestore && (
+                  <Button
+                    variant="outline"
+                    className="rounded-xl"
+                    onClick={() =>
+                      restore.mutate({ table: row.table_name as RestorableTable, id: row.record_id as string })
+                    }
+                  >
+                    Restore
+                  </Button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {row.actor_email ?? "System"} · {formatDate(row.created_at.slice(0, 10))}
+              </p>
+            </div>
+          );
+        })}
+        {(entries ?? []).length === 0 && <p className="text-sm text-muted-foreground">No changes recorded yet.</p>}
+      </div>
+    </div>
   );
 }
 
