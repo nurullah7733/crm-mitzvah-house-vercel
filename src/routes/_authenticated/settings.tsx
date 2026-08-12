@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Plus, Trash2, Plug } from "lucide-react";
 import { toast } from "sonner";
+import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
@@ -143,6 +144,7 @@ function StaffPanel() {
       setRole("va");
       refresh();
       toast.success("Staff member added");
+      logChange("Added a staff member");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -155,6 +157,7 @@ function StaffPanel() {
     onSuccess: () => {
       refresh();
       toast.success("Role updated");
+      logChange("Changed a staff role");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -167,6 +170,7 @@ function StaffPanel() {
     onSuccess: () => {
       refresh();
       toast.success("Staff member removed");
+      logChange("Removed a staff member");
     },
     onError: (e: Error) => toast.error(e.message),
   });

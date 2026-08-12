@@ -7,7 +7,7 @@ import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShel
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddDonationDialog } from "@/components/forms/AddDialogs";
-import { Field, selectClass } from "@/components/forms/fields";
+import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 
 export const Route = createFileRoute("/_authenticated/donations")({
