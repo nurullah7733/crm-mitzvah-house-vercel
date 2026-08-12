@@ -27,6 +27,17 @@ function Dashboard() {
   const { user } = Route.useRouteContext();
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
 
+  const { data: pendingReview } = useQuery({
+    queryKey: ["review-queue-count"],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("review_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending");
+      return count ?? 0;
+    },
+  });
+
   const { data } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
@@ -62,6 +73,18 @@ function Dashboard() {
 
   return (
     <AppShell title="Dashboard" subtitle={`Signed in as ${user.email}`}>
+      {!!pendingReview && (
+        <Link
+          to="/inbox/review"
+          className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border border-suggestion/50 bg-suggestion/15 px-4 py-3 text-sm text-foreground"
+        >
+          <AlertTriangle className="size-4 text-suggestion" />
+          <span className="font-medium">
+            {pendingReview} imported {pendingReview === 1 ? "row" : "rows"} waiting in the Data Inbox
+          </span>
+          <span className="text-primary underline">Review now</span>
+        </Link>
+      )}
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
           {data?.overdue.length === 0 && <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>}
