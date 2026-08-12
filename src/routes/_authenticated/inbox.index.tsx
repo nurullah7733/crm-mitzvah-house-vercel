@@ -12,9 +12,11 @@ import { selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
 import {
   FIELD_LABELS,
+  addressKey,
   composeAddress,
   guessMapping,
   matchRow,
+  roleFromRow,
   rowDedupeKey,
   splitFullName,
   splitName,
@@ -78,7 +80,10 @@ async function readFile(file: File): Promise<Sheet> {
 function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
   const out: RowValues = {};
   const childNames: string[] = [];
+  const childFirsts: string[] = [];
+  const childLasts: string[] = [];
   const childDobs: string[] = [];
+  const childAges: string[] = [];
   const childSchools: string[] = [];
 
   mapping.forEach((m, i) => {
@@ -88,8 +93,20 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
       childNames.push(...splitPeopleList(value));
       return;
     }
+    if (m.field === "child_first_name") {
+      childFirsts.push(value);
+      return;
+    }
+    if (m.field === "child_last_name") {
+      childLasts.push(value);
+      return;
+    }
     if (m.field === "child_birth_date") {
       childDobs.push(value);
+      return;
+    }
+    if (m.field === "child_age") {
+      childAges.push(value);
       return;
     }
     if (m.field === "child_school") {
@@ -99,21 +116,41 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
     if (!out[m.field]) out[m.field] = value;
   });
 
-  if (childNames.length > 0) {
-    out.children = childNames.map((name, idx) => ({
-      name,
+  // Children can arrive either as whole names ("Child 1", "Child 2") or as paired
+  // first/last columns. Both shapes become one child record each.
+  const children: NonNullable<RowValues["children"]>[number][] = [];
+  childNames.forEach((name, idx) => {
+    const n = splitFullName(name);
+    if (!n.first && !n.last) return;
+    children.push({
+      first: n.first,
+      ...(n.last ? { last: n.last } : {}),
       ...(childDobs[idx] ? { birth_date: childDobs[idx]! } : {}),
+      ...(childAges[idx] ? { age: childAges[idx]! } : {}),
       ...(childSchools[idx] ? { school: childSchools[idx]! } : {}),
-    }));
-  }
+    });
+  });
+  const pairedOffset = childNames.length;
+  childFirsts.forEach((first, idx) => {
+    if (!first.trim()) return;
+    const last = childLasts[idx];
+    children.push({
+      first: first.trim(),
+      ...(last ? { last } : {}),
+      ...(childDobs[pairedOffset + idx] ? { birth_date: childDobs[pairedOffset + idx]! } : {}),
+      ...(childAges[pairedOffset + idx] ? { age: childAges[pairedOffset + idx]! } : {}),
+      ...(childSchools[pairedOffset + idx] ? { school: childSchools[pairedOffset + idx]! } : {}),
+    });
+  });
+  if (children.length > 0) out.children = children;
   return out;
 }
 
 /** Join the first / middle / last / suffix columns a file happens to have. */
 function mainName(v: RowValues) {
   const base = splitName(v);
-  const first = [base.first, v.middle_name].filter(Boolean).join(" ").trim();
-  const last = [base.last, v.suffix].filter(Boolean).join(" ").trim();
+  const first = [base.first, base.middle].filter(Boolean).join(" ").trim();
+  const last = [base.last, base.suffix].filter(Boolean).join(" ").trim();
   return { first, last };
 }
 
