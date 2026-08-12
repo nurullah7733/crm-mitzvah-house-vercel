@@ -39,9 +39,8 @@ const MENU_NAV = [...NAV, INBOX, SETTINGS] as const;
 const TAB_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/people", label: "People", icon: Users },
-  { to: "/donations", label: "Donations", icon: HandCoins },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
-  INBOX,
+  { to: "/events", label: "Events", icon: CalendarDays },
 ] as const;
 
 export function AppShell({
