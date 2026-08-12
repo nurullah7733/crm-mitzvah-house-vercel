@@ -348,13 +348,42 @@ function PersonPage() {
       <div className="mt-5 grid gap-5 md:grid-cols-2">
         {/* Left column — contact and details */}
         <div className="order-1 space-y-5 md:col-start-1 md:row-start-1">
-          <Card title="Contact info">
+          <EditableCard
+            title="Contact info"
+            values={{ phone: p.phone, email: p.email, address: p.households?.address }}
+            fields={[
+              { key: "phone", label: "Phone", type: "tel" },
+              { key: "email", label: "Email", type: "email" },
+              { key: "address", label: "Address (shared with the household)", full: true },
+            ]}
+            onSave={savePersonFields}
+            editHint="Changes are saved to this contact and noted in the change history."
+          >
             <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
             <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
-          </Card>
+          </EditableCard>
 
-          <Card title="Additional info">
+          <EditableCard
+            title="Additional info"
+            values={{
+              billing_address: p.households?.billing_address,
+              school: p.school,
+              notes: p.notes,
+              met_source: p.met_source,
+              met_date: p.met_date,
+              owner: p.owner,
+            }}
+            fields={[
+              { key: "billing_address", label: "Billing address", full: true },
+              { key: "school", label: "School" },
+              { key: "owner", label: "Owner" },
+              { key: "met_source", label: "Where we met" },
+              { key: "met_date", label: "Date we met", type: "date" },
+              { key: "notes", label: "Notes", type: "textarea" },
+            ]}
+            onSave={savePersonFields}
+          >
             {p.households?.billing_address && p.households.billing_address !== p.households.address && (
               <SourceRow
                 label="Billing address"
@@ -370,7 +399,7 @@ function PersonPage() {
               source={sourceFor("met_source")}
             />
             <SourceRow label="Owner" value={p.owner} source={sourceFor("owner")} />
-          </Card>
+          </EditableCard>
 
           <Card title="Giving">
             <Stat label="Lifetime" value={currency(lifetime)} money />
@@ -401,8 +430,15 @@ function PersonPage() {
             </div>
           </Card>
 
-          <Card
+          <EditableCard
             title="Special dates"
+            values={{ birth_date: p.birth_date, anniversary_date: p.anniversary_date }}
+            fields={[
+              { key: "birth_date", label: "Birthday", type: "date" },
+              { key: "anniversary_date", label: "Anniversary", type: "date" },
+            ]}
+            onSave={savePersonFields}
+            editHint="Hebrew dates and next-observance countdowns are worked out again as soon as you save."
             action={
               <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("yahrzeit")}>
                 <Plus className="size-3.5" /> Add yahrzeit
