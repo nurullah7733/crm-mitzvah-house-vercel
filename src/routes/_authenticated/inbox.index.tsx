@@ -12,9 +12,11 @@ import { selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
 import {
   FIELD_LABELS,
+  addressKey,
   composeAddress,
   guessMapping,
   matchRow,
+  roleFromRow,
   rowDedupeKey,
   splitFullName,
   splitName,
@@ -78,7 +80,10 @@ async function readFile(file: File): Promise<Sheet> {
 function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
   const out: RowValues = {};
   const childNames: string[] = [];
+  const childFirsts: string[] = [];
+  const childLasts: string[] = [];
   const childDobs: string[] = [];
+  const childAges: string[] = [];
   const childSchools: string[] = [];
 
   mapping.forEach((m, i) => {
@@ -88,8 +93,20 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
       childNames.push(...splitPeopleList(value));
       return;
     }
+    if (m.field === "child_first_name") {
+      childFirsts.push(value);
+      return;
+    }
+    if (m.field === "child_last_name") {
+      childLasts.push(value);
+      return;
+    }
     if (m.field === "child_birth_date") {
       childDobs.push(value);
+      return;
+    }
+    if (m.field === "child_age") {
+      childAges.push(value);
       return;
     }
     if (m.field === "child_school") {
@@ -99,22 +116,44 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
     if (!out[m.field]) out[m.field] = value;
   });
 
-  if (childNames.length > 0) {
-    out.children = childNames.map((name, idx) => ({
-      name,
+  // Children can arrive either as whole names ("Child 1", "Child 2") or as paired
+  // first/last columns. Both shapes become one child record each.
+  const children: NonNullable<RowValues["children"]>[number][] = [];
+  childNames.forEach((name, idx) => {
+    const n = splitFullName(name);
+    if (!n.first && !n.last) return;
+    children.push({
+      first: n.first,
+      ...(n.last ? { last: n.last } : {}),
       ...(childDobs[idx] ? { birth_date: childDobs[idx]! } : {}),
+      ...(childAges[idx] ? { age: childAges[idx]! } : {}),
       ...(childSchools[idx] ? { school: childSchools[idx]! } : {}),
-    }));
-  }
+    });
+  });
+  const pairedOffset = childNames.length;
+  childFirsts.forEach((first, idx) => {
+    if (!first.trim()) return;
+    const last = childLasts[idx];
+    children.push({
+      first: first.trim(),
+      ...(last ? { last } : {}),
+      ...(childDobs[pairedOffset + idx] ? { birth_date: childDobs[pairedOffset + idx]! } : {}),
+      ...(childAges[pairedOffset + idx] ? { age: childAges[pairedOffset + idx]! } : {}),
+      ...(childSchools[pairedOffset + idx] ? { school: childSchools[pairedOffset + idx]! } : {}),
+    });
+  });
+  if (children.length > 0) out.children = children;
   return out;
 }
 
 /** Join the first / middle / last / suffix columns a file happens to have. */
 function mainName(v: RowValues) {
   const base = splitName(v);
-  const first = [base.first, v.middle_name].filter(Boolean).join(" ").trim();
-  const last = [base.last, v.suffix].filter(Boolean).join(" ").trim();
-  return { first, last };
+  const first = [base.first, base.middle].filter(Boolean).join(" ").trim();
+  const surname = base.last.trim();
+  const last = [surname, base.suffix].filter(Boolean).join(" ").trim();
+  const display = [first, last].filter(Boolean).join(" ").trim();
+  return { first, last, surname, display };
 }
 
 function isoDate(raw: string | undefined) {
@@ -289,6 +328,7 @@ function ImportCenter() {
         .select("id")
         .single();
       if (batchError) throw batchError;
+      const batchId = batch.id;
 
       const fieldSources: {
         person_id: string;
@@ -298,6 +338,65 @@ function ImportCenter() {
         import_batch_id: string;
       }[] = [];
       let failures = 0;
+
+      // Existing households, so people at the same address join one household
+      // instead of each row creating a fresh duplicate.
+      const existingHouses = (await fetchAll<{ id: string; name: string; address: string | null }>((f, t) =>
+        supabase.from("households").select("id, name, address").order("id").range(f, t),
+      )) as { id: string; name: string; address: string | null }[];
+      const houseByKey = new Map<string, string>();
+      for (const h of existingHouses) {
+        const k = addressKey(h.address);
+        if (k && !houseByKey.has(k)) houseByKey.set(k, h.id);
+        const nk = (h.name ?? "").trim().toLowerCase();
+        if (nk && !houseByKey.has(`name:${nk}`)) houseByKey.set(`name:${nk}`, h.id);
+      }
+
+      type HouseParts = {
+        address: string | null;
+        address_line2: string | null;
+        address_line3: string | null;
+        city: string | null;
+        state: string | null;
+        postal_code: string | null;
+        county: string | null;
+      };
+
+      /** Find the household for this row, or create it once and remember it. */
+      async function ensureHousehold(
+        name: string,
+        parts: HouseParts,
+        billing: string | null,
+      ): Promise<string | null> {
+        const key = addressKey(parts.address);
+        const nameKey = `name:${name.trim().toLowerCase()}`;
+        const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
+        if (found) {
+          // Fill in any address details the stored household is missing.
+          const patch: Partial<HouseParts> & { billing_address?: string } = {};
+          if (parts.address) patch.address = parts.address;
+          if (parts.address_line2) patch.address_line2 = parts.address_line2;
+          if (parts.address_line3) patch.address_line3 = parts.address_line3;
+          if (parts.city) patch.city = parts.city;
+          if (parts.state) patch.state = parts.state;
+          if (parts.postal_code) patch.postal_code = parts.postal_code;
+          if (parts.county) patch.county = parts.county;
+          if (billing) patch.billing_address = billing;
+          if (Object.keys(patch).length > 0) await supabase.from("households").update(patch).eq("id", found);
+          return found;
+        }
+        const { data: household } = await supabase
+          .from("households")
+          .insert({ name, ...parts, billing_address: billing, import_batch_id: batchId })
+          .select("id")
+          .single();
+        if (household?.id) {
+          if (key) houseByKey.set(key, household.id);
+          if (name) houseByKey.set(nameKey, household.id);
+          return household.id;
+        }
+        return null;
+      }
 
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
@@ -318,7 +417,13 @@ function ImportCenter() {
 
           let personId = item.match.candidates[0]?.id ?? null;
           let householdId = item.match.candidates[0]?.household_id ?? null;
-          const { first, last } = mainName(v);
+          const { first, last, surname, display } = mainName(v);
+          const displayName = display || null;
+          const personRole = roleFromRow({
+            ...(v.role ? { role: v.role } : {}),
+            ...(v.age ? { age: v.age } : {}),
+            ...(v.birth_date ? { birth_date: v.birth_date } : {}),
+          });
           const fullAddress = composeAddress(v);
           const addressParts = {
             address: fullAddress,
@@ -332,26 +437,18 @@ function ImportCenter() {
           const hasFamily = Boolean(
             v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
           );
+          const householdName = v.household_name ?? `${surname || first || "New"} household`;
 
           if (item.match.status === "new") {
             if (hasFamily || v.billing_address) {
-              const { data: household } = await supabase
-                .from("households")
-                .insert({
-                  name: v.household_name ?? `${last || first || "New"} household`,
-                  ...addressParts,
-                  billing_address: v.billing_address ?? null,
-                  import_batch_id: batch.id,
-                })
-                .select("id")
-                .single();
-              householdId = household?.id ?? null;
+              householdId = await ensureHousehold(householdName, addressParts, v.billing_address ?? null);
             }
             const { data: created, error: createError } = await supabase
               .from("people")
               .insert({
                 first_name: first || null,
                 last_name: last || null,
+                display_name: displayName,
                 email: v.email ?? null,
                 phone: v.phone ?? null,
                 birth_date: isoDate(v.birth_date),
@@ -360,7 +457,7 @@ function ImportCenter() {
                 school: v.school ?? null,
                 notes: v.person_notes ?? null,
                 household_id: householdId,
-                role: "Adult",
+                role: personRole,
                 tags: splitList(v.tags),
                 programs: splitList(v.programs),
                 import_batch_id: batch.id,
@@ -393,17 +490,7 @@ function ImportCenter() {
 
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
-              const { data: household } = await supabase
-                .from("households")
-                .insert({
-                  name: v.household_name ?? `${last || first || "New"} household`,
-                  ...addressParts,
-                  billing_address: v.billing_address ?? null,
-                  import_batch_id: batch.id,
-                })
-                .select("id")
-                .single();
-              householdId = household?.id ?? null;
+              householdId = await ensureHousehold(householdName, addressParts, v.billing_address ?? null);
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
             } else if (householdId && (fullAddress || v.billing_address)) {
               const housePatch: {
@@ -439,47 +526,54 @@ function ImportCenter() {
             : v.spouse_full_name
               ? splitFullName(v.spouse_full_name)
               : null;
-          if (spouseName && (spouseName.first || spouseName.last)) {
-            const already = (people ?? []).some(
+          // Only people already in this household count as "already there", so a
+          // common first name elsewhere in the database never swallows a real person.
+          const houseMembers = householdId
+            ? ((await supabase.from("people").select("first_name, last_name").eq("household_id", householdId)).data ?? [])
+            : [];
+          const inHousehold = (f: string, l: string) =>
+            houseMembers.some(
               (p) =>
-                (p.first_name ?? "").toLowerCase() === spouseName.first.toLowerCase() &&
-                (p.last_name ?? "").toLowerCase() === (spouseName.last || last).toLowerCase(),
+                (p.first_name ?? "").trim().toLowerCase() === f.trim().toLowerCase() &&
+                (p.last_name ?? "").trim().toLowerCase() === l.trim().toLowerCase(),
             );
-            if (!already) {
+          if (spouseName && (spouseName.first || spouseName.last)) {
+            const spouseLast = spouseName.last || last;
+            if (!inHousehold(spouseName.first, spouseLast)) {
               await supabase.from("people").insert({
                 first_name: spouseName.first || null,
-                last_name: spouseName.last || last || null,
+                last_name: spouseLast || null,
+                display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
                 email: v.spouse_email ?? null,
                 phone: v.spouse_phone ?? null,
                 household_id: householdId,
                 role: "Adult",
                 met_source: v.met_source ?? null,
-                import_batch_id: batch.id,
+                import_batch_id: batchId,
               });
+              houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
             }
           }
 
           // Children listed on the row each become their own contact, linked by household.
           for (const child of v.children ?? []) {
-            const cn = splitFullName(child.name);
-            if (!cn.first && !cn.last) continue;
-            const already = (people ?? []).some(
-              (p) =>
-                (p.first_name ?? "").toLowerCase() === cn.first.toLowerCase() &&
-                (p.last_name ?? "").toLowerCase() === (cn.last || last).toLowerCase(),
-            );
-            if (already) continue;
+            const childFirst = child.first.trim();
+            const childLast = (child.last ?? "").trim() || last;
+            if (!childFirst && !childLast) continue;
+            if (inHousehold(childFirst, childLast)) continue;
             await supabase.from("people").insert({
-              first_name: cn.first || null,
-              last_name: cn.last || last || null,
+              first_name: childFirst || null,
+              last_name: childLast || null,
+              display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
               household_id: householdId,
               role: "Child",
               birth_date: isoDate(child.birth_date),
               school: child.school ?? null,
               met_source: v.met_source ?? null,
               programs: splitList(v.programs),
-              import_batch_id: batch.id,
+              import_batch_id: batchId,
             });
+            houseMembers.push({ first_name: childFirst, last_name: childLast });
           }
 
           for (const key of [
