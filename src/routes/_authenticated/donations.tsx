@@ -38,6 +38,7 @@ function DonationsPage() {
         supabase
           .from("donations")
           .select("*, people(id, display_name, first_name, last_name), campaigns(id, name), grants(id, name)")
+          .is("deleted_at", null)
           .order("date", { ascending: false })
           .order("id")
           .range(from, to),

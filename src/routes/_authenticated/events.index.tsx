@@ -31,6 +31,7 @@ function EventsPage() {
       const { data, error } = await supabase
         .from("events")
         .select("*, registrations(status, people(id, display_name, first_name, last_name))")
+        .is("deleted_at", null)
         .order("date", { ascending: false });
       if (error) throw error;
       return data;

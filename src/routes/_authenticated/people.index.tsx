@@ -68,6 +68,7 @@ function PeoplePage() {
         supabase
           .from("people")
           .select("*, households(id, name), yahrzeits(hebrew_month, hebrew_day)")
+          .is("deleted_at", null)
           .order("display_name")
           .order("id")
           .range(from, to),

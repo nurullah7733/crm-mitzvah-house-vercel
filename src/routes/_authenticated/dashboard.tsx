@@ -50,18 +50,21 @@ function Dashboard() {
         supabase
           .from("tasks")
           .select("*, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
           .neq("status", "done")
           .lt("due_date", new Date().toISOString().slice(0, 10))
           .order("due_date"),
         supabase
           .from("donations")
           .select("*, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
           .order("date", { ascending: false })
           .limit(5),
-        supabase.from("events").select("*").gte("date", new Date().toISOString().slice(0, 10)).order("date").limit(4),
+        supabase.from("events").select("*").is("deleted_at", null).gte("date", new Date().toISOString().slice(0, 10)).order("date").limit(4),
         supabase
           .from("people")
           .select("id, display_name, first_name, last_name, lifetime_giving, this_year_giving, last_gift_date")
+          .is("deleted_at", null)
           .eq("this_year_giving", 0)
           .gt("lifetime_giving", 1000)
           .order("lifetime_giving", { ascending: false })

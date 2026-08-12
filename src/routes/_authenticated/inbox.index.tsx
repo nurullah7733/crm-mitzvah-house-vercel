@@ -84,6 +84,7 @@ function ImportCenter() {
         supabase
           .from("people")
           .select("id, first_name, last_name, email, phone, household_id, households(name, address)")
+          .is("deleted_at", null)
           .order("id")
           .range(f, t),
       )) as unknown as ExistingPerson[],

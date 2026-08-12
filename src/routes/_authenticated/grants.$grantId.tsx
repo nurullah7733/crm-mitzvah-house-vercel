@@ -38,9 +38,10 @@ function GrantPage() {
         supabase
           .from("donations")
           .select("*, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
           .eq("grant_id", grantId)
           .order("date", { ascending: false }),
-        supabase.from("tasks").select("*").eq("grant_id", grantId).order("due_date"),
+        supabase.from("tasks").select("*").is("deleted_at", null).eq("grant_id", grantId).order("due_date"),
       ]);
       return { grant: grant.data, payments: payments.data ?? [], tasks: tasks.data ?? [] };
     },

@@ -46,6 +46,7 @@ function EventPage() {
           supabase
             .from("people")
             .select("id, display_name, first_name, last_name, programs, tags")
+            .is("deleted_at", null)
             .order("id")
             .range(f, t),
         ),

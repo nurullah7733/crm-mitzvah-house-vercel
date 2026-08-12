@@ -41,6 +41,7 @@ function TasksPage() {
         supabase
           .from("tasks")
           .select("*, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
           .order("due_date")
           .order("id")
           .range(f, t),
@@ -55,6 +56,7 @@ function TasksPage() {
           supabase
             .from("people")
             .select("id, display_name, first_name, last_name, birth_date")
+            .is("deleted_at", null)
             .not("birth_date", "is", null)
             .order("id")
             .range(f, t),

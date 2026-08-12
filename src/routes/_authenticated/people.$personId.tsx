@@ -98,9 +98,10 @@ function PersonPage() {
         supabase
           .from("donations")
           .select("*, campaigns(id, name), grants(id, name)")
+          .is("deleted_at", null)
           .eq("person_id", personId)
           .order("date", { ascending: false }),
-        supabase.from("tasks").select("*").eq("person_id", personId).order("due_date"),
+        supabase.from("tasks").select("*").is("deleted_at", null).eq("person_id", personId).order("due_date"),
         supabase.from("yahrzeits").select("*").eq("person_id", personId),
         supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
         supabase.from("field_sources").select("*").eq("person_id", personId),

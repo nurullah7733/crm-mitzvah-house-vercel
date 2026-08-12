@@ -30,7 +30,7 @@ function CampaignsPage() {
     queryFn: async () => {
       const [campaigns, donations] = await Promise.all([
         supabase.from("campaigns").select("*, events(id, name, date)").order("created_at", { ascending: false }),
-        fetchAll((f, t) => supabase.from("donations").select("campaign_id, amount").order("id").range(f, t)),
+        fetchAll((f, t) => supabase.from("donations").select("campaign_id, amount").is("deleted_at", null).order("id").range(f, t)),
       ]);
       if (campaigns.error) throw campaigns.error;
       const raised = new Map<string, number>();

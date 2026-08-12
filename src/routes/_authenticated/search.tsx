@@ -46,12 +46,13 @@ function SearchPage() {
     queryFn: async () => {
       const lastYear = new Date().getFullYear() - 1;
       const [people, interactions, donations, programs, tags] = await Promise.all([
-        fetchAll((f, t) => supabase.from("people").select("*, households(name)").order("id").range(f, t)),
+        fetchAll((f, t) => supabase.from("people").select("*, households(name)").is("deleted_at", null).order("id").range(f, t)),
         fetchAll((f, t) => supabase.from("interactions").select("person_id, text, type").order("id").range(f, t)),
         fetchAll((f, t) =>
           supabase
             .from("donations")
             .select("person_id, amount, date")
+            .is("deleted_at", null)
             .gte("date", `${lastYear}-01-01`)
             .lte("date", `${lastYear}-12-31`)
             .order("id")

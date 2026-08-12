@@ -87,6 +87,7 @@ export function MergeContactsDialog({
           .select(
             "id, display_name, first_name, last_name, email, phone, role, contact_type, owner, met_source, met_date, birth_date, household_id, tags, programs, lifetime_giving",
           )
+          .is("deleted_at", null)
           .order("display_name")
           .order("id")
           .range(from, to),
