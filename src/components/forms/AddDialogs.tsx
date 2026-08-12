@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { hebrewDateFromEnglish } from "@/lib/hebrew";
+import { personName } from "@/lib/names";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -24,8 +25,8 @@ function usePeopleMini() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("people")
-        .select("id, first_name, last_name, lifetime_giving, this_year_giving")
-        .order("last_name");
+        .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
+        .order("display_name");
       if (error) throw error;
       return data;
     },
@@ -70,6 +71,9 @@ export function useProgramOptions() {
 const EMPTY_PERSON = {
   first_name: "",
   last_name: "",
+  contact_type: "individual",
+  org_name: "",
+  parent_org_id: "",
   phone: "",
   email: "",
   met_source: "",
@@ -96,6 +100,8 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const { data: households } = useHouseholdsMini();
   const { data: metSources } = useMetSourceOptions();
   const hebrew = hebrewDateFromEnglish(form.birth_date);
+  const { data: peopleMini } = usePeopleMini();
+  const isOrg = form.contact_type !== "individual";
 
   const addSource = useMutation({
     mutationFn: async (label: string) => {
@@ -119,7 +125,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.first_name.trim() && !form.last_name.trim()) throw new Error("A name is required");
+      if (isOrg) {
+        if (!form.org_name.trim()) throw new Error("An organization name is required");
+      } else if (!form.first_name.trim() && !form.last_name.trim()) {
+        throw new Error("A name is required");
+      }
 
       let householdId = form.household_id || null;
       if (form.new_household.trim()) {
@@ -143,8 +153,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       const { data: person, error } = await supabase
         .from("people")
         .insert({
-          first_name: form.first_name.trim() || "—",
-          last_name: form.last_name.trim() || "",
+          contact_type: form.contact_type,
+          display_name: isOrg ? form.org_name.trim() : null,
+          first_name: isOrg ? null : form.first_name.trim() || null,
+          last_name: isOrg ? null : form.last_name.trim() || null,
+          parent_org_id: form.parent_org_id || null,
           phone: form.phone.trim() || null,
           email: form.email.trim() || null,
           met_source: form.met_source || null,
@@ -205,12 +218,43 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       }
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="First name">
-          <Input className="text-base" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
+        <Field label="Contact type" className="sm:col-span-2">
+          <select value={form.contact_type} onChange={(e) => set("contact_type", e.target.value)} className={selectClass}>
+            <option value="individual">Individual</option>
+            <option value="organization">Organization</option>
+            <option value="foundation">Foundation</option>
+          </select>
         </Field>
-        <Field label="Last name">
-          <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
-        </Field>
+        {isOrg ? (
+          <Field label="Organization name" className="sm:col-span-2">
+            <Input className="text-base" value={form.org_name} onChange={(e) => set("org_name", e.target.value)} />
+          </Field>
+        ) : (
+          <>
+            <Field label="First name">
+              <Input className="text-base" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
+            </Field>
+            <Field label="Last name">
+              <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
+            </Field>
+            <Field label="Works for (organization or foundation)" className="sm:col-span-2">
+              <select
+                value={form.parent_org_id}
+                onChange={(e) => set("parent_org_id", e.target.value)}
+                className={selectClass}
+              >
+                <option value="">Not linked</option>
+                {(peopleMini ?? [])
+                  .filter((p) => p.contact_type && p.contact_type !== "individual")
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {personName(p)}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          </>
+        )}
         <Field label="Phone">
           <Input className="text-base" type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         </Field>
