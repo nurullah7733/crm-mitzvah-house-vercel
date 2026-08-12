@@ -14,7 +14,405 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      donations: {
+        Row: {
+          amount: number
+          campaign: string | null
+          created_at: string
+          date: string
+          id: string
+          method: string | null
+          notes: string | null
+          person_id: string
+          source: string | null
+        }
+        Insert: {
+          amount: number
+          campaign?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          method?: string | null
+          notes?: string | null
+          person_id: string
+          source?: string | null
+        }
+        Update: {
+          amount?: number
+          campaign?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          method?: string | null
+          notes?: string | null
+          person_id?: string
+          source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "donations_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      events: {
+        Row: {
+          capacity: number | null
+          created_at: string
+          date: string
+          description: string | null
+          id: string
+          location: string | null
+          name: string
+          program: string | null
+          staff_lead: string | null
+          time: string | null
+        }
+        Insert: {
+          capacity?: number | null
+          created_at?: string
+          date: string
+          description?: string | null
+          id?: string
+          location?: string | null
+          name: string
+          program?: string | null
+          staff_lead?: string | null
+          time?: string | null
+        }
+        Update: {
+          capacity?: number | null
+          created_at?: string
+          date?: string
+          description?: string | null
+          id?: string
+          location?: string | null
+          name?: string
+          program?: string | null
+          staff_lead?: string | null
+          time?: string | null
+        }
+        Relationships: []
+      }
+      field_sources: {
+        Row: {
+          created_at: string
+          field_name: string
+          id: string
+          person_id: string
+          recorded_date: string
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          field_name: string
+          id?: string
+          person_id: string
+          recorded_date?: string
+          source: string
+        }
+        Update: {
+          created_at?: string
+          field_name?: string
+          id?: string
+          person_id?: string
+          recorded_date?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "field_sources_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      households: {
+        Row: {
+          address: string | null
+          created_at: string
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+        }
+        Relationships: []
+      }
+      interactions: {
+        Row: {
+          author: string | null
+          created_at: string
+          date: string
+          id: string
+          person_id: string
+          text: string | null
+          type: string
+        }
+        Insert: {
+          author?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          person_id: string
+          text?: string | null
+          type: string
+        }
+        Update: {
+          author?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          person_id?: string
+          text?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interactions_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      met_source_options: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+        }
+        Relationships: []
+      }
+      people: {
+        Row: {
+          birth_date: string | null
+          created_at: string
+          email: string | null
+          first_name: string
+          household_id: string | null
+          id: string
+          last_activity_date: string | null
+          last_gift_amount: number | null
+          last_gift_date: string | null
+          last_name: string
+          lifetime_giving: number
+          met_date: string | null
+          met_source: string | null
+          owner: string | null
+          phone: string | null
+          programs: string[]
+          role: string
+          tags: string[]
+          this_year_giving: number
+        }
+        Insert: {
+          birth_date?: string | null
+          created_at?: string
+          email?: string | null
+          first_name: string
+          household_id?: string | null
+          id?: string
+          last_activity_date?: string | null
+          last_gift_amount?: number | null
+          last_gift_date?: string | null
+          last_name: string
+          lifetime_giving?: number
+          met_date?: string | null
+          met_source?: string | null
+          owner?: string | null
+          phone?: string | null
+          programs?: string[]
+          role?: string
+          tags?: string[]
+          this_year_giving?: number
+        }
+        Update: {
+          birth_date?: string | null
+          created_at?: string
+          email?: string | null
+          first_name?: string
+          household_id?: string | null
+          id?: string
+          last_activity_date?: string | null
+          last_gift_amount?: number | null
+          last_gift_date?: string | null
+          last_name?: string
+          lifetime_giving?: number
+          met_date?: string | null
+          met_source?: string | null
+          owner?: string | null
+          phone?: string | null
+          programs?: string[]
+          role?: string
+          tags?: string[]
+          this_year_giving?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "people_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      registrations: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          person_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          person_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          person_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "registrations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "registrations_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tasks: {
+        Row: {
+          completion_note: string | null
+          created_at: string
+          due_date: string | null
+          id: string
+          notes: string | null
+          owner: string | null
+          person_id: string | null
+          priority: string | null
+          status: string
+          text: string
+        }
+        Insert: {
+          completion_note?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          owner?: string | null
+          person_id?: string | null
+          priority?: string | null
+          status?: string
+          text: string
+        }
+        Update: {
+          completion_note?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          owner?: string | null
+          person_id?: string | null
+          priority?: string | null
+          status?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasks_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      yahrzeits: {
+        Row: {
+          created_at: string
+          deceased_name: string
+          hebrew_day: number
+          hebrew_month: number
+          id: string
+          person_id: string
+          relationship: string | null
+        }
+        Insert: {
+          created_at?: string
+          deceased_name: string
+          hebrew_day: number
+          hebrew_month: number
+          id?: string
+          person_id: string
+          relationship?: string | null
+        }
+        Update: {
+          created_at?: string
+          deceased_name?: string
+          hebrew_day?: number
+          hebrew_month?: number
+          id?: string
+          person_id?: string
+          relationship?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "yahrzeits_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
