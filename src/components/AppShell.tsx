@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import logoAsset from "@/assets/mitzvah-house-logo.png.asset.json";
+import logoWhite from "@/assets/mitzvah-house-logo-white.png";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -61,8 +61,8 @@ export function AppShell({
       {/* Brand header — azure, stuck to the top of every page */}
       <header className="sticky top-0 z-30 bg-[linear-gradient(120deg,var(--sidebar),var(--sidebar-accent))] shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
-          <Link to="/dashboard" className="flex shrink-0 items-center rounded-xl bg-white px-3 py-2">
-            <img src={logoAsset.url} alt="Mitzvah House" className="h-7 w-auto sm:h-8" />
+          <Link to="/dashboard" className="flex shrink-0 items-center">
+            <img src={logoWhite} alt="Mitzvah House" className="h-8 w-auto sm:h-9" />
           </Link>
           <form
             className="relative min-w-0 flex-1"
