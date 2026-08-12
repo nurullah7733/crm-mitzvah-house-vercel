@@ -7,7 +7,7 @@ import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
 
-export const Route = createFileRoute("/_authenticated/households")({
+export const Route = createFileRoute("/_authenticated/households/")({
   head: () => ({
     meta: [
       { title: "Households | Mitzvah House CRM" },

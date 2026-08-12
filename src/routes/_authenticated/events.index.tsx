@@ -4,7 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 
-export const Route = createFileRoute("/_authenticated/events")({
+export const Route = createFileRoute("/_authenticated/events/")({
   head: () => ({
     meta: [
       { title: "Events | Mitzvah House CRM" },
