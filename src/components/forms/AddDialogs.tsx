@@ -854,7 +854,7 @@ export function CompleteTaskDialog({
       if (!task) return;
       const { error } = await supabase
         .from("tasks")
-        .update({ status: "done", completion_note: note.trim() || null })
+        .update({ status: "done", completion_note: note.trim() || null, completed_at: new Date().toISOString() })
         .eq("id", task.id);
       if (error) throw error;
 
