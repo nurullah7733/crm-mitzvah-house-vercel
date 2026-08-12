@@ -51,6 +51,7 @@ function today() {
 function PersonPage() {
   const { personId } = Route.useParams();
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
+  const [showAllGifts, setShowAllGifts] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: options } = useQuery({
@@ -163,6 +164,15 @@ function PersonPage() {
 
   const since = daysSince(p.last_activity_date);
   const bday = nextBirthday(p.birth_date);
+
+  const gifts = data?.donations ?? [];
+  const lifetime = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  const currentYear = new Date().getFullYear();
+  const thisYear = gifts
+    .filter((d) => (d.date ?? "").slice(0, 4) === String(currentYear))
+    .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  const giftSource = (d: (typeof gifts)[number]) =>
+    [d.source, d.campaigns?.name ?? d.campaign, d.grants?.name, d.method].filter(Boolean).join(" / ") || "Manual entry";
 
   return (
     <AppShell
