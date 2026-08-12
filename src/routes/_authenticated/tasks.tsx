@@ -60,7 +60,9 @@ function TasksPage() {
     d.setDate(d.getDate() - d.getDay()); // Sunday of the current week
     return d.toISOString().slice(0, 10);
   })();
-  const done = tasks.filter((t) => t.group === "done" && (t.created_at ?? "").slice(0, 10) >= weekStart);
+  const done = tasks.filter(
+    (t) => t.group === "done" && ((t.completed_at ?? t.created_at) ?? "").slice(0, 10) >= weekStart,
+  );
 
   function Row({ t }: { t: (typeof tasks)[number] }) {
     const isDone = t.group === "done";
