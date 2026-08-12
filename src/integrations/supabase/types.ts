@@ -14,12 +14,61 @@ export type Database = {
   }
   public: {
     Tables: {
+      campaigns: {
+        Row: {
+          created_at: string
+          description: string | null
+          end_date: string | null
+          event_id: string | null
+          goal_amount: number | null
+          id: string
+          name: string
+          start_date: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          event_id?: string | null
+          goal_amount?: number | null
+          id?: string
+          name: string
+          start_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          event_id?: string | null
+          goal_amount?: number | null
+          id?: string
+          name?: string
+          start_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       donations: {
         Row: {
           amount: number
           campaign: string | null
+          campaign_id: string | null
           created_at: string
           date: string
+          grant_id: string | null
           id: string
           method: string | null
           notes: string | null
@@ -29,8 +78,10 @@ export type Database = {
         Insert: {
           amount: number
           campaign?: string | null
+          campaign_id?: string | null
           created_at?: string
           date?: string
+          grant_id?: string | null
           id?: string
           method?: string | null
           notes?: string | null
@@ -40,8 +91,10 @@ export type Database = {
         Update: {
           amount?: number
           campaign?: string | null
+          campaign_id?: string | null
           created_at?: string
           date?: string
+          grant_id?: string | null
           id?: string
           method?: string | null
           notes?: string | null
@@ -49,6 +102,20 @@ export type Database = {
           source?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "donations_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donations_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "grants"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "donations_person_id_fkey"
             columns: ["person_id"]
@@ -126,6 +193,82 @@ export type Database = {
           {
             foreignKeyName: "field_sources_person_id_fkey"
             columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grants: {
+        Row: {
+          amount_awarded: number | null
+          amount_requested: number | null
+          application_deadline: string | null
+          campaign_id: string | null
+          created_at: string
+          funder_id: string
+          id: string
+          name: string
+          notes: string | null
+          program_officer_id: string | null
+          renewal_deadline: string | null
+          report_deadline: string | null
+          restricted_program: string | null
+          stage: string
+          updated_at: string
+        }
+        Insert: {
+          amount_awarded?: number | null
+          amount_requested?: number | null
+          application_deadline?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          funder_id: string
+          id?: string
+          name: string
+          notes?: string | null
+          program_officer_id?: string | null
+          renewal_deadline?: string | null
+          report_deadline?: string | null
+          restricted_program?: string | null
+          stage?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_awarded?: number | null
+          amount_requested?: number | null
+          application_deadline?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          funder_id?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          program_officer_id?: string | null
+          renewal_deadline?: string | null
+          report_deadline?: string | null
+          restricted_program?: string | null
+          stage?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grants_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grants_funder_id_fkey"
+            columns: ["funder_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grants_program_officer_id_fkey"
+            columns: ["program_officer_id"]
             isOneToOne: false
             referencedRelation: "people"
             referencedColumns: ["id"]
@@ -290,19 +433,22 @@ export type Database = {
       people: {
         Row: {
           birth_date: string | null
+          contact_type: string
           created_at: string
+          display_name: string | null
           email: string | null
-          first_name: string
+          first_name: string | null
           household_id: string | null
           id: string
           last_activity_date: string | null
           last_gift_amount: number | null
           last_gift_date: string | null
-          last_name: string
+          last_name: string | null
           lifetime_giving: number
           met_date: string | null
           met_source: string | null
           owner: string | null
+          parent_org_id: string | null
           phone: string | null
           programs: string[]
           role: string
@@ -311,19 +457,22 @@ export type Database = {
         }
         Insert: {
           birth_date?: string | null
+          contact_type?: string
           created_at?: string
+          display_name?: string | null
           email?: string | null
-          first_name: string
+          first_name?: string | null
           household_id?: string | null
           id?: string
           last_activity_date?: string | null
           last_gift_amount?: number | null
           last_gift_date?: string | null
-          last_name: string
+          last_name?: string | null
           lifetime_giving?: number
           met_date?: string | null
           met_source?: string | null
           owner?: string | null
+          parent_org_id?: string | null
           phone?: string | null
           programs?: string[]
           role?: string
@@ -332,19 +481,22 @@ export type Database = {
         }
         Update: {
           birth_date?: string | null
+          contact_type?: string
           created_at?: string
+          display_name?: string | null
           email?: string | null
-          first_name?: string
+          first_name?: string | null
           household_id?: string | null
           id?: string
           last_activity_date?: string | null
           last_gift_amount?: number | null
           last_gift_date?: string | null
-          last_name?: string
+          last_name?: string | null
           lifetime_giving?: number
           met_date?: string | null
           met_source?: string | null
           owner?: string | null
+          parent_org_id?: string | null
           phone?: string | null
           programs?: string[]
           role?: string
@@ -357,6 +509,13 @@ export type Database = {
             columns: ["household_id"]
             isOneToOne: false
             referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "people_parent_org_id_fkey"
+            columns: ["parent_org_id"]
+            isOneToOne: false
+            referencedRelation: "people"
             referencedColumns: ["id"]
           },
         ]
@@ -515,6 +674,7 @@ export type Database = {
           completion_note: string | null
           created_at: string
           due_date: string | null
+          grant_id: string | null
           id: string
           notes: string | null
           owner: string | null
@@ -527,6 +687,7 @@ export type Database = {
           completion_note?: string | null
           created_at?: string
           due_date?: string | null
+          grant_id?: string | null
           id?: string
           notes?: string | null
           owner?: string | null
@@ -539,6 +700,7 @@ export type Database = {
           completion_note?: string | null
           created_at?: string
           due_date?: string | null
+          grant_id?: string | null
           id?: string
           notes?: string | null
           owner?: string | null
@@ -548,6 +710,13 @@ export type Database = {
           text?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tasks_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "grants"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tasks_person_id_fkey"
             columns: ["person_id"]
