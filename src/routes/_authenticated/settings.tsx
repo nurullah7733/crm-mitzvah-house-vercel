@@ -64,7 +64,7 @@ function SettingsPage() {
         />
         <EditableList
           table="met_source_options"
-          title={`"Where did we meet them?" sources`}
+          title="Where did we meet them? sources"
           description="Rename or remove any option — changes apply everywhere."
           placeholder="Add a source"
         />
