@@ -35,7 +35,7 @@ function TasksPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, people(id, first_name, last_name)")
+        .select("*, people(id, display_name, first_name, last_name)")
         .order("due_date");
       if (error) throw error;
       return data;
@@ -81,7 +81,7 @@ function TasksPage() {
               params={{ personId: t.people.id }}
               className="mt-2 inline-block text-sm text-primary hover:underline"
             >
-              {t.people.first_name} {t.people.last_name}
+              {personName(t.people)}
             </Link>
           )}
           {t.completion_note && <p className="mt-1 text-xs text-muted-foreground">{t.completion_note}</p>}

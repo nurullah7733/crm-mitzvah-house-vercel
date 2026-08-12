@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { AddDonationDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
+import { personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/donations")({
   head: () => ({
@@ -34,7 +35,7 @@ function DonationsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("donations")
-        .select("*, people(id, first_name, last_name)")
+        .select("*, people(id, display_name, first_name, last_name), campaigns(id, name), grants(id, name)")
         .order("date", { ascending: false });
       if (error) throw error;
       return data;
@@ -65,11 +66,11 @@ function DonationsPage() {
               downloadCsv(
                 `donations-${stamp()}`,
                 gifts.map((d) => ({
-                  first_name: d.people?.first_name ?? "",
-                  last_name: d.people?.last_name ?? "",
+                  donor: personName(d.people),
                   amount: d.amount,
                   date: d.date,
-                  campaign: d.campaign ?? "",
+                  campaign: d.campaigns?.name ?? d.campaign ?? "",
+                  grant: d.grants?.name ?? "",
                   method: d.method ?? "",
                   source: d.source ?? "",
                   notes: d.notes ?? "",
@@ -131,14 +132,23 @@ function DonationsPage() {
                     params={{ personId: d.people.id }}
                     className="font-heading font-semibold text-primary hover:underline"
                   >
-                    {d.people.first_name} {d.people.last_name}
+                    {personName(d.people)}
                   </Link>
                 ) : (
                   <p className="font-heading font-semibold text-foreground">Unknown donor</p>
                 )}
                 <p className="text-sm text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaign ?? "General"} · {d.method ?? "—"}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? d.campaign ?? "General"} · {d.method ?? "—"}
                 </p>
+                {d.grants && (
+                  <Link
+                    to="/grants/$grantId"
+                    params={{ grantId: d.grants.id }}
+                    className="mt-1 inline-block text-xs text-primary hover:underline"
+                  >
+                    Grant payment — {d.grants.name}
+                  </Link>
+                )}
                 {d.notes && <p className="mt-1 text-sm text-muted-foreground">{d.notes}</p>}
                 {d.source && <p className="mt-1 text-xs text-muted-foreground">Source: {d.source}</p>}
               </div>

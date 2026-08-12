@@ -29,7 +29,7 @@ function EventsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("events")
-        .select("*, registrations(status, people(id, first_name, last_name))")
+        .select("*, registrations(status, people(id, display_name, first_name, last_name))")
         .order("date", { ascending: false });
       if (error) throw error;
       return data;
@@ -124,7 +124,7 @@ function EventsPage() {
                     key={r.people!.id}
                     className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground"
                   >
-                    {r.people!.first_name} {r.people!.last_name} · {r.status}
+                    {personName(r.people)} · {r.status}
                   </span>
                 ))}
             </div>
