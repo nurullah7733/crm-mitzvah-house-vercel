@@ -179,15 +179,32 @@ function PersonPage() {
       title={personName(p)}
       subtitle={p.households?.name ?? "No household"}
       action={
-        <Link
-          to="/people"
-          search={{}}
-          className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
-        >
-          <ArrowLeft className="size-4" /> People
-        </Link>
+        <>
+          <button
+            type="button"
+            onClick={() => setMergeOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
+          >
+            Merge duplicate
+          </button>
+          <Link
+            to="/people"
+            search={{}}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
+          >
+            <ArrowLeft className="size-4" /> People
+          </Link>
+        </>
       }
     >
+      <MergeContactsDialog
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
+        primaryId={personId}
+        onMerged={(survivingId) => {
+          if (survivingId !== personId) navigate({ to: "/people/$personId", params: { personId: survivingId } });
+        }}
+      />
       {/* Profile header */}
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4">
