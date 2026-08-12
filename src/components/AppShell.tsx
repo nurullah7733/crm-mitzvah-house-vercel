@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import logoWhite from "@/assets/mitzvah-house-logo-white.png";
+import logoAsset from "@/assets/mitzvah-house-logo.png.asset.json";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
