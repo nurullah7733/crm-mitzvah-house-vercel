@@ -311,7 +311,7 @@ export function BulkPeopleBar({
           open={mergeOpen}
           onOpenChange={setMergeOpen}
           lockSelection
-          primaryId={selectedIds[0]}
+          primaryId={selectedIds[0]!}
           suggestedIds={[selectedIds[1]!]}
           onMerged={() => onClear()}
         />
