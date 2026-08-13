@@ -388,47 +388,80 @@ function RecalculateTotalsPanel() {
   );
 }
 
-function StaffPanelInner() {
+const STATUS_LABEL: Record<StaffAccountStatus, { label: string; className: string; hint: string }> = {
+  active: { label: "Active", className: "bg-money/10 text-money", hint: "Has signed in and can use the CRM." },
+  invited: {
+    label: "Invited",
+    className: "bg-suggestion/15 text-foreground",
+    hint: "Invite email sent — waiting for them to choose a password.",
+  },
+  no_account: {
+    label: "No account",
+    className: "bg-urgent/10 text-urgent",
+    hint: "No login yet. Send an invite so they can get in.",
+  },
+  disabled: {
+    label: "No access",
+    className: "bg-muted text-muted-foreground",
+    hint: "Their login is switched off. Restore access to let them back in.",
+  },
+};
+
+function StaffPanel() {
   const queryClient = useQueryClient();
   const isAdmin = useIsAdmin();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("va");
 
-  const { data: staff } = useQuery({
+  const load = useServerFn(listStaff);
+  const invite = useServerFn(inviteStaff);
+  const resend = useServerFn(resendStaffInvite);
+  const changeRole = useServerFn(setStaffRoleFn);
+  const disable = useServerFn(removeStaff);
+  const restore = useServerFn(restoreStaff);
+
+  const { data: staff, isError, error } = useQuery({
     queryKey: ["staff-members"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("staff_members").select("*").order("name");
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => load(),
+    enabled: isAdmin,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["staff-members"] });
+  const inviteLink = () => `${window.location.origin}/set-password`;
 
   const add = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase
-        .from("staff_members")
-        .insert({ name: name.trim(), email: email.trim().toLowerCase(), role });
-      if (error) throw error;
-    },
-    onSuccess: () => {
+    mutationFn: () =>
+      invite({
+        data: { name: name.trim(), email: email.trim().toLowerCase(), role, redirectTo: inviteLink() },
+      }),
+    onSuccess: (result) => {
       setName("");
       setEmail("");
       setRole("va");
       refresh();
-      toast.success("Staff member added");
-      logChange("Added a staff member");
+      toast.success(
+        result.invited
+          ? "Invite sent — they'll get an email to choose their password"
+          : "They already had a login, so it's now linked with this role",
+      );
+      logChange("Invited a staff member");
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const setStaffRole = useMutation({
-    mutationFn: async ({ id, role }: { id: string; role: Role }) => {
-      const { error } = await supabase.from("staff_members").update({ role }).eq("id", id);
-      if (error) throw error;
+  const resendInvite = useMutation({
+    mutationFn: (staffId: string) => resend({ data: { staffId, redirectTo: inviteLink() } }),
+    onSuccess: () => {
+      refresh();
+      toast.success("Invite sent again");
+      logChange("Resent a staff invite");
     },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const setStaffRoleMut = useMutation({
+    mutationFn: ({ staffId, role }: { staffId: string; role: Role }) => changeRole({ data: { staffId, role } }),
     onSuccess: () => {
       refresh();
       toast.success("Role updated");
@@ -438,61 +471,108 @@ function StaffPanelInner() {
   });
 
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("staff_members").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (staffId: string) => disable({ data: { staffId } }),
     onSuccess: () => {
       refresh();
-      toast.success("Staff member removed");
-      logChange("Removed a staff member");
+      toast.success("Their login has been switched off");
+      logChange("Removed staff access");
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const putBack = useMutation({
+    mutationFn: (staffId: string) => restore({ data: { staffId } }),
+    onSuccess: () => {
+      refresh();
+      toast.success("Access restored");
+      logChange("Restored staff access");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  if (!isAdmin) {
+    return (
+      <p className="text-xs text-suggestion">
+        Only an admin can see and manage staff logins. Ask a director if someone needs access.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-1">
       <p className="text-xs text-muted-foreground">
-        Add the people who work in the CRM and set what each one does. They sign in with this email address.
+        Adding someone here creates their login and emails them an invite. They click the link, choose
+        their own password, and get the role you picked. Nobody else ever handles their password.
       </p>
-      {!isAdmin && (
-        <p className="text-xs text-suggestion">
-          Only an admin can add staff, change a role, or remove someone. You can see the list here.
-        </p>
-      )}
+      {isError && <p className="mt-2 text-xs text-urgent">{(error as Error)?.message}</p>}
+
       <div className="mt-3 space-y-2">
-        {(staff ?? []).map((s) => (
-          <div key={s.id} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center">
-            <p className="text-sm font-medium text-foreground">{s.name}</p>
-            <p className="truncate text-sm text-muted-foreground">{s.email}</p>
-            <select
-              className={selectClass}
-              value={s.role}
-              aria-label={`Role for ${s.name}`}
-              disabled={!isAdmin}
-              onChange={(e) => setStaffRole.mutate({ id: s.id, role: e.target.value as Role })}
-            >
-              {ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="outline"
-              className="shrink-0 rounded-xl text-urgent"
-              aria-label={`Remove ${s.name}`}
-              disabled={!isAdmin}
-              onClick={() => remove.mutate(s.id)}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
-        ))}
+        {(staff ?? []).map((s) => {
+          const badge = STATUS_LABEL[s.status];
+          return (
+            <div key={s.id} className="rounded-xl border border-border p-3">
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{s.name}</p>
+                  <p className="truncate text-sm text-muted-foreground">{s.email}</p>
+                </div>
+                <div>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>
+                    {badge.label}
+                  </span>
+                  <p className="mt-1 text-xs text-muted-foreground">{badge.hint}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    className={selectClass}
+                    value={s.role}
+                    aria-label={`Role for ${s.name}`}
+                    onChange={(e) => setStaffRoleMut.mutate({ staffId: s.id, role: e.target.value as Role })}
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                  {(s.status === "invited" || s.status === "no_account") && (
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={resendInvite.isPending}
+                      onClick={() => resendInvite.mutate(s.id)}
+                    >
+                      <Mail className="size-4" /> {s.status === "no_account" ? "Send invite" : "Resend invite"}
+                    </Button>
+                  )}
+                  {s.status === "disabled" ? (
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={putBack.isPending}
+                      onClick={() => putBack.mutate(s.id)}
+                    >
+                      <RotateCcw className="size-4" /> Restore access
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      className="shrink-0 rounded-xl text-urgent"
+                      aria-label={`Remove ${s.name}`}
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(s.id)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
         {(staff ?? []).length === 0 && <p className="text-sm text-muted-foreground">No staff added yet.</p>}
       </div>
 
-      {isAdmin && (
       <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
         <Field label="Name">
           <Input className="text-base" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
@@ -521,10 +601,9 @@ function StaffPanelInner() {
           disabled={!name.trim() || !email.trim() || add.isPending}
           onClick={() => add.mutate()}
         >
-          <Plus className="size-4" /> Add staff
+          <Plus className="size-4" /> {add.isPending ? "Sending…" : "Add & invite"}
         </Button>
       </div>
-      )}
     </div>
   );
 }
