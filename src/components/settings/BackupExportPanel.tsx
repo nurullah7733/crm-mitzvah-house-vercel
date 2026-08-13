@@ -136,6 +136,26 @@ export function BackupExportPanel() {
 
   const failedCount = results?.filter((r) => r.error).length ?? 0;
 
+  // The preview runs inside an embedded frame, and browsers block file saves
+  // started there. Handing the file to a normal browser tab lets the save go
+  // through with the right filename.
+  function saveFile(e: React.MouseEvent) {
+    if (!readyDownload) return;
+    if (window.top === window.self) return; // normal tab: let the link work
+    e.preventDefault();
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("Please allow pop-ups for this page, then click Save again");
+      return;
+    }
+    const a = w.document.createElement("a");
+    a.href = readyDownload.url;
+    a.download = readyDownload.filename;
+    w.document.body.appendChild(a);
+    a.click();
+    setTimeout(() => w.close(), 2000);
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
@@ -162,7 +182,7 @@ export function BackupExportPanel() {
         <div className="rounded-xl border border-money/30 bg-money/10 p-4">
           <p className="mb-3 text-sm font-medium text-foreground">Your backup is ready to save.</p>
           <Button asChild className="h-11 rounded-xl">
-            <a href={readyDownload.url} download={readyDownload.filename}>
+            <a href={readyDownload.url} download={readyDownload.filename} onClick={saveFile}>
               <Save className="mr-2 h-4 w-4" />
               Save backup file
             </a>
