@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ export function ChipEditor({
   emptyLabel,
   onChange,
   tone = "secondary",
+  linkKind,
 }: {
   values: string[];
   options: string[];
@@ -18,6 +20,8 @@ export function ChipEditor({
   emptyLabel?: string;
   onChange: (next: string[]) => void;
   tone?: "secondary" | "primary";
+  /** When set, each chip links to the People screen filtered by that tag or program. */
+  linkKind?: "tag" | "program";
 }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -45,7 +49,18 @@ export function ChipEditor({
               tone === "primary" ? "bg-primary/10 text-primary" : "bg-secondary text-secondary-foreground"
             }`}
           >
-            {v}
+            {linkKind ? (
+              <Link
+                to="/people"
+                search={linkKind === "tag" ? { tag: v } : { program: v }}
+                className="hover:underline"
+                title={`See everyone with this ${linkKind}`}
+              >
+                {v}
+              </Link>
+            ) : (
+              v
+            )}
             <button
               type="button"
               aria-label={`Remove ${v}`}
