@@ -248,6 +248,13 @@ function splitList(raw: string | undefined) {
   return raw ? raw.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [];
 }
 
+/** Same date, shifted by whole days — used for the one-day event window. */
+function dayShift(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 const DRAFT_KEY = "mh-import-draft";
 
 function ImportCenter() {
@@ -448,11 +455,6 @@ function ImportCenter() {
    * One decision covers the whole batch, not row by row.
    */
   const giftEventGroups = useMemo(() => {
-    const dayOffset = (iso: string, days: number) => {
-      const d = new Date(`${iso}T12:00:00`);
-      d.setDate(d.getDate() + days);
-      return d.toISOString().slice(0, 10);
-    };
     const groups = new Map<string, { event: EventOption; rows: number; total: number }>();
     analysed.forEach((a) => {
       if (a.match.status === "ambiguous") return;
@@ -461,7 +463,7 @@ function ImportCenter() {
       const giftDate = isoDate(a.values.date);
       if (!giftDate) return;
       const match = (events ?? []).find(
-        (ev) => ev.date >= dayOffset(giftDate, -1) && ev.date <= dayOffset(giftDate, 1),
+        (ev) => ev.date >= dayShift(giftDate, -1) && ev.date <= dayShift(giftDate, 1),
       );
       if (!match) return;
       const entry = groups.get(match.id) ?? { event: match, rows: 0, total: 0 };
