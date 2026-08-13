@@ -536,6 +536,8 @@ function ImportCenter() {
     setEventDecisions({});
     setAddressDecisions({});
     setBulkTarget(EMPTY_BULK_TARGET);
+    setGiftEventDecisions({});
+    setReimportConfirmed(false);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
     } catch {
@@ -1628,6 +1630,22 @@ function ImportCenter() {
           </section>
 
           <div className="sticky bottom-24 flex flex-wrap gap-2 rounded-2xl border border-border bg-card p-4 shadow-sm lg:bottom-4">
+            {(priorImports ?? []).length > 0 && (
+              <label className="flex w-full items-start gap-2 rounded-xl bg-warning/10 px-3 py-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={reimportConfirmed}
+                  onChange={(e) => setReimportConfirmed(e.target.checked)}
+                />
+                <span>
+                  A file named <strong>{sheet.name}</strong> was already imported
+                  {priorImports![0]?.import_date ? ` on ${priorImports![0]!.import_date}` : ""}
+                  {(priorImports ?? []).length > 1 ? ` (${priorImports!.length} times)` : ""}. Tick this box if you
+                  really want to import it again.
+                </span>
+              </label>
+            )}
             <Button className="rounded-xl" disabled={busy} onClick={() => void approve()}>
               {busy ? `Importing… ${progress?.done ?? 0}/${progress?.total ?? 0}` : "Approve & import"}
             </Button>
