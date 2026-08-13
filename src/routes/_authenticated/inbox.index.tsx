@@ -913,15 +913,8 @@ function ImportCenter() {
               await supabase
                 .from("registrations")
                 .insert({ event_id: targetEventId, person_id: personId, status: "Attended" });
-              const info = eventNameById.get(targetEventId);
-              await supabase.from("interactions").insert({
-                person_id: personId,
-                type: "event",
-                date: info?.date ?? importDate,
-                text: `Attended ${info?.name ?? v.event_name ?? "an event"}`,
-                author: "Import",
-                import_batch_id: batch.id,
-              });
+              // The attendance timeline entry is written by the database from the
+              // registration, so removing the registration removes the entry too.
             }
           }
 
