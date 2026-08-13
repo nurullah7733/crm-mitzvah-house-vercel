@@ -1,11 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Trash2, RefreshCw, ChevronDown } from "lucide-react";
+import { Plus, Trash2, RefreshCw, ChevronDown, Mail, RotateCcw } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
 import { useIsAdmin } from "@/lib/is-admin";
+import {
+  listStaff,
+  inviteStaff,
+  resendStaffInvite,
+  setStaffRole as setStaffRoleFn,
+  removeStaff,
+  restoreStaff,
+  type StaffAccountStatus,
+} from "@/lib/staff.functions";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
@@ -336,10 +346,6 @@ function ChangeDetail({
       ) : null}
     </div>
   );
-}
-
-function StaffPanel() {
-  return <StaffPanelInner />;
 }
 
 function RecalculateTotalsPanel() {
