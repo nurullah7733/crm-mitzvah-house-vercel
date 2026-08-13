@@ -18,6 +18,9 @@ import {
 } from "@/lib/review-merge";
 import type { RowValues } from "@/lib/import-mapping";
 import { friendlyDbError } from "@/lib/db-errors";
+import { discardRow, quickMerge, undoQuickMerge, type QuickMergeResult } from "@/lib/review-quick";
+import { logChange } from "@/lib/session-log";
+import { Input } from "@/components/ui/input";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -88,6 +91,8 @@ function DataInbox() {
   const queryClient = useQueryClient();
   const [mergeFor, setMergeFor] = useState<string[] | null>(null);
   const [reviewId, setReviewId] = useState<string | null>(null);
+  const [deleteFor, setDeleteFor] = useState<string | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["review-queue"],
@@ -144,15 +149,11 @@ function DataInbox() {
       for (const r of safeRows) {
         const existing = personById((r.candidate_person_ids ?? [])[0]);
         if (!existing) continue;
-        const fields = compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues));
-        await applyIncoming(existing.id, fields, {}, `${r.filename ?? "Import"} bulk approve`);
-        const { error } = await supabase.rpc("log_review_decision", {
-          _item_id: r.id,
-          _decision: "merged",
-          _reason: "Approved in bulk — no conflicting fields",
-          _person_id: existing.id,
-        });
-        if (error) throw error;
+        await quickMerge(
+          { id: r.id, filename: r.filename, row_data: (r.row_data ?? {}) as RowValues },
+          existing,
+          personName(existing),
+        );
         done += 1;
       }
       return done;
@@ -160,6 +161,51 @@ function DataInbox() {
     onSuccess: (done) => {
       queryClient.invalidateQueries();
       toast.success(`${done} row${done === 1 ? "" : "s"} approved`);
+      logChange(`Merged ${done} imported rows with no conflicts`);
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** One tap: fill blanks and add new activity, never overwrite. */
+  const quick = useMutation({
+    mutationFn: async (r: { id: string; filename: string | null; row_data: RowValues; existing: ReviewPerson }) =>
+      quickMerge({ id: r.id, filename: r.filename, row_data: r.row_data }, r.existing, personName(r.existing)),
+    onSuccess: (result: QuickMergeResult) => {
+      queryClient.invalidateQueries();
+      logChange(`Updated ${result.personName} from an imported row`);
+      const added = [
+        result.filledFields > 0 ? `${result.filledFields} detail${result.filledFields === 1 ? "" : "s"}` : "",
+        ...result.addedActivity,
+      ].filter(Boolean);
+      toast.success(`${result.personName} updated${added.length ? ` — added ${added.join(", ")}` : ""}`, {
+        duration: 12000,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await undoQuickMerge(result);
+              queryClient.invalidateQueries();
+              toast.success("Put back the way it was — the row is on the list again");
+            } catch (e) {
+              toast.error(await friendlyDbError(e as Error));
+            }
+          },
+        },
+      });
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Throw the incoming row away, with a short reason kept on the record. */
+  const discard = useMutation({
+    mutationFn: async (v: { id: string; reason: string; personId?: string | null }) =>
+      discardRow(v.id, v.reason.trim() || "No reason given", v.personId ?? null),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      setDeleteFor(null);
+      setDeleteReason("");
+      toast.success("Row thrown away — your reason is saved in the change history");
+      logChange("Discarded an imported row from the review list");
     },
     onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
@@ -247,7 +293,7 @@ function DataInbox() {
             overwritten.
           </p>
           <Button className="rounded-xl" disabled={approveSafe.isPending} onClick={() => approveSafe.mutate()}>
-            {approveSafe.isPending ? "Adding…" : `Add details for these ${safeRows.length}`}
+            {approveSafe.isPending ? "Merging…" : `Merge all ${safeRows.length} with no conflicts`}
           </Button>
         </div>
       )}
