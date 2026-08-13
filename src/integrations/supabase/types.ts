@@ -1217,6 +1217,14 @@ export type Database = {
         Args: { _donation_id: string; _sent?: boolean }
         Returns: undefined
       }
+      merge_households: {
+        Args: {
+          _field_values?: Json
+          _merged_id: string
+          _surviving_id: string
+        }
+        Returns: string
+      }
       merge_people: {
         Args: {
           _field_values?: Json
