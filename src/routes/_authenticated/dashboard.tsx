@@ -9,6 +9,8 @@ import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/se
 import { CompleteTaskDialog, TaskCheckbox, type CompletableTask } from "@/components/forms/AddDialogs";
 import { personName } from "@/lib/names";
 import { fetchRenewalDonors } from "@/lib/renewal";
+import { fetchAll } from "@/lib/fetch-all";
+import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -89,6 +91,61 @@ function Dashboard() {
     queryKey: ["dashboard-renewals"],
     queryFn: () => fetchRenewalDonors("lapsed", 5),
   });
+
+  // Birthdays and anniversaries count down on the Hebrew calendar, same as yahrzeits.
+  const { data: hebrewDates } = useQuery({
+    queryKey: ["dashboard-hebrew-dates"],
+    queryFn: async () => {
+      const [people, yahrzeits] = await Promise.all([
+        fetchAll((f, t) =>
+          supabase
+            .from("people")
+            .select("id, display_name, first_name, last_name, birth_date, anniversary_date")
+            .is("deleted_at", null)
+            .order("id")
+            .range(f, t),
+        ),
+        fetchAll((f, t) =>
+          supabase
+            .from("yahrzeits")
+            .select("id, deceased_name, hebrew_month, hebrew_day, people(id, display_name, first_name, last_name)")
+            .order("id")
+            .range(f, t),
+        ),
+      ]);
+      return { people, yahrzeits };
+    },
+  });
+
+  const upcomingHebrew = [
+    ...(hebrewDates?.people ?? []).flatMap((p) => {
+      const b = nextHebrewAnniversary(p.birth_date);
+      const a = nextHebrewAnniversary(p.anniversary_date);
+      return [
+        ...(b && b.days <= 31
+          ? [{ id: `b-${p.id}`, personId: p.id, name: personName(p), what: `Birthday · ${b.hebrewLabel}`, occ: b }]
+          : []),
+        ...(a && a.days <= 31
+          ? [{ id: `a-${p.id}`, personId: p.id, name: personName(p), what: `Anniversary · ${a.hebrewLabel}`, occ: a }]
+          : []),
+      ];
+    }),
+    ...(hebrewDates?.yahrzeits ?? []).flatMap((y) => {
+      const n = nextYahrzeit(y.hebrew_month, y.hebrew_day);
+      if (!n || n.days > 31 || !y.people) return [];
+      return [
+        {
+          id: `y-${y.id}`,
+          personId: y.people.id,
+          name: personName(y.people),
+          what: `Yahrzeit for ${y.deceased_name} · ${n.hebrewLabel}`,
+          occ: n,
+        },
+      ];
+    }),
+  ]
+    .sort((x, z) => x.occ.days - z.occ.days)
+    .slice(0, 6);
 
   const today = new Date().toISOString().slice(0, 10);
   const grantDeadlines = (data?.grants ?? [])
@@ -228,6 +285,26 @@ function Dashboard() {
                 </p>
               </div>
               <p className="shrink-0 text-sm text-muted-foreground">{currency(d.lifetime_total)} lifetime</p>
+            </Link>
+          ))}
+        </Panel>
+
+        <Panel title="Upcoming Hebrew dates" to="/people" linkLabel="All people">
+          {upcomingHebrew.length === 0 && (
+            <p className="text-sm text-muted-foreground">No birthdays, anniversaries or yahrzeits in the next month.</p>
+          )}
+          {upcomingHebrew.map((d) => (
+            <Link
+              key={d.id}
+              to="/people/$personId"
+              params={{ personId: d.personId }}
+              className="block border-b border-border py-2.5 last:border-0"
+            >
+              <p className="text-sm text-primary">{d.name}</p>
+              <p className={`text-xs ${d.occ.days <= 3 ? "text-urgent" : "text-muted-foreground"}`}>
+                {d.what} — in {d.occ.days} {d.occ.days === 1 ? "day" : "days"} ({formatDate(d.occ.date.toISOString())},
+                begins the evening before)
+              </p>
             </Link>
           ))}
         </Panel>
