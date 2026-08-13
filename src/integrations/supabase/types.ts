@@ -504,24 +504,30 @@ export type Database = {
       integration_credentials: {
         Row: {
           created_at: string
-          credentials: Json
+          credential_keys: string[]
           id: string
+          masked_hint: string | null
           provider: string
           updated_at: string
+          vault_secret_id: string | null
         }
         Insert: {
           created_at?: string
-          credentials?: Json
+          credential_keys?: string[]
           id?: string
+          masked_hint?: string | null
           provider: string
           updated_at?: string
+          vault_secret_id?: string | null
         }
         Update: {
           created_at?: string
-          credentials?: Json
+          credential_keys?: string[]
           id?: string
+          masked_hint?: string | null
           provider?: string
           updated_at?: string
+          vault_secret_id?: string | null
         }
         Relationships: []
       }
@@ -1091,6 +1097,10 @@ export type Database = {
     }
     Functions: {
       daitch_mokotoff: { Args: { "": string }; Returns: string[] }
+      delete_integration_credentials: {
+        Args: { _provider: string }
+        Returns: undefined
+      }
       dmetaphone: { Args: { "": string }; Returns: string }
       dmetaphone_alt: { Args: { "": string }; Returns: string }
       find_duplicate_people: {
@@ -1101,6 +1111,10 @@ export type Database = {
           reason: string
         }[]
       }
+      get_integration_credentials: {
+        Args: { _provider: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1108,6 +1122,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_admin: { Args: never; Returns: boolean }
       log_import_review_merge: {
         Args: {
           _choices?: Json
@@ -1140,9 +1155,14 @@ export type Database = {
         }
         Returns: string
       }
+      purge_audit_log_internal: { Args: never; Returns: number }
       purge_old_audit_log: { Args: never; Returns: number }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
+      save_integration_credentials: {
+        Args: { _credentials: Json; _primary_field: string; _provider: string }
+        Returns: undefined
+      }
       search_people: {
         Args: { _limit?: number; _q: string }
         Returns: {
