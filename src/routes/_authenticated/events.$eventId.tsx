@@ -40,7 +40,7 @@ function EventPage() {
     queryFn: async () => {
       const { data: event, error } = await supabase.from("events").select("*").eq("id", eventId).maybeSingle();
       if (error) throw error;
-      const [registrations, people] = await Promise.all([
+      const [registrations, people, gifts] = await Promise.all([
         fetchAll((f, t) =>
           supabase
             .from("registrations")
@@ -57,8 +57,17 @@ function EventPage() {
             .order("id")
             .range(f, t),
         ),
+        fetchAll((f, t) =>
+          supabase
+            .from("donations")
+            .select("id, amount")
+            .eq("event_id", eventId)
+            .is("deleted_at", null)
+            .order("id")
+            .range(f, t),
+        ),
       ]);
-      return { event, registrations, people };
+      return { event, registrations, people, gifts };
     },
   });
 
@@ -103,6 +112,9 @@ function EventPage() {
   }
 
   const registered = data?.registrations ?? [];
+  const gifts = data?.gifts ?? [];
+  const giftTotal = gifts.reduce((sum, g) => sum + Number(g.amount ?? 0), 0);
+  const attendedCount = registered.filter((r) => (r.status ?? "").toLowerCase() === "attended").length;
   const registeredIds = new Set(registered.map((r) => r.people?.id).filter(Boolean) as string[]);
   const suggested = (data?.people ?? []).filter(
     (p) =>
@@ -157,6 +169,23 @@ function EventPage() {
           {e.staff_lead ? ` · Lead: ${e.staff_lead}` : ""}
         </p>
         {e.description && <p className="mt-2 text-sm text-muted-foreground">{e.description}</p>}
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Registered</p>
+            <p className="font-heading text-lg font-semibold text-foreground">{registered.length}</p>
+          </div>
+          <div className="rounded-xl border border-border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Attended</p>
+            <p className="font-heading text-lg font-semibold text-foreground">{attendedCount}</p>
+          </div>
+          <div className="rounded-xl border border-money/30 bg-money/5 p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Gifts at this event</p>
+            <p className="font-heading text-lg font-semibold text-money">{currency(giftTotal)}</p>
+            <p className="text-xs text-muted-foreground">
+              {gifts.length} {gifts.length === 1 ? "gift" : "gifts"} attributed
+            </p>
+          </div>
+        </div>
       </section>
 
       <section className="mt-5">
