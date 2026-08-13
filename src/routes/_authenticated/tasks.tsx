@@ -14,7 +14,7 @@ import {
 } from "@/components/forms/AddDialogs";
 import { todayISO } from "@/components/forms/fields";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
-import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
 import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
