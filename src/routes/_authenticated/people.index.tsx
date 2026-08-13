@@ -11,7 +11,7 @@ import { AddPersonDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { Label } from "@/components/ui/label";
 import { nextHebrewAnniversary, nextYahrzeit, hebrewMilestone } from "@/lib/hebrew";
-import { approachingMitzvah, needsAdultReview, useLifecycleSettings, LIFECYCLE_DEFAULTS, isChild } from "@/lib/lifecycle";
+import { approachingMitzvah, useLifecycleSettings, LIFECYCLE_DEFAULTS, isChild } from "@/lib/lifecycle";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
