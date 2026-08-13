@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { Merge, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
+import { MergeHouseholdsDialog } from "@/components/MergeHouseholdsDialog";
 
 type BulkTable = "donations" | "events" | "households" | "grants" | "tasks" | "campaigns";
 
@@ -34,6 +35,7 @@ export function BulkRecordBar({
 }) {
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const soft = SOFT_DELETE.includes(table);
 
   const remove = useMutation({
@@ -82,6 +84,11 @@ export function BulkRecordBar({
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">
+            {table === "households" && selectedIds.length === 2 && (
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMergeOpen(true)}>
+                <Merge className="size-4" /> Merge
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -127,6 +134,10 @@ export function BulkRecordBar({
             : "Only the selected records are affected."}
         </p>
       </ResponsiveModal>
+
+      {table === "households" && selectedIds.length === 2 && (
+        <MergeHouseholdsDialog open={mergeOpen} onOpenChange={setMergeOpen} ids={selectedIds} onMerged={onClear} />
+      )}
     </>
   );
 }
