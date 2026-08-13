@@ -476,14 +476,26 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.name.trim()) throw new Error("A household name is required");
+      const address = form.address.trim();
+      const name = form.name.trim();
+      if (!name && !address) throw new Error("Enter a household name or an address");
+
+      if (address) {
+        const existing = await findHouseholdAtAddress(address);
+        if (existing) throw new Error(`There's already a household at this address: ${existing.name}`);
+      }
+
+      // No family name yet? It becomes an address-only household with a follow-up task.
+      const addressOnly = !name;
       const { error } = await supabase.from("households").insert({
-        name: form.name.trim(),
-        address: form.address.trim() || null,
+        name: name || nameFromAddress(address),
+        address: address || null,
         phone: form.phone.trim() || null,
         notes: form.notes.trim() || null,
+        status: addressOnly ? "address_only" : "active",
       });
       if (error) throw error;
+      if (addressOnly) await createFindOutWhoTask(address);
     },
     onSuccess: () => {
       toast.success("Household added");
@@ -500,7 +512,7 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Add household"
-      description="Households are only for mailings and spotting duplicates."
+      description="An address on its own is enough — the family name can come later."
       footer={
         <>
           <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
@@ -513,7 +525,7 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
       }
     >
       <div className="grid gap-3">
-        <Field label="Household name">
+        <Field label="Household name (optional)">
           <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
         <Field label="Address">
