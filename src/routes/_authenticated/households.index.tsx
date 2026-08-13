@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { formatPhone } from "@/lib/phone";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Users, Download } from "lucide-react";
+import { Plus, Users, Download, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
