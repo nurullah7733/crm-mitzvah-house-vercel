@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddGrantDialog } from "@/components/forms/CampaignGrantDialogs";
+import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { GRANT_STAGES, personName } from "@/lib/names";
 
 export const Route = createFileRoute("/_authenticated/grants/")({
@@ -22,6 +24,7 @@ export const Route = createFileRoute("/_authenticated/grants/")({
 
 function GrantsPage() {
   const [addOpen, setAddOpen] = useState(false);
+  const selection = useSelection();
 
   const { data, isLoading } = useQuery({
     queryKey: ["grants-list"],
@@ -62,15 +65,24 @@ function GrantsPage() {
               </h2>
               <div className="mt-2 space-y-3">
                 {rows.map((g) => (
-                  <Link
+                  <div
                     key={g.id}
-                    to="/grants/$grantId"
-                    params={{ grantId: g.id }}
-                    className="block rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/40"
+                    className="rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/40"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
+                      <SelectBox
+                        checked={selection.has(g.id)}
+                        onChange={() => selection.toggle(g.id)}
+                        label={g.name}
+                      />
                       <div className="min-w-0">
-                        <p className="font-heading font-semibold text-primary">{g.name}</p>
+                        <Link
+                          to="/grants/$grantId"
+                          params={{ grantId: g.id }}
+                          className="font-heading font-semibold text-primary hover:underline"
+                        >
+                          {g.name}
+                        </Link>
                         <p className="text-sm text-muted-foreground">
                           {personName(g.funder)}
                           {g.restricted_program ? ` · ${g.restricted_program}` : ""}
@@ -86,7 +98,7 @@ function GrantsPage() {
                         <p className="text-xs text-muted-foreground">requested {currency(g.amount_requested)}</p>
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             </section>
@@ -94,6 +106,15 @@ function GrantsPage() {
         })}
       </div>
       <AddGrantDialog open={addOpen} onOpenChange={setAddOpen} />
+      <BulkRecordBar
+        table="grants"
+        noun="grant"
+        nounPlural="grants"
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={grants.map((g) => g.id)}
+        onSelectAll={() => selection.selectAll(grants.map((g) => g.id))}
+      />
     </AppShell>
   );
 }
