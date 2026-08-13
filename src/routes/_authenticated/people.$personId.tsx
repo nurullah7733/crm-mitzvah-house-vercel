@@ -22,6 +22,9 @@ import {
 import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { ChipEditor } from "@/components/ChipEditor";
 import { EditableCard } from "@/components/EditableCard";
+import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMethodsEditor";
+import { fetchContactMethods } from "@/lib/contact-methods";
+import { properCase, properCaseAddress } from "@/lib/proper-case";
 import { YahrzeitEditor } from "@/components/YahrzeitEditor";
 import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
@@ -97,7 +100,7 @@ function PersonPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["person", personId],
     queryFn: async () => {
-      const [person, interactions, donations, tasks, yahrzeits, registrations, sources] = await Promise.all([
+      const [person, interactions, donations, tasks, yahrzeits, registrations, sources, methods] = await Promise.all([
         supabase.from("people").select("*, households(id, name, address, billing_address, phone)").eq("id", personId).maybeSingle(),
         supabase.from("interactions").select("*").eq("person_id", personId).order("date", { ascending: false }),
         supabase
@@ -110,6 +113,7 @@ function PersonPage() {
         supabase.from("yahrzeits").select("*").eq("person_id", personId),
         supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
         supabase.from("field_sources").select("*").eq("person_id", personId),
+        fetchContactMethods(personId),
       ]);
       const householdId = person.data?.household_id ?? null;
       const relatives = householdId
@@ -130,6 +134,7 @@ function PersonPage() {
         registrations: registrations.data ?? [],
         sources: sources.data ?? [],
         relatives: relatives.data ?? [],
+        methods,
       };
     },
   });
@@ -161,8 +166,12 @@ function PersonPage() {
     const householdPatch: Record<string, string | null> = {};
     const personPatch: Record<string, string | null> = {};
     for (const [key, value] of Object.entries(patch)) {
-      if ((householdKeys as readonly string[]).includes(key)) householdPatch[key] = value;
-      else personPatch[key] = value;
+      // Capitalisation is tidied on names and addresses; spelling is never changed.
+      let next = value;
+      if (value && (key === "address" || key === "billing_address")) next = properCaseAddress(value);
+      else if (value && ["first_name", "last_name", "display_name", "school"].includes(key)) next = properCase(value);
+      if ((householdKeys as readonly string[]).includes(key)) householdPatch[key] = next;
+      else personPatch[key] = next;
     }
 
     if (Object.keys(personPatch).length) {
@@ -329,7 +338,11 @@ function PersonPage() {
             </h2>
             <p className="text-sm text-muted-foreground">
               {p.households ? (
-                <Link to="/households" className="text-primary hover:underline">
+                <Link
+                  to="/households/$householdId"
+                  params={{ householdId: p.households.id }}
+                  className="text-primary hover:underline"
+                >
                   {p.households.name}
                 </Link>
               ) : (
@@ -374,15 +387,35 @@ function PersonPage() {
             title="Contact info"
             values={{ phone: p.phone, email: p.email, address: p.households?.address }}
             fields={[
-              { key: "phone", label: "Phone", type: "tel" },
-              { key: "email", label: "Email", type: "email" },
               { key: "address", label: "Address (shared with the household)", full: true },
             ]}
             onSave={savePersonFields}
-            editHint="Changes are saved to this contact and noted in the change history."
+            editHint="Phone numbers and emails save as soon as you add them. Other changes save with the button below."
+            extraEditor={
+              <ContactMethodsEditor
+                personId={personId}
+                rows={data?.methods ?? []}
+                onChanged={async () => {
+                  await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+                  await queryClient.invalidateQueries({ queryKey: ["people"] });
+                }}
+              />
+            }
           >
-            <SourceRow label="Phone" value={p.phone} source={sourceFor("phone")} />
-            <SourceRow label="Email" value={p.email} source={sourceFor("email")} />
+            <div className="border-b border-border pb-2">
+              <p className="text-xs text-muted-foreground">Phone</p>
+              <div className="mt-1">
+                <ContactMethodList kind="phone" rows={data?.methods ?? []} fallback={p.phone} emptyLabel="No phone number yet." />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("phone")}</p>
+            </div>
+            <div className="border-b border-border py-2">
+              <p className="text-xs text-muted-foreground">Email</p>
+              <div className="mt-1">
+                <ContactMethodList kind="email" rows={data?.methods ?? []} fallback={p.email} emptyLabel="No email yet." />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("email")}</p>
+            </div>
             <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
           </EditableCard>
 
