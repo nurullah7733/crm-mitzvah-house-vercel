@@ -10,6 +10,8 @@ import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
+import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
+import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import {
   FIELD_LABELS,
   addressKey,
@@ -85,10 +87,39 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
   const childDobs: string[] = [];
   const childAges: string[] = [];
   const childSchools: string[] = [];
+  const phones: { value: string; method_type: string }[] = [];
+  const emails: { value: string; method_type: string }[] = [];
+  const PHONE_COLUMNS: Partial<Record<FieldKey, string>> = {
+    phone: "Mobile",
+    phone_mobile: "Mobile",
+    phone_home: "Home",
+    phone_work: "Work",
+    phone_other: "Other",
+  };
+  const EMAIL_COLUMNS: Partial<Record<FieldKey, string>> = {
+    email: "Personal",
+    email_work: "Work",
+    email_other: "Other",
+  };
 
   mapping.forEach((m, i) => {
     const value = row[i]?.trim();
     if (!value || m.field === "ignore") return;
+    if (PHONE_COLUMNS[m.field]) {
+      // One column can hold several numbers ("404-555-0100 / 404-555-0101").
+      for (const part of value.split(/[;,|]|\s\/\s/).map((s) => s.trim()).filter(Boolean)) {
+        phones.push({ value: part, method_type: PHONE_COLUMNS[m.field]! });
+      }
+      if (!out.phone) out.phone = phones[0]?.value;
+      return;
+    }
+    if (EMAIL_COLUMNS[m.field]) {
+      for (const part of value.split(/[;,|\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"))) {
+        emails.push({ value: normalizeEmail(part), method_type: EMAIL_COLUMNS[m.field]! });
+      }
+      if (!out.email) out.email = emails[0]?.value;
+      return;
+    }
     if (m.field === "child_name") {
       childNames.push(...splitPeopleList(value));
       return;
@@ -143,6 +174,8 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
     });
   });
   if (children.length > 0) out.children = children;
+  if (phones.length > 0) out.phones = phones;
+  if (emails.length > 0) out.emails = emails;
   return out;
 }
 
