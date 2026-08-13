@@ -272,7 +272,6 @@ function TasksPage() {
         return;
       }
       toast.success("Task reopened — the activity entry it added was removed");
-      logChange("Reopened a task");
       await queryClient.invalidateQueries();
     }
     return (
