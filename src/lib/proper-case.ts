@@ -45,7 +45,6 @@ function capitalizeWord(word: string, isFirst: boolean, isLast: boolean): string
   if (/^\d+[a-z]$/i.test(word)) return word.slice(0, -1) + word.slice(-1).toUpperCase();
 
   if (!isFirst && !isLast && LOWER_PARTICLES.has(lower)) return lower;
-  if (!isFirst && LOWER_PARTICLES.has(lower) && !isLast) return lower;
 
   // Mc / Mac / O' prefixes.
   if (/^mc[a-z]{2,}$/.test(lower)) return "Mc" + lower.charAt(2).toUpperCase() + lower.slice(3);
