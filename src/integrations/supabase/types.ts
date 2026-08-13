@@ -94,6 +94,60 @@ export type Database = {
           },
         ]
       }
+      contact_methods: {
+        Row: {
+          created_at: string
+          id: string
+          import_batch_id: string | null
+          is_primary: boolean
+          kind: string
+          label: string | null
+          method_type: string
+          person_id: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          import_batch_id?: string | null
+          is_primary?: boolean
+          kind?: string
+          label?: string | null
+          method_type?: string
+          person_id: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          import_batch_id?: string | null
+          is_primary?: boolean
+          kind?: string
+          label?: string | null
+          method_type?: string
+          person_id?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_methods_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_methods_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       donations: {
         Row: {
           amount: number
@@ -108,7 +162,11 @@ export type Database = {
           method: string | null
           notes: string | null
           person_id: string
+          receipt_sent: boolean
+          receipt_sent_date: string | null
           source: string | null
+          thank_you_sent: boolean
+          thank_you_sent_date: string | null
         }
         Insert: {
           amount: number
@@ -123,7 +181,11 @@ export type Database = {
           method?: string | null
           notes?: string | null
           person_id: string
+          receipt_sent?: boolean
+          receipt_sent_date?: string | null
           source?: string | null
+          thank_you_sent?: boolean
+          thank_you_sent_date?: string | null
         }
         Update: {
           amount?: number
@@ -138,7 +200,11 @@ export type Database = {
           method?: string | null
           notes?: string | null
           person_id?: string
+          receipt_sent?: boolean
+          receipt_sent_date?: string | null
           source?: string | null
+          thank_you_sent?: boolean
+          thank_you_sent_date?: string | null
         }
         Relationships: [
           {
@@ -893,6 +959,7 @@ export type Database = {
           completion_note: string | null
           created_at: string
           deleted_at: string | null
+          donation_id: string | null
           due_date: string | null
           grant_id: string | null
           id: string
@@ -908,6 +975,7 @@ export type Database = {
           completion_note?: string | null
           created_at?: string
           deleted_at?: string | null
+          donation_id?: string | null
           due_date?: string | null
           grant_id?: string | null
           id?: string
@@ -923,6 +991,7 @@ export type Database = {
           completion_note?: string | null
           created_at?: string
           deleted_at?: string | null
+          donation_id?: string | null
           due_date?: string | null
           grant_id?: string | null
           id?: string
@@ -934,6 +1003,13 @@ export type Database = {
           text?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tasks_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tasks_grant_id_fkey"
             columns: ["grant_id"]
@@ -1052,6 +1128,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      mark_thank_you_sent: {
+        Args: { _donation_id: string; _sent?: boolean }
+        Returns: undefined
+      }
       merge_people: {
         Args: {
           _field_values?: Json
@@ -1074,6 +1154,10 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       soundex: { Args: { "": string }; Returns: string }
+      sync_primary_contact_method: {
+        Args: { _person_id: string }
+        Returns: undefined
+      }
       tag_program_counts: {
         Args: never
         Returns: {
