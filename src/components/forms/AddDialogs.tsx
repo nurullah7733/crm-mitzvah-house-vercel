@@ -650,6 +650,7 @@ export function AddDonationDialog({
       setNearby(null);
       setLinkEventId("");
       setAttended("yes");
+      setPickOther(false);
       onOpenChange(false);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -723,18 +724,27 @@ export function AddDonationDialog({
               ? `There was an event on this date: ${nearby[0]!.name}. Was this gift given at that event?`
               : "There were events around this date. Was this gift given at one of them?"}
           </p>
-          {nearby.length > 1 && (
+          {(nearby.length > 1 || pickOther) && (
             <select
               className={`${selectClass} mt-2`}
               value={linkEventId}
               onChange={(e) => setLinkEventId(e.target.value)}
             >
-              {nearby.map((ev) => (
+              {(pickOther ? (allEvents ?? []) : nearby).map((ev) => (
                 <option key={ev.id} value={ev.id}>
                   {ev.name} ({ev.date})
                 </option>
               ))}
             </select>
+          )}
+          {!pickOther && (
+            <button
+              type="button"
+              className="mt-2 text-xs text-primary hover:underline"
+              onClick={() => setPickOther(true)}
+            >
+              Choose a different event
+            </button>
           )}
           <div className="mt-3">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Did they attend?</p>
