@@ -19,6 +19,8 @@ import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
 import { toast } from "sonner";
+import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { BulkRecordBar } from "@/components/BulkRecordActions";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
