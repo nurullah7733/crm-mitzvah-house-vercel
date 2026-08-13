@@ -13,10 +13,15 @@ import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
+import { fuzzyScoreAny } from "@/lib/nl-search";
 
 export const Route = createFileRoute("/_authenticated/people/")({
-  validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { q?: string | undefined; tag?: string | undefined; program?: string | undefined } => ({
     q: typeof search["q"] === "string" && search["q"] ? (search["q"] as string) : undefined,
+    tag: typeof search["tag"] === "string" && search["tag"] ? (search["tag"] as string) : undefined,
+    program: typeof search["program"] === "string" && search["program"] ? (search["program"] as string) : undefined,
   }),
   head: () => ({
     meta: [
@@ -60,6 +65,18 @@ function PeoplePage() {
   const [giveMin, setGiveMin] = useState("");
   const [giveMax, setGiveMax] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const activeTag = search.tag ?? null;
+  const activeProgram = search.program ?? null;
+
+  const { data: labels } = useQuery({
+    queryKey: ["tag-program-counts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("tag_program_counts");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["people-list"],
@@ -87,8 +104,28 @@ function PeoplePage() {
 
   const people = rows
     .filter((p) => {
-      const hay = `${personName(p)} ${p.email ?? ""} ${p.phone ?? ""} ${p.households?.name ?? ""}`.toLowerCase();
-      if (q && !hay.includes(q.toLowerCase())) return false;
+      if (activeTag && !(p.tags ?? []).some((t) => t.toLowerCase() === activeTag.toLowerCase())) return false;
+      if (activeProgram && !(p.programs ?? []).some((t) => t.toLowerCase() === activeProgram.toLowerCase()))
+        return false;
+
+      // Typo-tolerant filter: every word typed must match something on the record.
+      if (q.trim()) {
+        const fields = [
+          personName(p),
+          p.first_name,
+          p.last_name,
+          p.email,
+          (p.phone ?? "").replace(/\D/g, ""),
+          p.households?.name,
+          p.met_source,
+          p.school,
+          (p.tags ?? []).join(" "),
+          (p.programs ?? []).join(" "),
+        ];
+        for (const term of q.trim().split(/\s+/)) {
+          if (fuzzyScoreAny(term, fields) === null) return false;
+        }
+      }
 
       if (chip === "Donors" && Number(p.lifetime_giving ?? 0) <= 0) return false;
       if (chip === "Recently updated" && !(p.sinceActivity !== null && p.sinceActivity <= 30)) return false;
@@ -159,11 +196,26 @@ function PeoplePage() {
     >
       <Input
         className="rounded-xl text-base"
-        placeholder="Search by name, email, phone or household"
+        placeholder="Search by name, email, phone, household, tag or program"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         type="search"
       />
+      <p className="mt-1 text-xs text-muted-foreground">
+        Spelling doesn't have to be perfect — “klien” finds Klein and “ruht” finds Ruth.
+      </p>
+
+      {(activeTag || activeProgram) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+          <span className="text-sm text-foreground">
+            Showing everyone with {activeTag ? "tag" : "program"}{" "}
+            <strong>{activeTag ?? activeProgram}</strong>
+          </span>
+          <Link to="/people" search={{}} className="ml-auto text-xs font-medium text-primary hover:underline">
+            Clear filter
+          </Link>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {CHIPS.map((c) => (
@@ -233,6 +285,42 @@ function PeoplePage() {
               <Input className="text-base" type="number" inputMode="numeric" value={giveMax} onChange={(e) => setGiveMax(e.target.value)} />
             </Field>
           </div>
+        </Collapsible>
+      </div>
+
+      <div className="mt-3">
+        <Collapsible
+          open={browseOpen}
+          onToggle={() => setBrowseOpen((o) => !o)}
+          label="Browse all tags and programs"
+        >
+          {(labels ?? []).length === 0 && <p className="text-xs text-muted-foreground">No tags or programs yet.</p>}
+          {(["tag", "program"] as const).map((kind) => {
+            const list = (labels ?? []).filter((l) => l.kind === kind);
+            if (list.length === 0) return null;
+            return (
+              <div key={kind} className="mt-2 first:mt-0">
+                <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {kind === "tag" ? "Tags" : "Programs"}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {list.map((l) => (
+                    <Link
+                      key={`${kind}-${l.label}`}
+                      to="/people"
+                      search={kind === "tag" ? { tag: l.label } : { program: l.label }}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] transition hover:ring-1 hover:ring-primary/40 ${
+                        kind === "tag" ? "bg-secondary text-secondary-foreground" : "bg-primary/10 text-primary"
+                      }`}
+                    >
+                      {l.label}
+                      <span className="opacity-70">{l.contacts}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </Collapsible>
       </div>
 
