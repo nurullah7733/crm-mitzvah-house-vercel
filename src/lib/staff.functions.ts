@@ -88,6 +88,18 @@ export const removeStaff = createServerFn({ method: "POST" })
     throw new Error("Could not identify the signed-in admin.");
   });
 
+/** Full delete: staff row and login account, freeing the email address. */
+export const deleteStaff = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ staffId: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    if (!context.userId) throw new Error("Could not identify the signed-in admin.");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { deleteStaffMember } = await import("./staff.server");
+    return deleteStaffMember(supabaseAdmin, data.staffId, context.userId);
+  });
+
 export const restoreStaff = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ staffId: z.string().uuid() }).parse(data))

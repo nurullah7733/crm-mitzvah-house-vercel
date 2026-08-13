@@ -13,6 +13,7 @@ import {
   resendStaffInvite,
   setStaffRole as setStaffRoleFn,
   removeStaff,
+  deleteStaff,
   restoreStaff,
   type StaffAccountStatus,
 } from "@/lib/staff.functions";
@@ -419,6 +420,7 @@ function StaffPanel() {
   const resend = useServerFn(resendStaffInvite);
   const changeRole = useServerFn(setStaffRoleFn);
   const disable = useServerFn(removeStaff);
+  const hardDelete = useServerFn(deleteStaff);
   const restore = useServerFn(restoreStaff);
 
   const { data: staff, isError, error } = useQuery({
@@ -452,9 +454,13 @@ function StaffPanel() {
 
   const resendInvite = useMutation({
     mutationFn: (staffId: string) => resend({ data: { staffId, redirectTo: inviteLink() } }),
-    onSuccess: () => {
+    onSuccess: (result: { mode?: string }) => {
       refresh();
-      toast.success("Invite sent again");
+      toast.success(
+        result?.mode === "invite"
+          ? "Invite sent again — any earlier link no longer works"
+          : "Sign-in link emailed — they can set a password now. Any earlier link no longer works",
+      );
       logChange("Resent a staff invite");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -476,6 +482,16 @@ function StaffPanel() {
       refresh();
       toast.success("Their login has been switched off");
       logChange("Removed staff access");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteForGood = useMutation({
+    mutationFn: (staffId: string) => hardDelete({ data: { staffId } }),
+    onSuccess: () => {
+      refresh();
+      toast.success("Deleted — that email address can be invited again");
+      logChange("Deleted a staff member");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -535,16 +551,15 @@ function StaffPanel() {
                       </option>
                     ))}
                   </select>
-                  {(s.status === "invited" || s.status === "no_account") && (
-                    <Button
-                      variant="outline"
-                      className="rounded-xl"
-                      disabled={resendInvite.isPending}
-                      onClick={() => resendInvite.mutate(s.id)}
-                    >
-                      <Mail className="size-4" /> {s.status === "no_account" ? "Send invite" : "Resend invite"}
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    className="rounded-xl"
+                    disabled={resendInvite.isPending}
+                    onClick={() => resendInvite.mutate(s.id)}
+                    title="Emails a fresh link to set a password. Any earlier link stops working."
+                  >
+                    <Mail className="size-4" /> {s.status === "no_account" ? "Send invite" : "Resend invite"}
+                  </Button>
                   {s.status === "disabled" ? (
                     <Button
                       variant="outline"
@@ -558,13 +573,32 @@ function StaffPanel() {
                     <Button
                       variant="outline"
                       className="shrink-0 rounded-xl text-urgent"
-                      aria-label={`Remove ${s.name}`}
+                      aria-label={`Switch off access for ${s.name}`}
+                      title="Switch off their login, keeping the record"
                       disabled={remove.isPending}
                       onClick={() => remove.mutate(s.id)}
                     >
                       <Trash2 className="size-4" />
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    className="shrink-0 rounded-xl text-urgent"
+                    aria-label={`Delete ${s.name} completely`}
+                    title="Delete them and their login, so this email can be used again"
+                    disabled={deleteForGood.isPending}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Delete ${s.name} and their login for good? ${s.email} will be free to invite again.`,
+                        )
+                      ) {
+                        deleteForGood.mutate(s.id);
+                      }
+                    }}
+                  >
+                    Delete for good
+                  </Button>
                 </div>
               </div>
             </div>
