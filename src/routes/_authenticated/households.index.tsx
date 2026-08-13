@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
+import { QuickAddHouseholdDialog } from "@/components/forms/QuickAddHouseholdDialog";
 import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
@@ -19,6 +20,7 @@ type HouseholdRow = {
   address: string | null;
   phone: string | null;
   notes?: string | null;
+  status?: string | null;
   people: {
     id: string;
     first_name: string;
@@ -86,6 +88,7 @@ function ExportHouseholdsDialog({
   households: HouseholdRow[];
 }) {
   const [style, setStyle] = useState<NameStyle>("household");
+  const [includeAddressOnly, setIncludeAddressOnly] = useState(false);
   const [columns, setColumns] = useState<ColumnKey[]>([
     "address",
     "phone",
@@ -97,8 +100,11 @@ function ExportHouseholdsDialog({
   const toggle = (key: ColumnKey) =>
     setColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
+  // Address-only households stay out of mailing exports unless deliberately included.
+  const exportable = includeAddressOnly ? households : households.filter((h) => h.status !== "address_only");
+
   function run() {
-    const rows = households.map((h) => {
+    const rows = exportable.map((h) => {
       const row: Record<string, unknown> = { Name: nameFor(h, style) };
       if (columns.includes("address")) row["Address"] = h.address ?? "";
       if (columns.includes("phone")) row["Phone"] = formatPhone(h.phone);
@@ -118,7 +124,7 @@ function ExportHouseholdsDialog({
     onOpenChange(false);
   }
 
-  const preview = households[0] ? nameFor(households[0], style) : "";
+  const preview = exportable[0] ? nameFor(exportable[0], style) : "";
 
   return (
     <ResponsiveModal
@@ -174,8 +180,18 @@ function ExportHouseholdsDialog({
           </div>
         </div>
 
-        <Button className="w-full rounded-xl" onClick={run} disabled={households.length === 0}>
-          <Download className="size-4" /> Download {households.length} households
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border p-3 text-sm">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={includeAddressOnly}
+            onChange={() => setIncludeAddressOnly((v) => !v)}
+          />
+          Include address-only households (no contact yet)
+        </label>
+
+        <Button className="w-full rounded-xl" onClick={run} disabled={exportable.length === 0}>
+          <Download className="size-4" /> Download {exportable.length} households
         </Button>
       </div>
     </ResponsiveModal>
