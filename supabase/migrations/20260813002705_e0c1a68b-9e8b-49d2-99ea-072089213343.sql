@@ -1,0 +1,2 @@
+REVOKE ALL ON FUNCTION public.log_import_review_merge(uuid, uuid, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.log_import_review_merge(uuid, uuid, jsonb, jsonb, jsonb, jsonb) TO authenticated;
