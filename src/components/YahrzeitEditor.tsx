@@ -50,7 +50,10 @@ export function YahrzeitEditor({
   async function saveExisting(id: string) {
     const d = edits[id];
     if (!d) return;
-    if (!d.deceased_name.trim()) return toast.error("Add the name of the person being remembered.");
+    if (!d.deceased_name.trim()) {
+      toast.error("Add the name of the person being remembered.");
+      return;
+    }
     setBusy(true);
     const { error } = await supabase
       .from("yahrzeits")
@@ -62,7 +65,10 @@ export function YahrzeitEditor({
       })
       .eq("id", id);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     setEdits((e) => {
       const next = { ...e };
       delete next[id];
@@ -76,14 +82,20 @@ export function YahrzeitEditor({
     setBusy(true);
     const { error } = await supabase.from("yahrzeits").delete().eq("id", id);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     toast.success("Yahrzeit removed");
     await onChanged();
   }
 
   async function addNew() {
     if (!adding) return;
-    if (!adding.deceased_name.trim()) return toast.error("Add the name of the person being remembered.");
+    if (!adding.deceased_name.trim()) {
+      toast.error("Add the name of the person being remembered.");
+      return;
+    }
     setBusy(true);
     const { error } = await supabase.from("yahrzeits").insert({
       person_id: personId,
@@ -93,7 +105,10 @@ export function YahrzeitEditor({
       hebrew_day: Number(adding.hebrew_day),
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     toast.success("Yahrzeit added");
     setAdding(null);
     await onChanged();
