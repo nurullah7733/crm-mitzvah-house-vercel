@@ -445,6 +445,7 @@ function ImportCenter() {
 
   /** People at the same address with different surnames — a question, never an assumption. */
   const addressGroups = useMemo(
+
     () =>
       groupSharedAddresses(
         analysed.map((a, index) => {
