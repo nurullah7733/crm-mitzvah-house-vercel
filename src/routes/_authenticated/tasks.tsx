@@ -18,6 +18,8 @@ import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
+import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type LifecycleItem } from "@/lib/lifecycle";
+import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
@@ -111,6 +113,42 @@ function TasksPage() {
       ]);
       return { people, donations };
     },
+  });
+
+  const { data: lifecycleSettings } = useLifecycleSettings();
+
+  // Children only. Nothing here changes a record — it is a review list.
+  const { data: children } = useQuery({
+    queryKey: ["children-lifecycle"],
+    queryFn: () =>
+      fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, role, gender, birth_date, phone, email")
+          .is("deleted_at", null)
+          .ilike("role", "child")
+          .order("id")
+          .range(f, t),
+      ),
+  });
+
+  const addLifecycleTask = useMutation({
+    mutationFn: async (r: LifecycleItem) => {
+      const { error } = await supabase.from("tasks").insert({
+        person_id: r.personId,
+        text: r.label,
+        due_date: r.dueDate,
+        priority: r.priority,
+        status: "upcoming",
+        notes: `auto:${r.key} · ${r.detail}`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      toast.success("Task added");
+      queryClient.invalidateQueries({ queryKey: ["tasks-list"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const addReminderTask = useMutation({
