@@ -273,6 +273,10 @@ function ImportCenter() {
   const [addressDecisions, setAddressDecisions] = useState<Record<string, AddressDecision>>({});
   /** One answer per event whose date matches gifts in this file. */
   const [giftEventDecisions, setGiftEventDecisions] = useState<Record<string, "attended" | "gift_only" | "skip">>({});
+  /** Set when staff confirm they really do want to import a file already imported before. */
+  const [reimportConfirmed, setReimportConfirmed] = useState(false);
+  /** Blocks a double-tap or a browser retry from running the same import twice. */
+  const runningRef = useRef(false);
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
@@ -332,6 +336,21 @@ function ImportCenter() {
         .select("id", { count: "exact", head: true })
         .eq("status", "pending");
       return count ?? 0;
+    },
+  });
+
+  /** Has this exact file been imported before? */
+  const { data: priorImports } = useQuery({
+    queryKey: ["prior-imports", sheet?.name ?? ""],
+    enabled: Boolean(sheet?.name),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("import_batches")
+        .select("id, import_date, total_rows, created_at")
+        .eq("filename", sheet!.name)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
