@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass } from "@/components/forms/fields";
 import { logChange } from "@/lib/session-log";
+import { friendlyDbError } from "@/lib/db-errors";
 
 export type EditableTable = "people" | "donations" | "events" | "tasks";
 
@@ -76,7 +77,7 @@ export function EditRecordDialog({
       logChange(`Edited a record in ${table}`);
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   const softDelete = useMutation({
@@ -94,7 +95,7 @@ export function EditRecordDialog({
       onOpenChange(false);
       onDeleted?.();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   return (

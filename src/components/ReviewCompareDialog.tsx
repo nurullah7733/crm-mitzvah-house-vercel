@@ -10,6 +10,7 @@ import { Field } from "@/components/forms/fields";
 import { currency } from "@/components/AppShell";
 import { personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
+import { friendlyDbError } from "@/lib/db-errors";
 import {
   COMPARE_FIELDS,
   applyIncoming,
@@ -30,8 +31,8 @@ import type { RowValues } from "@/lib/import-mapping";
 type Mode = "compare" | "edit" | "discard";
 type Side = "existing" | "incoming";
 
-const LEFT_LABEL = "Already in CRM";
-const RIGHT_LABEL = "Incoming (from the file)";
+const LEFT_LABEL = "Already in Mitzvah House";
+const RIGHT_LABEL = "From the file";
 
 /**
  * Side-by-side review of a queued spreadsheet row against the contact it looks
@@ -104,8 +105,8 @@ export function ReviewCompareDialog({
 
   const merge = useMutation({
     mutationFn: async () => {
-      if (!existing) throw new Error("No matching contact to merge into");
-      if (undecided.length > 0) throw new Error(`Choose which value to keep for ${undecided[0]!.label}`);
+      if (!existing) throw new Error("There is no existing contact to combine this with.");
+      if (undecided.length > 0) throw new Error(`Pick the right ${undecided[0]!.label.toLowerCase()} first.`);
       const before = { ...existing };
       const changed = await applyIncoming(existing.id, fields, choices, source);
       await supabase.rpc("log_import_review_merge", {
@@ -122,13 +123,15 @@ export function ReviewCompareDialog({
     onSuccess: (changed) => {
       queryClient.invalidateQueries();
       toast.success(
-        changed > 0 ? `Merged — ${changed} field${changed === 1 ? "" : "s"} updated` : "Merged — nothing needed changing",
+        changed > 0
+          ? `Combined — ${changed} detail${changed === 1 ? "" : "s"} added or updated`
+          : "Combined — nothing needed changing",
       );
       logChange("Merged an imported row into an existing contact");
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   const keepBoth = useMutation({
@@ -143,22 +146,22 @@ export function ReviewCompareDialog({
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   const discard = useMutation({
     mutationFn: async () => {
-      if (!reason.trim()) throw new Error("Please say briefly why this row is being discarded");
+      if (!reason.trim()) throw new Error("Write a few words about why you're throwing this row away.");
       await finish("discarded", existing?.id ?? null);
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
-      toast.success("Incoming row discarded — the reason is saved in the change history");
+      toast.success("Row thrown away — your reason is saved in the change history");
       logChange("Discarded an imported row");
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   const saveExistingEdits = useMutation({
@@ -168,11 +171,11 @@ export function ReviewCompareDialog({
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
-      toast.success("Saved to the contact already in the CRM");
+      toast.success("Saved to the contact we already had");
       logChange("Corrected a contact while reviewing an import");
       setMode("compare");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   const busy = merge.isPending || keepBoth.isPending || discard.isPending || saveExistingEdits.isPending;
@@ -185,19 +188,19 @@ export function ReviewCompareDialog({
       onOpenChange={onOpenChange}
       title={
         mode === "edit"
-          ? "Fix bad data before merging"
+          ? "Fix a typo before combining"
           : mode === "discard"
-            ? "Discard the incoming row"
-            : "Are these the same person?"
+            ? "Throw this row away"
+            : "Is this the same person?"
       }
       description={
         mode === "compare"
           ? existing
-            ? "Both records are shown side by side. You only have to choose where they disagree."
-            : "No matching contact was found, so this row can be saved as a new contact, fixed first, or discarded."
+            ? "The person we already have is on the left, the spreadsheet row is on the right. You only have to choose where they don't match."
+            : "We didn't find anyone like this. You can save them as a new contact, fix a typo first, or throw the row away."
           : mode === "edit"
-            ? "Correct anything that came through wrong, then go back and merge."
-            : "A short reason is required and is recorded in the change history."
+            ? "Change anything that came through wrong, then go back and finish."
+            : "Write a few words so we know why. Nothing is deleted from Mitzvah House."
       }
       footer={
         mode === "discard" ? (
@@ -210,13 +213,13 @@ export function ReviewCompareDialog({
               disabled={busy}
               onClick={() => discard.mutate()}
             >
-              Discard incoming row
+              Yes, throw it away
             </Button>
           </>
         ) : mode === "edit" ? (
           <>
             <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setMode("compare")}>
-              Back to comparison
+              Back
             </Button>
             {editSide === "existing" && (
               <Button
@@ -232,14 +235,14 @@ export function ReviewCompareDialog({
           <div className="grid w-full gap-2 sm:grid-cols-4">
             {existing && (
               <Button className="rounded-xl" disabled={busy} onClick={() => merge.mutate()}>
-                {merge.isPending ? "Merging…" : "Merge"}
+                {merge.isPending ? "Combining…" : "Same person — combine"}
               </Button>
             )}
             <Button variant="outline" className="rounded-xl" disabled={busy} onClick={() => keepBoth.mutate()}>
-              {existing ? "Keep both" : "Save as new"}
+              {existing ? "Different people — keep both" : "Save as a new contact"}
             </Button>
             <Button variant="outline" className="rounded-xl" disabled={busy} onClick={() => setMode("edit")}>
-              Edit
+              Fix a typo
             </Button>
             <Button
               variant="outline"
@@ -247,14 +250,14 @@ export function ReviewCompareDialog({
               disabled={busy}
               onClick={() => setMode("discard")}
             >
-              Discard incoming
+              Throw this row away
             </Button>
           </div>
         )
       }
     >
       {mode === "discard" && (
-        <Field label="Why is this row being discarded?">
+        <Field label="Why are you throwing this row away?">
           <Input
             className="text-base"
             value={reason}
@@ -282,7 +285,7 @@ export function ReviewCompareDialog({
                     editSide === side ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground"
                   }`}
                 >
-                  Edit {label}
+                  Change {label}
                 </button>
               ))}
             </div>
@@ -366,14 +369,14 @@ export function ReviewCompareDialog({
                     {showValue(incoming.display_name)}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    A spreadsheet row — no donations, events, notes or tasks of its own yet.
+                    Just a row from a spreadsheet — no giving or history of its own yet.
                   </p>
                 </div>
               </div>
 
               <p className="rounded-xl border border-money/40 bg-money/5 px-3 py-2 text-xs text-foreground">
-                All history from both records is kept and moved onto the surviving contact. Choosing values below decides
-                field values only — it never deletes donations, events, notes or tasks.
+                Every donation, event, note and task stays with the contact. Choosing below only decides which details to
+                show — nothing is ever deleted.
               </p>
 
               {/* Conflicts — the only decisions required */}
@@ -381,14 +384,14 @@ export function ReviewCompareDialog({
                 <section>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-heading text-sm font-semibold text-foreground">
-                      {conflicts.length} field{conflicts.length === 1 ? "" : "s"} disagree — pick which to keep
+                      {conflicts.length} detail{conflicts.length === 1 ? "" : "s"} don't match — pick the right one
                     </h3>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("existing")}>
-                        Use all from CRM
+                        Keep what we have
                       </Button>
                       <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("incoming")}>
-                        Use all incoming
+                        Use the file's version
                       </Button>
                     </div>
                   </div>

@@ -49,6 +49,7 @@ export type FieldKey =
   | "met_source"
   | "tags"
   | "programs"
+  | "event_name"
   | "ignore";
 
 export const FIELD_LABELS: Record<FieldKey, string> = {
@@ -99,6 +100,7 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   met_source: "Where we met",
   tags: "Tags",
   programs: "Programs",
+  event_name: "Event attended",
   ignore: "Don't import",
 };
 
@@ -259,7 +261,18 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
   notes: ["notes", "note", "comments", "comment", "message", "memo", "your message", "questions"],
   met_source: ["source", "met at", "where we met", "how did you hear", "lead source", "referral"],
   tags: ["tags", "tag", "labels", "groups", "lists"],
-  programs: ["programs", "program", "program interest", "interests"],
+  programs: ["programs", "program", "program interest", "interests", "prog"],
+  event_name: [
+    "event",
+    "event name",
+    "attended",
+    "attended event",
+    "registered for",
+    "registration",
+    "which event",
+    "event attended",
+    "signed up for",
+  ],
 };
 
 export type Confidence = "high" | "medium" | "low";
