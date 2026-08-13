@@ -983,7 +983,9 @@ function ImportCenter() {
                 : dupeCheck.is("campaign", null)
               ).limit(1);
               if (!existingGift?.length) {
-                await supabase.from("donations").insert({
+                const { data: newGift } = await supabase
+                  .from("donations")
+                  .insert({
                   person_id: personId,
                   amount,
                   date: giftDate,
@@ -991,7 +993,23 @@ function ImportCenter() {
                   source,
                   notes: v.notes ?? null,
                   import_batch_id: batch.id,
-                });
+                  })
+                  .select("id")
+                  .single();
+
+                // Apply the reviewer's one decision about gifts made on an event date.
+                const giftEvent = giftEventGroups.find(
+                  (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+                );
+                const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
+                if (newGift?.id && giftEvent && (decision === "attended" || decision === "gift_only")) {
+                  await attributeGiftToEvent({
+                    donationId: newGift.id,
+                    personId,
+                    eventId: giftEvent.event.id,
+                    attended: decision === "attended",
+                  });
+                }
               }
             }
           }
