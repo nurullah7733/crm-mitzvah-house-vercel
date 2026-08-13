@@ -7,6 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
+import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { fetchAll } from "@/lib/fetch-all";
@@ -194,6 +196,7 @@ export const Route = createFileRoute("/_authenticated/households/")({
 
 function HouseholdsPage() {
   const [addOpen, setAddOpen] = useState(false);
+  const selection = useSelection();
   const [exportOpen, setExportOpen] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["households-list"],
@@ -229,13 +232,24 @@ function HouseholdsPage() {
           const lifetime = (h.people ?? []).reduce((sum, p) => sum + Number(p.lifetime_giving ?? 0), 0);
           const thisYear = (h.people ?? []).reduce((sum, p) => sum + Number(p.this_year_giving ?? 0), 0);
           return (
-            <Link
+            <div
               key={h.id}
-              to="/households/$householdId"
-              params={{ householdId: h.id }}
-              className="block rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/50"
+              className="rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/50"
             >
-              <h2 className="font-heading font-semibold text-foreground">{h.name}</h2>
+              <div className="flex items-start gap-2">
+                <SelectBox
+                  checked={selection.has(h.id)}
+                  onChange={() => selection.toggle(h.id)}
+                  label={h.name}
+                />
+                <Link
+                  to="/households/$householdId"
+                  params={{ householdId: h.id }}
+                  className="font-heading font-semibold text-foreground hover:text-primary hover:underline"
+                >
+                  {h.name}
+                </Link>
+              </div>
               <p className="mt-0.5 text-sm text-muted-foreground">{h.address ?? "No address"}</p>
               <p className="text-sm text-muted-foreground">{formatPhone(h.phone) || "No phone"}</p>
               <div className="mt-4 flex items-end justify-between gap-3">
@@ -247,12 +261,21 @@ function HouseholdsPage() {
                   <p className="text-xs text-muted-foreground">{currency(thisYear)} this year</p>
                 </div>
               </div>
-            </Link>
+            </div>
           );
         })}
       </div>
       {!isLoading && (data ?? []).length === 0 && <EmptyState label="No households yet." />}
       <AddHouseholdDialog open={addOpen} onOpenChange={setAddOpen} />
+      <BulkRecordBar
+        table="households"
+        noun="household"
+        nounPlural="households"
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={(data ?? []).map((h) => h.id)}
+        onSelectAll={() => selection.selectAll((data ?? []).map((h) => h.id))}
+      />
       <ExportHouseholdsDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
