@@ -17,6 +17,7 @@ import { ContactPicker } from "@/components/forms/ContactPicker";
 import { MethodDraftList } from "@/components/ContactMethodsEditor";
 import { addContactMethods, emptyDraft, phoneKey, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case";
+import { attributeGiftToEvent, findEventsNearDate, type NearbyEvent } from "@/lib/gift-events";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
