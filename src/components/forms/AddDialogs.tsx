@@ -799,7 +799,18 @@ export function AddDonationDialog({
           />
         </Field>
         <Field label="Date">
-          <Input className="text-base" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.date}
+            onChange={(e) => {
+              set("date", e.target.value);
+              // A new date means a new question — ask again about events on that day.
+              setNearby(null);
+              setLinkEventId("");
+              setPickOther(false);
+            }}
+          />
         </Field>
         <Field label="Campaign">
           <select value={form.campaign_id} onChange={(e) => set("campaign_id", e.target.value)} className={selectClass}>
