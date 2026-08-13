@@ -264,6 +264,15 @@ function DonationsPage() {
         ))}
       </div>
       <AddDonationDialog open={addOpen} onOpenChange={setAddOpen} />
+      <BulkRecordBar
+        table="donations"
+        noun="gift"
+        nounPlural="gifts"
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={gifts.map((d) => d.id)}
+        onSelectAll={() => selection.selectAll(gifts.map((d) => d.id))}
+      />
       {editing && (
         <EditRecordDialog
           open
