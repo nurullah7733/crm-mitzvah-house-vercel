@@ -40,9 +40,24 @@ function SetPasswordPage() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!cancelled && session) setReady(true);
     });
-    supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled) setReady(Boolean(data.session));
-    });
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        if (!cancelled) setReady(true);
+        return;
+      }
+      // Some links arrive as a one-time code in the address instead of a
+      // ready-made session; exchange it before giving up.
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (code) {
+        const { data: exchanged } = await supabase.auth.exchangeCodeForSession(code);
+        if (!cancelled && exchanged?.session) {
+          setReady(true);
+          return;
+        }
+      }
+      if (!cancelled) setReady(false);
+    })();
     return () => {
       cancelled = true;
       sub.subscription.unsubscribe();
