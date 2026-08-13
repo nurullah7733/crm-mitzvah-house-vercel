@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass, todayISO } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
-import { friendlyDbError } from "@/lib/db-errors";
+import { reportDbError } from "@/lib/db-errors";
 import { logChange } from "@/lib/session-log";
 import { properCase } from "@/lib/proper-case";
 
@@ -82,7 +82,7 @@ export function BecomeAdultDialog({
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: unknown) => toast.error(friendlyDbError(e)),
+    onError: (e: unknown) => reportDbError(e, toast.error),
   });
 
   const missingContact = !person.phone && !person.email;
@@ -223,7 +223,7 @@ export function MoveHouseholdDialog({
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: unknown) => toast.error(friendlyDbError(e)),
+    onError: (e: unknown) => reportDbError(e, toast.error),
   });
 
   return (
