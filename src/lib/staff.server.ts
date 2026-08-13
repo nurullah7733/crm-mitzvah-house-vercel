@@ -1,6 +1,7 @@
 // Server-only staff onboarding logic. Uses the admin client, so it must never
 // be reachable from the browser — the .server.ts filename enforces that.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { StaffEntry, StaffAccountStatus } from "./staff.functions";
 
@@ -31,6 +32,60 @@ async function allAuthUsers(admin: Admin): Promise<AuthUser[]> {
 function isBanned(user: AuthUser | undefined) {
   if (!user?.banned_until) return false;
   return new Date(user.banned_until).getTime() > Date.now();
+}
+
+/**
+ * Emails a fresh link that lets someone set a password and get in, whatever
+ * state their account is in. Any earlier unused link stops working, because
+ * Supabase only honours the newest token for an email address.
+ *
+ * A brand-new or never-used account gets an invite email. An account that has
+ * been signed into (or that Supabase already treats as confirmed) gets a
+ * password-set email instead, since invites can only be issued once.
+ */
+async function sendAccessEmail(
+  admin: Admin,
+  input: { email: string; name?: string; redirectTo: string; user?: AuthUser },
+): Promise<{ mode: "invite" | "password_link"; userId: string }> {
+  const email = input.email.trim().toLowerCase();
+  let user = input.user;
+
+  // Never used? Clear the stale account out so a real invite can be sent again.
+  if (user && !user.last_sign_in_at) {
+    await admin.auth.admin.deleteUser(user.id);
+    user = undefined;
+  }
+
+  if (!user) {
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: input.redirectTo,
+      ...(input.name ? { data: { name: input.name } } : {}),
+    });
+    if (!error && data?.user) return { mode: "invite", userId: data.user.id };
+
+    // The address may still exist behind the scenes; fall through to a
+    // password-set email rather than failing.
+    const again = (await allAuthUsers(admin)).find((u) => u.email?.toLowerCase() === email);
+    if (!again) throw new Error(`Could not send the invite: ${error?.message ?? "unknown problem"}`);
+    user = again;
+  }
+
+  // Unlock first, otherwise the link lands on a blocked account.
+  if (isBanned(user)) {
+    await admin.auth.admin.updateUserById(user.id, { ban_duration: "none" });
+  }
+  await admin.auth.admin.updateUserById(user.id, { email_confirm: true });
+
+  const publicClient = createClient<Database>(
+    process.env["SUPABASE_URL"]!,
+    process.env["SUPABASE_PUBLISHABLE_KEY"]!,
+    { auth: { storage: undefined, persistSession: false, autoRefreshToken: false } },
+  );
+  const { error: mailError } = await publicClient.auth.resetPasswordForEmail(email, {
+    redirectTo: input.redirectTo,
+  });
+  if (mailError) throw new Error(`Could not email the sign-in link: ${mailError.message}`);
+  return { mode: "password_link", userId: user.id };
 }
 
 function statusFor(row: { active: boolean }, user: AuthUser | undefined): StaffAccountStatus {
@@ -83,20 +138,14 @@ export async function inviteStaffMember(
 ) {
   const email = input.email.trim().toLowerCase();
   const users = await allAuthUsers(admin);
-  let user = users.find((u) => u.email?.toLowerCase() === email);
-  let invited = false;
-
-  if (!user) {
-    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: input.redirectTo,
-      data: { name: input.name },
-    });
-    if (error) throw new Error(`Could not send the invite: ${error.message}`);
-    user = data.user as AuthUser;
-    invited = true;
-  } else if (isBanned(user)) {
-    await admin.auth.admin.updateUserById(user.id, { ban_duration: "none" });
-  }
+  const existingUser = users.find((u) => u.email?.toLowerCase() === email);
+  const sent = await sendAccessEmail(admin, {
+    email,
+    name: input.name,
+    redirectTo: input.redirectTo,
+    ...(existingUser ? { user: existingUser } : {}),
+  });
+  const userId = sent.userId;
 
   const { data: existing } = await admin
     .from("staff_members")
@@ -107,18 +156,22 @@ export async function inviteStaffMember(
   if (existing) {
     const { error } = await admin
       .from("staff_members")
-      .update({ name: input.name, role: input.role, active: true, user_id: user.id })
+      .update({ name: input.name, role: input.role, active: true, user_id: userId })
       .eq("id", existing.id);
     if (error) throw error;
   } else {
     const { error } = await admin
       .from("staff_members")
-      .insert({ name: input.name, email, role: input.role, active: true, user_id: user.id });
+      .insert({ name: input.name, email, role: input.role, active: true, user_id: userId });
     if (error) throw error;
   }
 
-  await applyRole(admin, user.id, input.role);
-  return { invited, alreadyHadAccount: !invited };
+  await applyRole(admin, userId, input.role);
+  return {
+    invited: sent.mode === "invite",
+    alreadyHadAccount: sent.mode === "password_link",
+    mode: sent.mode,
+  };
 }
 
 export async function resendInvite(admin: Admin, staffId: string, redirectTo: string) {
@@ -130,21 +183,10 @@ export async function resendInvite(admin: Admin, staffId: string, redirectTo: st
   if (error) throw error;
   if (!row) throw new Error("That staff member no longer exists.");
 
-  const email = row.email.toLowerCase();
-  const users = await allAuthUsers(admin);
-  const user = users.find((u) => u.email?.toLowerCase() === email);
-
-  // Someone who never signed in gets a fresh invite; deleting the unused
-  // account first is what lets Supabase send the invite again.
-  if (user && !user.last_sign_in_at) {
-    await admin.auth.admin.deleteUser(user.id);
-  } else if (user) {
-    throw new Error("That person has already signed in — send them a password reset instead.");
-  }
-
+  // Works whatever their status says, and always cancels the previous link.
   return inviteStaffMember(admin, {
     name: row.name,
-    email,
+    email: row.email.toLowerCase(),
     role: row.role as Role,
     redirectTo,
   });
@@ -200,4 +242,39 @@ export async function enableStaff(admin: Admin, staffId: string) {
     await applyRole(admin, row.user_id, row.role as Role);
   }
   return { ok: true };
+}
+
+/**
+ * Fully removes someone: the staff row, their role, and the login account —
+ * so the same email address can be invited again later.
+ */
+export async function deleteStaffMember(admin: Admin, staffId: string, actingUserId: string) {
+  const { data: row, error } = await admin
+    .from("staff_members")
+    .select("*")
+    .eq("id", staffId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) return { ok: true, email: null };
+  if (row.user_id && row.user_id === actingUserId) {
+    throw new Error("You cannot remove your own access.");
+  }
+
+  const email = row.email.toLowerCase();
+  const users = await allAuthUsers(admin);
+  const user = (row.user_id ? users.find((u) => u.id === row.user_id) : undefined)
+    ?? users.find((u) => u.email?.toLowerCase() === email);
+
+  if (user) {
+    if (user.id === actingUserId) throw new Error("You cannot remove your own access.");
+    await admin.from("user_roles").delete().eq("user_id", user.id);
+    const { error: deleteUserError } = await admin.auth.admin.deleteUser(user.id);
+    if (deleteUserError) {
+      throw new Error(`Could not remove their login: ${deleteUserError.message}`);
+    }
+  }
+
+  const { error: deleteRowError } = await admin.from("staff_members").delete().eq("id", staffId);
+  if (deleteRowError) throw deleteRowError;
+  return { ok: true, email };
 }
