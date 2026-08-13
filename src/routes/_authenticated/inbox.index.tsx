@@ -9,10 +9,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
-import { selectClass } from "@/components/forms/fields";
+import { Field, selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
+import { friendlyDbError } from "@/lib/db-errors";
+import {
+  EMPTY_BULK_TARGET,
+  RELATIONSHIP_OPTIONS,
+  groupSharedAddresses,
+  matchEventByName,
+  normalizeLabel,
+  type AddressDecision,
+  type BulkTarget,
+  type EventDecision,
+  type EventOption,
+} from "@/lib/import-links";
 import {
   FIELD_LABELS,
   addressKey,
@@ -245,6 +257,12 @@ function ImportCenter() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  /** What to do with each event name found in the file that matched nothing. */
+  const [eventDecisions, setEventDecisions] = useState<Record<string, EventDecision>>({});
+  /** Applies to every contact in the file, whatever the columns say. */
+  const [bulkTarget, setBulkTarget] = useState<BulkTarget>(EMPTY_BULK_TARGET);
+  /** One answer per group of people sharing an address. */
+  const [addressDecisions, setAddressDecisions] = useState<Record<string, AddressDecision>>({});
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
@@ -307,6 +325,37 @@ function ImportCenter() {
     },
   });
 
+  const { data: events } = useQuery({
+    queryKey: ["import-events"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, date")
+        .is("deleted_at", null)
+        .order("date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as EventOption[];
+    },
+  });
+
+  const { data: programOptions } = useQuery({
+    queryKey: ["program-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("program_options").select("label").order("label");
+      if (error) throw error;
+      return (data ?? []).map((p) => p.label);
+    },
+  });
+
+  const { data: tagOptions } = useQuery({
+    queryKey: ["tag-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("tag_options").select("label").order("label");
+      if (error) throw error;
+      return (data ?? []).map((t) => t.label);
+    },
+  });
+
   const analysed = useMemo<{ row: string[]; values: RowValues; match: MatchResult }[]>(() => {
     if (!sheet || !people) return [];
     const seen = new Map<string, number>();
@@ -348,6 +397,68 @@ function ImportCenter() {
     [analysed],
   );
 
+  /** Every distinct event name the file mentions, and what it matched. */
+  const fileEvents = useMemo(() => {
+    const map = new Map<string, { value: string; rows: number; matched: EventOption | null }>();
+    analysed.forEach((a) => {
+      const value = (a.values.event_name ?? "").trim();
+      if (!value) return;
+      const key = normalizeLabel(value);
+      const entry = map.get(key) ?? { value, rows: 0, matched: matchEventByName(value, events ?? []) };
+      entry.rows += 1;
+      map.set(key, entry);
+    });
+    return [...map.entries()].map(([key, v]) => ({ key, ...v }));
+  }, [analysed, events]);
+
+  const unresolvedEvents = fileEvents.filter(
+    (e) => !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
+  );
+
+  /** How each row will be linked, so the preview can be exact. */
+  const eventLinkPlan = useMemo(() => {
+    const bulkEvent = (events ?? []).find((e) => e.id === bulkTarget.eventId) ?? null;
+    const perRow = analysed.map((a) => {
+      const value = (a.values.event_name ?? "").trim();
+      const key = normalizeLabel(value);
+      const entry = fileEvents.find((f) => f.key === key);
+      const decision = eventDecisions[key];
+      let label: string | null = null;
+      if (entry?.matched) label = entry.matched.name;
+      else if (decision?.action === "create") label = entry?.value ?? null;
+      else if (decision?.action === "existing")
+        label = (events ?? []).find((e) => e.id === decision.eventId)?.name ?? null;
+      if (!label && bulkEvent) label = bulkEvent.name;
+      return label;
+    });
+    const totals = new Map<string, number>();
+    perRow.forEach((label, i) => {
+      if (!label) return;
+      if (analysed[i]?.match.status === "ambiguous") return;
+      totals.set(label, (totals.get(label) ?? 0) + 1);
+    });
+    return { perRow, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
+  }, [analysed, fileEvents, eventDecisions, events, bulkTarget.eventId]);
+
+  /** People at the same address with different surnames — a question, never an assumption. */
+  const addressGroups = useMemo(
+    () =>
+      groupSharedAddresses(
+        analysed.map((a, index) => {
+          const n = mainName(a.values);
+          return {
+            index,
+            name: n.display,
+            surname: n.surname,
+            address: composeAddress(a.values),
+          };
+        }),
+      ),
+    [analysed],
+  );
+
+  const undecidedAddressGroups = addressGroups.filter((g) => !addressDecisions[g.key]);
+
   async function handleFile(file: File) {
     setError(null);
     try {
@@ -355,6 +466,9 @@ function ImportCenter() {
       setSheet(parsed);
       setMapping(guessMapping(parsed.headers));
       setAdjusting(false);
+      setEventDecisions({});
+      setAddressDecisions({});
+      setBulkTarget(EMPTY_BULK_TARGET);
     } catch (e) {
       setSheet(null);
       setError(e instanceof Error ? e.message : "We couldn't read that file.");
@@ -366,6 +480,9 @@ function ImportCenter() {
     setMapping([]);
     setError(null);
     setProgress(null);
+    setEventDecisions({});
+    setAddressDecisions({});
+    setBulkTarget(EMPTY_BULK_TARGET);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
     } catch {
@@ -375,6 +492,14 @@ function ImportCenter() {
 
   async function approve() {
     if (!sheet) return;
+    if (unresolvedEvents.length > 0) {
+      toast.error("Tell us what to do with the event names in this file first.");
+      return;
+    }
+    if (undecidedAddressGroups.length > 0) {
+      toast.error("Answer the shared-address questions first.");
+      return;
+    }
     setBusy(true);
     setProgress({ done: 0, total: analysed.length });
     try {
@@ -423,6 +548,42 @@ function ImportCenter() {
         if (nk && !houseByKey.has(`name:${nk}`)) houseByKey.set(`name:${nk}`, h.id);
       }
 
+      // Which event each row links to. Names the reviewer asked us to create are
+      // created once here, so 40 rows never make 40 copies of the same event.
+      const eventIdByKey = new Map<string, string>();
+      for (const fe of fileEvents) {
+        if (fe.matched) {
+          eventIdByKey.set(fe.key, fe.matched.id);
+          continue;
+        }
+        const decision = eventDecisions[fe.key];
+        if (decision?.action === "existing") eventIdByKey.set(fe.key, decision.eventId);
+        if (decision?.action === "create") {
+          const { data: createdEvent } = await supabase
+            .from("events")
+            .insert({ name: fe.value, date: importDate, program: null })
+            .select("id, name, date")
+            .single();
+          if (createdEvent?.id) eventIdByKey.set(fe.key, createdEvent.id);
+        }
+      }
+      const eventNameById = new Map<string, { name: string; date: string }>(
+        (events ?? []).map((e) => [e.id, { name: e.name, date: e.date }]),
+      );
+
+      // Answers to the shared-address questions, looked up by row.
+      const decisionByRow = new Map<number, { action: AddressDecision["action"]; relationship: string }>();
+      for (const group of addressGroups) {
+        const decision = addressDecisions[group.key];
+        if (!decision) continue;
+        for (const r of group.rows) {
+          decisionByRow.set(r.index, {
+            action: decision.action,
+            relationship: decision.relationships[r.index] ?? "",
+          });
+        }
+      }
+
       type HouseParts = {
         address: string | null;
         address_line2: string | null;
@@ -438,8 +599,9 @@ function ImportCenter() {
         name: string,
         parts: HouseParts,
         billing: string | null,
+        allowAddressLink = true,
       ): Promise<string | null> {
-        const key = addressKey(parts.address);
+        const key = allowAddressLink ? addressKey(parts.address) : null;
         const nameKey = `name:${name.trim().toLowerCase()}`;
         const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
         if (found) {
@@ -509,10 +671,19 @@ function ImportCenter() {
             v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
           );
           const householdName = v.household_name ?? `${surname || first || "New"} household`;
+          // Only group people by address when the reviewer confirmed they're family.
+          const addressAnswer = decisionByRow.get(index);
+          const allowAddressLink = !addressAnswer || addressAnswer.action === "household";
+          const relationship = addressAnswer?.relationship || null;
 
           if (item.match.status === "new") {
             if (hasFamily || v.billing_address) {
-              householdId = await ensureHousehold(householdName, addressParts, v.billing_address ?? null);
+              householdId = await ensureHousehold(
+                householdName,
+                addressParts,
+                v.billing_address ?? null,
+                allowAddressLink,
+              );
             }
             const { data: created, error: createError } = await supabase
               .from("people")
@@ -531,6 +702,7 @@ function ImportCenter() {
                 role: personRole,
                 tags: splitList(v.tags),
                 programs: splitList(v.programs),
+                ...(relationship ? { household_relationship: relationship } : {}),
                 import_batch_id: batch.id,
               })
               .select("id")
@@ -561,7 +733,12 @@ function ImportCenter() {
 
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
-              householdId = await ensureHousehold(householdName, addressParts, v.billing_address ?? null);
+              householdId = await ensureHousehold(
+                householdName,
+                addressParts,
+                v.billing_address ?? null,
+                allowAddressLink,
+              );
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
             } else if (householdId && (fullAddress || v.billing_address)) {
               const housePatch: {
@@ -590,6 +767,59 @@ function ImportCenter() {
           }
 
           if (!personId) continue;
+
+          if (relationship) {
+            await supabase.from("people").update({ household_relationship: relationship }).eq("id", personId);
+          }
+
+          // Link this contact to the event named on the row, or to the event the
+          // reviewer chose for the whole file. Nothing is linked twice.
+          const rowEventKey = normalizeLabel(v.event_name ?? "");
+          const targetEventId = (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ?? bulkTarget.eventId ?? "";
+          if (targetEventId) {
+            const { data: alreadyOn } = await supabase
+              .from("registrations")
+              .select("id")
+              .eq("event_id", targetEventId)
+              .eq("person_id", personId)
+              .limit(1);
+            if (!alreadyOn?.length) {
+              await supabase
+                .from("registrations")
+                .insert({ event_id: targetEventId, person_id: personId, status: "Attended" });
+              const info = eventNameById.get(targetEventId);
+              await supabase.from("interactions").insert({
+                person_id: personId,
+                type: "event",
+                date: info?.date ?? importDate,
+                text: `Attended ${info?.name ?? v.event_name ?? "an event"}`,
+                author: "Import",
+                import_batch_id: batch.id,
+              });
+            }
+          }
+
+          // Programs and lists chosen for the whole file, added without wiping
+          // anything the contact already had.
+          if (bulkTarget.program || bulkTarget.tag) {
+            const { data: current } = await supabase
+              .from("people")
+              .select("tags, programs")
+              .eq("id", personId)
+              .single();
+            const patch: { tags?: string[]; programs?: string[] } = {};
+            if (bulkTarget.program) {
+              const list = current?.programs ?? [];
+              if (!list.some((p) => normalizeLabel(p) === normalizeLabel(bulkTarget.program)))
+                patch.programs = [...list, bulkTarget.program];
+            }
+            if (bulkTarget.tag) {
+              const list = current?.tags ?? [];
+              if (!list.some((t) => normalizeLabel(t) === normalizeLabel(bulkTarget.tag)))
+                patch.tags = [...list, bulkTarget.tag];
+            }
+            if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
+          }
 
           // Every phone and email on the row is stored, with anything already on
           // file skipped so a re-import never duplicates a number.
@@ -706,23 +936,31 @@ function ImportCenter() {
           if (v.amount) {
             const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
             if (Number.isFinite(amount) && amount > 0) {
-              await supabase.from("donations").insert({
-                person_id: personId,
-                amount,
-                date: isoDate(v.date) ?? importDate,
-                campaign: v.campaign ?? null,
-                source,
-                notes: v.notes ?? null,
-                import_batch_id: batch.id,
-              });
-              await supabase.from("interactions").insert({
-                person_id: personId,
-                type: "donation",
-                date: isoDate(v.date) ?? importDate,
-                text: `Imported gift of $${amount}${v.campaign ? ` · ${v.campaign}` : ""}`,
-                author: "Import",
-                import_batch_id: batch.id,
-              });
+              const giftDate = isoDate(v.date) ?? importDate;
+              // Re-importing the same file must not add the same gift twice, and a
+              // gift only ever gets one timeline entry — the donation itself.
+              const dupeCheck = supabase
+                .from("donations")
+                .select("id")
+                .eq("person_id", personId)
+                .eq("amount", amount)
+                .eq("date", giftDate)
+                .is("deleted_at", null);
+              const { data: existingGift } = await (v.campaign
+                ? dupeCheck.eq("campaign", v.campaign)
+                : dupeCheck.is("campaign", null)
+              ).limit(1);
+              if (!existingGift?.length) {
+                await supabase.from("donations").insert({
+                  person_id: personId,
+                  amount,
+                  date: giftDate,
+                  campaign: v.campaign ?? null,
+                  source,
+                  notes: v.notes ?? null,
+                  import_batch_id: batch.id,
+                });
+              }
             }
           }
 
@@ -742,10 +980,11 @@ function ImportCenter() {
         } catch (rowError) {
           failures += 1;
           console.error("Import row failed", rowError);
+          const why = await friendlyDbError(rowError, "We couldn't save this row.");
           await supabase.from("review_queue").insert({
             batch_id: batch.id,
             filename: sheet.name,
-            reason: rowError instanceof Error ? `Couldn't import this row: ${rowError.message}` : "Couldn't import this row",
+            reason: why,
             row_data: v as unknown as Record<string, string>,
             candidate_person_ids: [],
             status: "pending",
@@ -773,11 +1012,8 @@ function ImportCenter() {
       await queryClient.invalidateQueries();
       reset();
     } catch (e) {
-      toast.error(
-        e instanceof Error
-          ? `${e.message} — your file is still here, nothing was lost.`
-          : "Import failed — your file is still here.",
-      );
+      const why = await friendlyDbError(e, "Import failed.");
+      toast.error(`${why} Your file is still here, nothing was lost.`);
     } finally {
       setBusy(false);
     }
@@ -859,6 +1095,219 @@ function ImportCenter() {
               </div>
             )}
           </section>
+
+          {fileEvents.length > 0 && (
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
+              <p className="text-sm text-muted-foreground">
+                This file has an event column. Tell us what each event name means and we'll mark those people as
+                attending.
+              </p>
+              <div className="mt-3 space-y-2">
+                {fileEvents.map((fe) => {
+                  const decision = eventDecisions[fe.key];
+                  return (
+                    <div key={fe.key} className="rounded-xl border border-border p-3">
+                      <p className="text-sm font-medium text-foreground">
+                        “{fe.value}” — {fe.rows} row{fe.rows === 1 ? "" : "s"}
+                      </p>
+                      {fe.matched ? (
+                        <p className="mt-1 text-sm text-money">
+                          Matches your event “{fe.matched.name}”. Those people will be added to it.
+                        </p>
+                      ) : (
+                        <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr]">
+                          <select
+                            className={selectClass}
+                            value={
+                              decision?.action === "existing"
+                                ? decision.eventId
+                                : (decision?.action ?? "")
+                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEventDecisions((d) => ({
+                                ...d,
+                                [fe.key]:
+                                  val === "create"
+                                    ? { action: "create" }
+                                    : val === "ignore"
+                                      ? { action: "ignore" }
+                                      : { action: "existing", eventId: val },
+                              }));
+                            }}
+                          >
+                            <option value="">What should we do?</option>
+                            <option value="create">Create a new event called “{fe.value}”</option>
+                            <option value="ignore">Skip this — don't link anyone</option>
+                            {(events ?? []).map((ev) => (
+                              <option key={ev.id} value={ev.id}>
+                                Add them to “{ev.name}” ({ev.date})
+                              </option>
+                            ))}
+                          </select>
+                          <p className="self-center text-xs text-muted-foreground">
+                            We didn't find an event with this name.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="font-heading font-semibold text-foreground">Add everyone in this file to…</h2>
+            <p className="text-sm text-muted-foreground">
+              Optional. Use this when a whole file belongs to one event, program or list.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <Field label="Event">
+                <select
+                  className={selectClass}
+                  value={bulkTarget.eventId}
+                  onChange={(e) => setBulkTarget((t) => ({ ...t, eventId: e.target.value }))}
+                >
+                  <option value="">No event</option>
+                  {(events ?? []).map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.name} ({ev.date})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Program">
+                <select
+                  className={selectClass}
+                  value={bulkTarget.program}
+                  onChange={(e) => setBulkTarget((t) => ({ ...t, program: e.target.value }))}
+                >
+                  <option value="">No program</option>
+                  {(programOptions ?? []).map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Tag or list">
+                <select
+                  className={selectClass}
+                  value={bulkTarget.tag}
+                  onChange={(e) => setBulkTarget((t) => ({ ...t, tag: e.target.value }))}
+                >
+                  <option value="">No tag</option>
+                  {(tagOptions ?? []).map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            {(eventLinkPlan.totals.length > 0 || bulkTarget.program || bulkTarget.tag) && (
+              <div className="mt-3 space-y-1 rounded-xl bg-primary/10 p-3 text-sm text-foreground">
+                {eventLinkPlan.totals.map((t) => (
+                  <p key={t.name}>
+                    {t.count} {t.count === 1 ? "person" : "people"} will be marked as attending “{t.name}”.
+                  </p>
+                ))}
+                {bulkTarget.program && (
+                  <p>
+                    {counts.matched + counts.new} {counts.matched + counts.new === 1 ? "person" : "people"} will be added
+                    to the {bulkTarget.program} program.
+                  </p>
+                )}
+                {bulkTarget.tag && (
+                  <p>
+                    {counts.matched + counts.new} {counts.matched + counts.new === 1 ? "person" : "people"} will get the
+                    “{bulkTarget.tag}” tag.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {addressGroups.length > 0 && (
+            <section className="rounded-2xl border border-suggestion/40 bg-suggestion/5 p-5 shadow-sm">
+              <h2 className="font-heading font-semibold text-foreground">Same address, different last names</h2>
+              <p className="text-sm text-muted-foreground">
+                We won't guess. Tell us whether these people live together as one household, or just happen to share an
+                address.
+              </p>
+              <div className="mt-3 space-y-3">
+                {addressGroups.map((group) => {
+                  const decision = addressDecisions[group.key];
+                  return (
+                    <div key={group.key} className="rounded-xl border border-border bg-card p-3">
+                      <p className="text-sm font-medium text-foreground">{group.address}</p>
+                      <p className="text-sm text-muted-foreground">{group.rows.map((r) => r.name).join(", ")}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["household", "They're one household"],
+                            ["unrelated", "Not related — keep separate"],
+                            ["later", "Decide later"],
+                          ] as const
+                        ).map(([action, label]) => (
+                          <button
+                            key={action}
+                            type="button"
+                            className={`rounded-xl border px-3 py-2 text-sm ${
+                              decision?.action === action
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-foreground"
+                            }`}
+                            onClick={() =>
+                              setAddressDecisions((d) => ({
+                                ...d,
+                                [group.key]: { action, relationships: d[group.key]?.relationships ?? {} },
+                              }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {decision?.action === "household" && (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {group.rows.map((r) => (
+                            <Field key={r.index} label={`How is ${r.name} related?`}>
+                              <select
+                                className={selectClass}
+                                value={decision.relationships[r.index] ?? ""}
+                                onChange={(e) =>
+                                  setAddressDecisions((d) => ({
+                                    ...d,
+                                    [group.key]: {
+                                      action: "household",
+                                      relationships: {
+                                        ...(d[group.key]?.relationships ?? {}),
+                                        [r.index]: e.target.value,
+                                      },
+                                    },
+                                  }))
+                                }
+                              >
+                                <option value="">Not sure</option>
+                                {RELATIONSHIP_OPTIONS.map((rel) => (
+                                  <option key={rel} value={rel}>
+                                    {rel}
+                                  </option>
+                                ))}
+                              </select>
+                            </Field>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">

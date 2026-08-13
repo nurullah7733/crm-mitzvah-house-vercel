@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { logChange } from "@/lib/session-log";
+import { friendlyDbError } from "@/lib/db-errors";
 
 type Person = {
   id: string;
@@ -144,7 +145,7 @@ export function MergeContactsDialog({
       onOpenChange(false);
       onMerged?.(survivingId);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
   return (

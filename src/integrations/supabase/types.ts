@@ -727,6 +727,7 @@ export type Database = {
           email: string | null
           first_name: string | null
           household_id: string | null
+          household_relationship: string | null
           id: string
           import_batch_id: string | null
           last_activity_date: string | null
@@ -756,6 +757,7 @@ export type Database = {
           email?: string | null
           first_name?: string | null
           household_id?: string | null
+          household_relationship?: string | null
           id?: string
           import_batch_id?: string | null
           last_activity_date?: string | null
@@ -785,6 +787,7 @@ export type Database = {
           email?: string | null
           first_name?: string | null
           household_id?: string | null
+          household_relationship?: string | null
           id?: string
           import_batch_id?: string | null
           last_activity_date?: string | null
@@ -1132,6 +1135,14 @@ export type Database = {
       get_integration_credentials: {
         Args: { _provider: string }
         Returns: Json
+      }
+      giving_total_mismatches: {
+        Args: never
+        Returns: {
+          actual_lifetime: number
+          person_id: string
+          stored_lifetime: number
+        }[]
       }
       has_role: {
         Args: {
