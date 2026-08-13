@@ -136,24 +136,35 @@ export function BackupExportPanel() {
 
   const failedCount = results?.filter((r) => r.error).length ?? 0;
 
-  // The preview runs inside an embedded frame, and browsers block file saves
-  // started there. Handing the file to a normal browser tab lets the save go
-  // through with the right filename.
-  function saveFile(e: React.MouseEvent) {
+  // Prefer the browser's native Save As dialog. This keeps the save attached
+  // to the staff member's click and works in the embedded preview without
+  // opening a blank tab. Older browsers fall back to a normal download link.
+  async function saveFile(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!readyDownload) return;
-    if (window.top === window.self) return; // normal tab: let the link work
+    const savePicker = (window as Window & {
+      showSaveFilePicker?: (options: {
+        suggestedName: string;
+        types: Array<{ description: string; accept: Record<string, string[]> }>;
+      }) => Promise<{ createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }>;
+    }).showSaveFilePicker;
+
+    if (!savePicker) return;
+
     e.preventDefault();
-    const w = window.open("", "_blank");
-    if (!w) {
-      toast.error("Please allow pop-ups for this page, then click Save again");
-      return;
+    try {
+      const handle = await savePicker({
+        suggestedName: readyDownload.filename,
+        types: [{ description: "ZIP backup", accept: { "application/zip": [".zip"] } }],
+      });
+      const writable = await handle.createWritable();
+      const response = await fetch(readyDownload.url);
+      await writable.write(await response.blob());
+      await writable.close();
+      toast.success("Backup saved to your computer");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast.error("The backup could not be saved. Please try again.");
     }
-    const a = w.document.createElement("a");
-    a.href = readyDownload.url;
-    a.download = readyDownload.filename;
-    w.document.body.appendChild(a);
-    a.click();
-    setTimeout(() => w.close(), 2000);
   }
 
   return (
