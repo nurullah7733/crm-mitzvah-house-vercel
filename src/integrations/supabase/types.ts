@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       audit_log: {
         Row: {
           action: string
@@ -1123,6 +1141,28 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      lapsed_donors: {
+        Args: {
+          _limit?: number
+          _min_prior_years?: number
+          _min_total?: number
+          _mode?: string
+        }
+        Returns: {
+          email: string
+          gave_last_year: boolean
+          last_gift_amount: number
+          last_gift_date: string
+          last_gift_year: number
+          lifetime_total: number
+          name: string
+          owner: string
+          person_id: string
+          phone: string
+          prior_years: number
+          score: number
+        }[]
+      }
       log_import_review_merge: {
         Args: {
           _choices?: Json
@@ -1157,6 +1197,7 @@ export type Database = {
       }
       purge_audit_log_internal: { Args: never; Returns: number }
       purge_old_audit_log: { Args: never; Returns: number }
+      recalc_all_totals_internal: { Args: never; Returns: number }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
       save_integration_credentials: {
