@@ -543,6 +543,7 @@ export function AddDonationDialog({
   const [linkEventId, setLinkEventId] = useState("");
   const [attended, setAttended] = useState<"yes" | "sponsor" | "unsure">("yes");
   const [checking, setChecking] = useState(false);
+  const [pickOther, setPickOther] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const { data: campaigns } = useQuery({
@@ -557,6 +558,18 @@ export function AddDonationDialog({
     queryKey: ["grants-picker"],
     queryFn: async () => {
       const { data, error } = await supabase.from("grants").select("id, name").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+  const { data: allEvents } = useQuery({
+    queryKey: ["events-picker"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, date")
+        .is("deleted_at", null)
+        .order("date", { ascending: false });
       if (error) throw error;
       return data;
     },
