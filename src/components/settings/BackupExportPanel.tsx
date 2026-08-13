@@ -72,8 +72,7 @@ export function BackupExportPanel() {
           );
           // An empty table still gets a header-only file, so the person
           // restoring can see nothing was skipped.
-          files.push({ file, text: csvText(rows.length > 0 ? rows : [{ note: "no rows" }]) } as never as ZipEntry);
-          files[files.length - 1] = { name: file, text: csvText(rows.length > 0 ? rows : [{ note: "no rows" }]) };
+          files.push({ name: file, text: csvText(rows.length > 0 ? rows : [{ note: "no rows" }]) });
           out.push({ label: step.label, table: step.table, rows: rows.length, file });
         } catch (e) {
           out.push({
