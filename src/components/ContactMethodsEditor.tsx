@@ -89,7 +89,7 @@ export function ContactMethodsEditor({
 
   const draftFor = (m: ContactMethod) => edits[m.id] ?? { value: m.value, method_type: m.method_type };
 
-  async function run(work: () => Promise<{ error: { message: string } | null }>, done: string) {
+  async function run(work: () => PromiseLike<{ error: { message: string } | null }>, done: string) {
     setBusy(true);
     const { error } = await work();
     setBusy(false);
