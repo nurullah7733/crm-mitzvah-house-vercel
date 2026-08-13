@@ -14,6 +14,7 @@ import { downloadCsv, stamp } from "@/lib/csv";
 import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { fuzzyScoreAny } from "@/lib/nl-search";
+import { LabelChips } from "@/components/LabelChips";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (
