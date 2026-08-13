@@ -327,9 +327,9 @@ export function composeAddress(v: Partial<Record<FieldKey, string>>): string | n
  * Email wins, then phone, then name.
  */
 export function rowDedupeKey(v: RowValues): string | null {
-  const email = (v.email ?? "").trim().toLowerCase();
+  const email = (v.emails?.[0]?.value ?? v.email ?? "").trim().toLowerCase();
   if (email) return `email:${email}`;
-  const phone = digits(v.phone);
+  const phone = digits(v.phones?.[0]?.value ?? v.phone);
   if (phone.length >= 7) return `phone:${phone.slice(-10)}`;
   const { first, last } = splitName(v);
   const name = `${first} ${last}`.trim().toLowerCase();
@@ -375,6 +375,8 @@ export type ExistingPerson = {
   phone: string | null;
   household_id: string | null;
   households?: { name: string; address: string | null } | null;
+  /** Every phone and email on file, so a match is never missed. */
+  contact_methods?: { kind: string; value: string }[] | null;
 };
 
 export type MatchResult = {
@@ -386,20 +388,43 @@ export type MatchResult = {
 /** A single spreadsheet row, unpacked into one main contact plus the people attached to it. */
 export type RowValues = Partial<Record<FieldKey, string>> & {
   children?: { first: string; last?: string; birth_date?: string; school?: string; age?: string }[];
+  /** All phone numbers on the row, primary first. */
+  phones?: { value: string; method_type: string }[];
+  /** All email addresses on the row, primary first. */
+  emails?: { value: string; method_type: string }[];
 };
+
+/** Every email a stored contact has, lower-cased. */
+export function personEmails(p: ExistingPerson): string[] {
+  const list = [(p.email ?? "").trim().toLowerCase()];
+  for (const m of p.contact_methods ?? []) if (m.kind === "email") list.push(m.value.trim().toLowerCase());
+  return list.filter(Boolean);
+}
+
+/** Every phone a stored contact has, as comparable digits. */
+export function personPhones(p: ExistingPerson): string[] {
+  const list = [digits(p.phone)];
+  for (const m of p.contact_methods ?? []) if (m.kind === "phone") list.push(digits(m.value));
+  return list.filter((d) => d.length >= 7).map((d) => d.slice(-10));
+}
 
 /** Match a spreadsheet row to existing people: email, then phone, then name + address. */
 export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResult {
-  const email = (values.email ?? "").trim().toLowerCase();
-  if (email) {
-    const hits = people.filter((p) => (p.email ?? "").trim().toLowerCase() === email);
+  const rowEmails = (values.emails ?? []).map((e) => e.value.trim().toLowerCase()).filter(Boolean);
+  if ((values.email ?? "").trim()) rowEmails.unshift(values.email!.trim().toLowerCase());
+  if (rowEmails.length > 0) {
+    const hits = people.filter((p) => personEmails(p).some((e) => rowEmails.includes(e)));
     if (hits.length === 1) return { status: "matched", reason: "Matched on email", candidates: hits };
     if (hits.length > 1) return { status: "ambiguous", reason: "Several people share that email", candidates: hits };
   }
 
-  const phone = digits(values.phone);
-  if (phone.length >= 7) {
-    const hits = people.filter((p) => digits(p.phone).endsWith(phone.slice(-10)));
+  const rowPhones = (values.phones ?? [])
+    .map((p) => digits(p.value))
+    .concat(digits(values.phone))
+    .filter((d) => d.length >= 7)
+    .map((d) => d.slice(-10));
+  if (rowPhones.length > 0) {
+    const hits = people.filter((p) => personPhones(p).some((d) => rowPhones.includes(d)));
     if (hits.length === 1) return { status: "matched", reason: "Matched on phone", candidates: hits };
     if (hits.length > 1) return { status: "ambiguous", reason: "Several people share that phone", candidates: hits };
   }
