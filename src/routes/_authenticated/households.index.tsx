@@ -212,6 +212,8 @@ export const Route = createFileRoute("/_authenticated/households/")({
 
 function HouseholdsPage() {
   const [addOpen, setAddOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [filter, setFilter] = useState<"all" | "address_only" | "established">("all");
   const selection = useSelection();
   const [exportOpen, setExportOpen] = useState(false);
   const { data, isLoading } = useQuery({
@@ -227,6 +229,11 @@ function HouseholdsPage() {
       ),
   });
 
+  const all = (data ?? []) as HouseholdRow[];
+  const rows = all.filter((h) =>
+    filter === "all" ? true : filter === "address_only" ? h.status === "address_only" : h.status !== "address_only",
+  );
+
   return (
     <AppShell
       title="Households"
@@ -236,15 +243,39 @@ function HouseholdsPage() {
           <Button variant="outline" className="rounded-xl" onClick={() => setExportOpen(true)}>
             <Download className="size-4" /> Export to CSV
           </Button>
+          <Button variant="outline" className="rounded-xl" onClick={() => setQuickOpen(true)}>
+            <MapPin className="size-4" /> Quick add address
+          </Button>
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add household
           </Button>
         </div>
       }
     >
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            ["all", `All (${all.length})`],
+            ["established", `Established (${all.filter((h) => h.status !== "address_only").length})`],
+            ["address_only", `Address only (${all.filter((h) => h.status === "address_only").length})`],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setFilter(value)}
+            className={`rounded-full border px-3 py-1.5 text-sm ${
+              filter === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {isLoading && <EmptyState label="Loading households…" />}
       <div className="grid gap-4 sm:grid-cols-2">
-        {data?.map((h) => {
+        {rows.map((h) => {
           const lifetime = (h.people ?? []).reduce((sum, p) => sum + Number(p.lifetime_giving ?? 0), 0);
           const thisYear = (h.people ?? []).reduce((sum, p) => sum + Number(p.this_year_giving ?? 0), 0);
           return (
@@ -266,6 +297,11 @@ function HouseholdsPage() {
                   {h.name}
                 </Link>
               </div>
+              {h.status === "address_only" && (
+                <span className="mt-2 inline-block rounded-full bg-suggestion/20 px-2.5 py-1 text-xs font-semibold text-foreground">
+                  Address only — no contact yet
+                </span>
+              )}
               <p className="mt-0.5 text-sm text-muted-foreground">{h.address ?? "No address"}</p>
               <p className="text-sm text-muted-foreground">{formatPhone(h.phone) || "No phone"}</p>
               <div className="mt-4 flex items-end justify-between gap-3">
@@ -281,21 +317,22 @@ function HouseholdsPage() {
           );
         })}
       </div>
-      {!isLoading && (data ?? []).length === 0 && <EmptyState label="No households yet." />}
+      {!isLoading && rows.length === 0 && <EmptyState label="Nothing here yet." />}
       <AddHouseholdDialog open={addOpen} onOpenChange={setAddOpen} />
+      <QuickAddHouseholdDialog open={quickOpen} onOpenChange={setQuickOpen} />
       <BulkRecordBar
         table="households"
         noun="household"
         nounPlural="households"
         selectedIds={selection.ids}
         onClear={selection.clear}
-        visibleIds={(data ?? []).map((h) => h.id)}
-        onSelectAll={() => selection.selectAll((data ?? []).map((h) => h.id))}
+        visibleIds={rows.map((h) => h.id)}
+        onSelectAll={() => selection.selectAll(rows.map((h) => h.id))}
       />
       <ExportHouseholdsDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
-        households={(data ?? []) as HouseholdRow[]}
+        households={rows}
       />
     </AppShell>
   );
