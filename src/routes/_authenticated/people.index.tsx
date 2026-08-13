@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { AddPersonDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { Label } from "@/components/ui/label";
-import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
+import { approachingMitzvah, needsAdultReview, useLifecycleSettings, LIFECYCLE_DEFAULTS, isChild } from "@/lib/lifecycle";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
@@ -39,7 +40,16 @@ export const Route = createFileRoute("/_authenticated/people/")({
   component: PeoplePage,
 });
 
-const CHIPS = ["All", "Donors", "Recently updated", "No recent activity", "Upcoming important date"] as const;
+const CHIPS = [
+  "All",
+  "Donors",
+  "Recently updated",
+  "No recent activity",
+  "Upcoming important date",
+  "Approaching bar/bat mitzvah",
+  "Children approaching adult age",
+  "Children with no birth date",
+] as const;
 type Chip = (typeof CHIPS)[number];
 const SORTS = [
   { value: "name", label: "Name" },
@@ -97,13 +107,20 @@ function PeoplePage() {
   });
 
   const rows = (data ?? []).map((p) => {
-    const bday = nextBirthday(p.birth_date);
+    const bday = nextHebrewAnniversary(p.birth_date);
+    const anniv = nextHebrewAnniversary(p.anniversary_date);
     const yz = (p.yahrzeits ?? [])
       .map((y) => nextYahrzeit(y.hebrew_month, y.hebrew_day))
       .filter(Boolean)
       .map((y) => y!.days);
-    const nextImportant = Math.min(...[bday?.days ?? Infinity, ...yz]);
-    return { ...p, bdayDays: bday?.days ?? null, nextImportant, sinceActivity: daysSince(p.last_activity_date) };
+    const nextImportant = Math.min(...[bday?.days ?? Infinity, anniv?.days ?? Infinity, ...yz]);
+    return {
+      ...p,
+      bdayDays: bday?.days ?? null,
+      bdayHebrew: bday?.hebrewLabel ?? null,
+      nextImportant,
+      sinceActivity: daysSince(p.last_activity_date),
+    };
   });
 
   const people = rows
@@ -135,6 +152,9 @@ function PeoplePage() {
       if (chip === "Recently updated" && !(p.sinceActivity !== null && p.sinceActivity <= 30)) return false;
       if (chip === "No recent activity" && !(p.sinceActivity === null || p.sinceActivity > 90)) return false;
       if (chip === "Upcoming important date" && !(p.nextImportant <= 60)) return false;
+      if (chip === "Approaching bar/bat mitzvah" && !approachingMitzvah(p, lifecycle)) return false;
+      if (chip === "Children approaching adult age" && !nearAdult(p)) return false;
+      if (chip === "Children with no birth date" && !(isChild(p.role) && !p.birth_date)) return false;
 
       const md = monthDay(p.birth_date);
       const from = monthDay(bFrom ? `2000-${bFrom}` : null) ?? monthDay(bFrom);
