@@ -13,6 +13,7 @@ import {
   resendStaffInvite,
   setStaffRole as setStaffRoleFn,
   removeStaff,
+  deleteStaff,
   restoreStaff,
   type StaffAccountStatus,
 } from "@/lib/staff.functions";
@@ -419,6 +420,7 @@ function StaffPanel() {
   const resend = useServerFn(resendStaffInvite);
   const changeRole = useServerFn(setStaffRoleFn);
   const disable = useServerFn(removeStaff);
+  const hardDelete = useServerFn(deleteStaff);
   const restore = useServerFn(restoreStaff);
 
   const { data: staff, isError, error } = useQuery({
