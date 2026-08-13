@@ -174,6 +174,7 @@ export type Database = {
           created_at: string
           date: string
           deleted_at: string | null
+          event_id: string | null
           grant_id: string | null
           id: string
           import_batch_id: string | null
@@ -193,6 +194,7 @@ export type Database = {
           created_at?: string
           date?: string
           deleted_at?: string | null
+          event_id?: string | null
           grant_id?: string | null
           id?: string
           import_batch_id?: string | null
@@ -212,6 +214,7 @@ export type Database = {
           created_at?: string
           date?: string
           deleted_at?: string | null
+          event_id?: string | null
           grant_id?: string | null
           id?: string
           import_batch_id?: string | null
@@ -230,6 +233,13 @@ export type Database = {
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
