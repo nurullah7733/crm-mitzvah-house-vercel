@@ -14,10 +14,12 @@ import {
 } from "@/components/forms/AddDialogs";
 import { todayISO } from "@/components/forms/fields";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
-import { nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
 import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
+import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type LifecycleItem } from "@/lib/lifecycle";
+import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
@@ -63,9 +65,8 @@ function TasksPage() {
         fetchAll((f, t) =>
           supabase
             .from("people")
-            .select("id, display_name, first_name, last_name, birth_date")
+            .select("id, display_name, first_name, last_name, birth_date, anniversary_date")
             .is("deleted_at", null)
-            .not("birth_date", "is", null)
             .order("id")
             .range(f, t),
         ),
@@ -113,6 +114,42 @@ function TasksPage() {
     },
   });
 
+  const { data: lifecycleSettings } = useLifecycleSettings();
+
+  // Children only. Nothing here changes a record — it is a review list.
+  const { data: children } = useQuery({
+    queryKey: ["children-lifecycle"],
+    queryFn: () =>
+      fetchAll((f, t) =>
+        supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, role, gender, birth_date, phone, email")
+          .is("deleted_at", null)
+          .ilike("role", "child")
+          .order("id")
+          .range(f, t),
+      ),
+  });
+
+  const addLifecycleTask = useMutation({
+    mutationFn: async (r: LifecycleItem) => {
+      const { error } = await supabase.from("tasks").insert({
+        person_id: r.personId,
+        text: r.label,
+        due_date: r.dueDate,
+        priority: r.priority,
+        status: "upcoming",
+        notes: `auto:${r.key} · ${r.detail}`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      toast.success("Task added");
+      queryClient.invalidateQueries({ queryKey: ["tasks-list"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const addReminderTask = useMutation({
     mutationFn: async (r: EngagementReminder) => {
       const { error } = await supabase.from("tasks").insert({
@@ -134,14 +171,28 @@ function TasksPage() {
 
   const reminders = [
     ...(dates?.people ?? []).flatMap((p) => {
-      const next = nextBirthday(p.birth_date);
+      const next = nextHebrewAnniversary(p.birth_date);
       if (!next || next.days > 31) return [];
       return [
         {
           key: `b-${p.id}`,
           personId: p.id,
           name: personName(p),
-          label: `Birthday in ${next.days} day${next.days === 1 ? "" : "s"}`,
+          label: `Hebrew birthday ${next.hebrewLabel} — in ${next.days} day${next.days === 1 ? "" : "s"}`,
+          date: next.date.toISOString(),
+          days: next.days,
+        },
+      ];
+    }),
+    ...(dates?.people ?? []).flatMap((p) => {
+      const next = nextHebrewAnniversary(p.anniversary_date);
+      if (!next || next.days > 31) return [];
+      return [
+        {
+          key: `a-${p.id}`,
+          personId: p.id,
+          name: personName(p),
+          label: `Hebrew anniversary ${next.hebrewLabel} — in ${next.days} day${next.days === 1 ? "" : "s"}`,
           date: next.date.toISOString(),
           days: next.days,
         },
@@ -187,6 +238,13 @@ function TasksPage() {
   ]
     .filter((r) => !alreadyTracked.has(r.key))
     .sort((a, b) => a.sort - b.sort);
+
+  const growingUp = lifecycleItems(
+    children ?? [],
+    (p) => personName(p),
+    lifecycleSettings ?? LIFECYCLE_DEFAULTS,
+  ).filter((r) => !alreadyTracked.has(r.key));
+  const adultReviews = growingUp.filter((r) => r.kind === "adult").length;
 
   const overdue = tasks.filter((t) => t.group === "overdue");
   const upcoming = tasks.filter((t) => t.group === "upcoming");
@@ -315,6 +373,55 @@ function TasksPage() {
                     >
                       Add as task
                     </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {growingUp.length > 0 && (
+          <section>
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Growing up — for you to decide
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Nothing has been changed automatically.
+              {adultReviews > 0
+                ? ` ${adultReviews} ${adultReviews === 1 ? "child is" : "children are"} past age ${
+                    (lifecycleSettings ?? LIFECYCLE_DEFAULTS).adult_age
+                  } and waiting for your review.`
+                : ""}
+            </p>
+            <div className="mt-3 space-y-3">
+              {growingUp.map((r) => (
+                <div
+                  key={r.key}
+                  className="flex gap-3 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 shadow-sm"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-suggestion/25 text-suggestion-foreground">
+                    <GraduationCap className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground">{r.label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{r.detail}</p>
+                    <div className="mt-2 flex flex-wrap gap-4">
+                      <Link
+                        to="/people/$personId"
+                        params={{ personId: r.personId }}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Open {r.name}
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={addLifecycleTask.isPending}
+                        className="text-xs text-primary hover:underline disabled:opacity-50"
+                        onClick={() => addLifecycleTask.mutate(r)}
+                      >
+                        Add as task
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

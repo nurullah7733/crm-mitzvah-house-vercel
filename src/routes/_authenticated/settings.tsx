@@ -11,6 +11,7 @@ import { EditableList } from "@/components/EditableList";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
 import { BackupExportPanel } from "@/components/settings/BackupExportPanel";
 import { RenewalSettingsPanel } from "@/components/settings/RenewalSettingsPanel";
+import { LifecycleSettingsPanel } from "@/components/settings/LifecycleSettingsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
@@ -85,6 +86,14 @@ function SettingsPage() {
             </AccordionTrigger>
             <AccordionContent className="px-5 pb-5">
               <RenewalSettingsPanel />
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="lifecycle" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Children growing up
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <LifecycleSettingsPanel />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

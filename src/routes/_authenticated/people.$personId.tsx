@@ -20,7 +20,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
+import {
+  HEBREW_MONTHS,
+  hebrewDateFromEnglish,
+  hebrewMonthName,
+  hebrewMilestone,
+  nextHebrewAnniversary,
+  nextYahrzeit,
+} from "@/lib/hebrew";
+import { BecomeAdultDialog, MoveHouseholdDialog } from "@/components/GrowingUpDialogs";
+import {
+  isChild,
+  mitzvahAge,
+  mitzvahLabel,
+  useLifecycleSettings,
+  LIFECYCLE_DEFAULTS,
+} from "@/lib/lifecycle";
 import { ChipEditor } from "@/components/ChipEditor";
 import { EditableCard } from "@/components/EditableCard";
 import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMethodsEditor";
@@ -63,6 +78,9 @@ function PersonPage() {
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
   const [showAllGifts, setShowAllGifts] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [adultOpen, setAdultOpen] = useState(false);
+  const { data: lifecycleSettings } = useLifecycleSettings();
   const [editOpen, setEditOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -234,8 +252,13 @@ function PersonPage() {
   ].sort((a, b) => (a.date < b.date ? 1 : -1));
 
   const since = daysSince(p.last_activity_date);
-  const bday = nextBirthday(p.birth_date);
-  const anniversary = nextBirthday(p.anniversary_date);
+  const bday = nextHebrewAnniversary(p.birth_date);
+  const anniversary = nextHebrewAnniversary(p.anniversary_date);
+  const lifecycle = lifecycleSettings ?? LIFECYCLE_DEFAULTS;
+  const child = isChild(p.role);
+  const mAge = mitzvahAge(p.gender);
+  const mitzvah = child && mAge !== null ? hebrewMilestone(p.birth_date, mAge) : null;
+  const adultMilestone = child ? hebrewMilestone(p.birth_date, lifecycle.adult_age) : null;
 
   const gifts = data?.donations ?? [];
   const lifetime = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
@@ -261,6 +284,22 @@ function PersonPage() {
           </button>
           <button
             type="button"
+            onClick={() => setMoveOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
+          >
+            Move to new household
+          </button>
+          {child && (
+            <button
+              type="button"
+              onClick={() => setAdultOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
+            >
+              Make an adult
+            </button>
+          )}
+          <button
+            type="button"
             onClick={() => setMergeOpen(true)}
             className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary/40"
           >
@@ -276,6 +315,20 @@ function PersonPage() {
         </>
       }
     >
+      <MoveHouseholdDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        personId={personId}
+        name={personName(p)}
+        currentHouseholdId={p.household_id ?? null}
+        currentHouseholdName={p.households?.name ?? null}
+      />
+      <BecomeAdultDialog
+        open={adultOpen}
+        onOpenChange={setAdultOpen}
+        person={p}
+        name={personName(p)}
+      />
       <MergeContactsDialog
         open={mergeOpen}
         onOpenChange={setMergeOpen}
@@ -318,6 +371,24 @@ function PersonPage() {
           },
           { key: "email", label: "Email", type: "email" },
           { key: "phone", label: "Phone", type: "tel" },
+          {
+            key: "gender",
+            label: "Male or female",
+            type: "select",
+            options: [
+              { value: "male", label: "Male (bar mitzvah at 13)" },
+              { value: "female", label: "Female (bat mitzvah at 12)" },
+            ],
+          },
+          {
+            key: "mailing_preference",
+            label: "Mailings",
+            type: "select",
+            options: [
+              { value: "household", label: "On the household mailing" },
+              { value: "own", label: "Their own mailings" },
+            ],
+          },
           { key: "birth_date", label: "Birth date", type: "date" },
           { key: "anniversary_date", label: "Anniversary", type: "date" },
           { key: "owner", label: "Owner" },
@@ -327,6 +398,41 @@ function PersonPage() {
           { key: "notes", label: "Notes", type: "textarea" },
         ]}
       />
+      {child && (
+        <section className="mb-4 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 text-sm shadow-sm">
+          <p className="font-heading font-semibold text-foreground">Growing up</p>
+          {!p.birth_date ? (
+            <p className="mt-1 text-muted-foreground">
+              No birth date on file, so we can't work out bar/bat mitzvah or adult age. We don't guess — ask the family
+              and add it.
+            </p>
+          ) : (
+            <>
+              {mAge === null && (
+                <p className="mt-1 text-muted-foreground">
+                  We don't have male or female on file, so bar/bat mitzvah age can't be worked out. Boys reach it at 13,
+                  girls at 12.
+                </p>
+              )}
+              {mitzvah && (
+                <p className="mt-1 text-muted-foreground">
+                  {mitzvahLabel(p.gender)} age ({mAge}) falls on {mitzvah.hebrewLabel} —{" "}
+                  {formatDate(mitzvah.date.toISOString())}
+                  {mitzvah.days >= 0 ? `, in ${mitzvah.days} ${mitzvah.days === 1 ? "day" : "days"}` : " (already passed)"}.
+                </p>
+              )}
+              {adultMilestone && (
+                <p className="mt-1 text-muted-foreground">
+                  {adultMilestone.days <= 0
+                    ? `Turned ${lifecycle.adult_age} on ${formatDate(adultMilestone.date.toISOString())}. Still marked as a child — use "Make an adult" when you decide.`
+                    : `Turns ${lifecycle.adult_age} on ${formatDate(adultMilestone.date.toISOString())}, in ${adultMilestone.days} days. Nothing changes on its own.`}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       {/* Profile header */}
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4">
@@ -513,7 +619,9 @@ function PersonPage() {
                   <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
                   {bday && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Next birthday {formatDate(bday.date.toISOString())} — in {bday.days} days
+                      Hebrew birthday {bday.hebrewLabel} — in {bday.days} {bday.days === 1 ? "day" : "days"}, which
+                      falls on {formatDate(bday.date.toISOString())} this year. It begins the evening of{" "}
+                      {formatDate(bday.eve.toISOString())}.
                     </p>
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
@@ -531,7 +639,10 @@ function PersonPage() {
                   <p className="text-sm text-primary">{hebrewDateFromEnglish(p.anniversary_date)}</p>
                   {anniversary && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Next anniversary {formatDate(anniversary.date.toISOString())} — in {anniversary.days} days
+                      Hebrew anniversary {anniversary.hebrewLabel} — in {anniversary.days}{" "}
+                      {anniversary.days === 1 ? "day" : "days"}, which falls on{" "}
+                      {formatDate(anniversary.date.toISOString())} this year. It begins the evening of{" "}
+                      {formatDate(anniversary.eve.toISOString())}.
                     </p>
                   )}
                 </>
