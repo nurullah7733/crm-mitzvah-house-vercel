@@ -60,7 +60,10 @@ export function BecomeAdultDialog({
 
   const confirm = useMutation({
     mutationFn: async () => {
-      const patch: Record<string, unknown> = { role: "Adult", mailing_preference: mailing };
+      const patch: { role: string; mailing_preference: string; phone?: string; email?: string } = {
+        role: "Adult",
+        mailing_preference: mailing,
+      };
       if (phone.trim() && phone.trim() !== (person.phone ?? "")) patch["phone"] = phone.trim();
       if (email.trim() && email.trim().toLowerCase() !== (person.email ?? "")) patch["email"] = email.trim().toLowerCase();
       const { error } = await supabase.from("people").update(patch).eq("id", person.id);
