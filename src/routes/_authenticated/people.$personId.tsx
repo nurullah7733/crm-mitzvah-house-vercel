@@ -78,6 +78,9 @@ function PersonPage() {
   const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
   const [showAllGifts, setShowAllGifts] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [adultOpen, setAdultOpen] = useState(false);
+  const { data: lifecycleSettings } = useLifecycleSettings();
   const [editOpen, setEditOpen] = useState(false);
   const queryClient = useQueryClient();
 
