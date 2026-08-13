@@ -398,6 +398,41 @@ function PersonPage() {
           { key: "notes", label: "Notes", type: "textarea" },
         ]}
       />
+      {child && (
+        <section className="mb-4 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 text-sm shadow-sm">
+          <p className="font-heading font-semibold text-foreground">Growing up</p>
+          {!p.birth_date ? (
+            <p className="mt-1 text-muted-foreground">
+              No birth date on file, so we can't work out bar/bat mitzvah or adult age. We don't guess — ask the family
+              and add it.
+            </p>
+          ) : (
+            <>
+              {mAge === null && (
+                <p className="mt-1 text-muted-foreground">
+                  We don't have male or female on file, so bar/bat mitzvah age can't be worked out. Boys reach it at 13,
+                  girls at 12.
+                </p>
+              )}
+              {mitzvah && (
+                <p className="mt-1 text-muted-foreground">
+                  {mitzvahLabel(p.gender)} age ({mAge}) falls on {mitzvah.hebrewLabel} —{" "}
+                  {formatDate(mitzvah.date.toISOString())}
+                  {mitzvah.days >= 0 ? `, in ${mitzvah.days} ${mitzvah.days === 1 ? "day" : "days"}` : " (already passed)"}.
+                </p>
+              )}
+              {adultMilestone && (
+                <p className="mt-1 text-muted-foreground">
+                  {adultMilestone.days <= 0
+                    ? `Turned ${lifecycle.adult_age} on ${formatDate(adultMilestone.date.toISOString())}. Still marked as a child — use "Make an adult" when you decide.`
+                    : `Turns ${lifecycle.adult_age} on ${formatDate(adultMilestone.date.toISOString())}, in ${adultMilestone.days} days. Nothing changes on its own.`}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       {/* Profile header */}
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4">
