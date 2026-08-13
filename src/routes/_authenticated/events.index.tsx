@@ -7,6 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddEventDialog } from "@/components/forms/AddDialogs";
+import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { downloadCsv, stamp } from "@/lib/csv";
 
 export const Route = createFileRoute("/_authenticated/events/")({
@@ -23,6 +25,7 @@ export const Route = createFileRoute("/_authenticated/events/")({
 
 function EventsPage() {
   const [program, setProgram] = useState<string | null>(null);
+  const selection = useSelection();
   const [addOpen, setAddOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -94,15 +97,24 @@ function EventsPage() {
       <div className="mt-5 space-y-3">
         {isLoading && <EmptyState label="Loading events…" />}
         {events.map((e) => (
-          <Link
+          <div
             key={e.id}
-            to="/events/$eventId"
-            params={{ eventId: e.id }}
-            className="block rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/50"
+            className="rounded-2xl border border-border bg-card p-5 shadow-sm transition hover:border-primary/50"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
+              <SelectBox
+                checked={selection.has(e.id)}
+                onChange={() => selection.toggle(e.id)}
+                label={e.name}
+              />
               <div>
-                <h2 className="font-heading font-semibold text-foreground">{e.name}</h2>
+                <Link
+                  to="/events/$eventId"
+                  params={{ eventId: e.id }}
+                  className="font-heading font-semibold text-foreground hover:text-primary hover:underline"
+                >
+                  {e.name}
+                </Link>
                 <p className="text-sm text-muted-foreground">
                   {formatDate(e.date)}
                   {e.time ? ` · ${e.time}` : ""} · {e.location ?? "TBD"}
@@ -130,11 +142,20 @@ function EventsPage() {
                   </span>
                 ))}
             </div>
-          </Link>
+          </div>
         ))}
         {!isLoading && events.length === 0 && <EmptyState label="No events for that program." />}
       </div>
       <AddEventDialog open={addOpen} onOpenChange={setAddOpen} />
+      <BulkRecordBar
+        table="events"
+        noun="event"
+        nounPlural="events"
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={events.map((e) => e.id)}
+        onSelectAll={() => selection.selectAll(events.map((e) => e.id))}
+      />
     </AppShell>
   );
 }
