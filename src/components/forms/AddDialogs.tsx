@@ -673,12 +673,84 @@ export function AddDonationDialog({
           <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
-            Save donation
-          </Button>
+          {nearby && nearby.length > 0 ? (
+            <>
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl sm:flex-none"
+                disabled={save.isPending}
+                onClick={() => save.mutate(null)}
+              >
+                No, it's unrelated
+              </Button>
+              <Button
+                className="flex-1 rounded-xl sm:flex-none"
+                disabled={save.isPending || !linkEventId}
+                onClick={() => save.mutate({ eventId: linkEventId, attended: attended === "yes" })}
+              >
+                Yes, link it
+              </Button>
+            </>
+          ) : (
+            <Button
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => void handleSave()}
+              disabled={save.isPending || checking}
+            >
+              {checking ? "Checking…" : "Save donation"}
+            </Button>
+          )}
         </>
       }
     >
+      {nearby && nearby.length > 0 && (
+        <div className="mb-4 rounded-xl border border-suggestion/40 bg-suggestion/10 p-3">
+          <p className="text-sm font-medium text-foreground">
+            {nearby.length === 1
+              ? `There was an event on this date: ${nearby[0]!.name}. Was this gift given at that event?`
+              : "There were events around this date. Was this gift given at one of them?"}
+          </p>
+          {nearby.length > 1 && (
+            <select
+              className={`${selectClass} mt-2`}
+              value={linkEventId}
+              onChange={(e) => setLinkEventId(e.target.value)}
+            >
+              {nearby.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.name} ({ev.date})
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="mt-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Did they attend?</p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {(
+                [
+                  ["yes", "Yes"],
+                  ["sponsor", "No, just sponsored"],
+                  ["unsure", "Not sure"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`rounded-full px-3 py-1.5 text-sm ${
+                    attended === key ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
+                  }`}
+                  onClick={() => setAttended(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              We only add them to the attendance list when you pick Yes.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         {!personId && (
           <Field label="Donor" className="sm:col-span-2">
