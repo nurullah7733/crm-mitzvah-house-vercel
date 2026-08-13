@@ -33,13 +33,13 @@ export type ZipEntry = { name: string; text: string };
 export function makeZip(entries: ZipEntry[]): Blob {
   const encoder = new TextEncoder();
   const now = dosDateTime(new Date());
-  const chunks: Uint8Array[] = [];
-  const central: Uint8Array[] = [];
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  const central: Uint8Array<ArrayBuffer>[] = [];
   let offset = 0;
 
   for (const entry of entries) {
-    const name = encoder.encode(entry.name);
-    const data = encoder.encode(entry.text);
+    const name = encoder.encode(entry.name) as Uint8Array<ArrayBuffer>;
+    const data = encoder.encode(entry.text) as Uint8Array<ArrayBuffer>;
     const crc = crc32(data);
 
     const local = new DataView(new ArrayBuffer(30));
