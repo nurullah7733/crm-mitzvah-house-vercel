@@ -114,16 +114,6 @@ export async function recordAttendance({
     await supabase.from("registrations").insert({ event_id: eventId, person_id: personId, status: "Attended" });
   }
 
-  const text = `Attended ${eventName}`;
-  const date = eventDate ?? new Date().toISOString().slice(0, 10);
-  const { data: already } = await supabase
-    .from("interactions")
-    .select("id")
-    .eq("person_id", personId)
-    .eq("type", "event")
-    .eq("text", text)
-    .limit(1);
-  if (!already?.length) {
-    await supabase.from("interactions").insert({ person_id: personId, type: "event", date, text, author: null });
-  }
+  // The "Attended <event>" timeline entry is written by the database from the
+  // registration, so unmarking attendance removes it again automatically.
 }
