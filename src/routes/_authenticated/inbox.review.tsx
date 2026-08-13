@@ -9,7 +9,6 @@ import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 import { ReviewCompareDialog } from "@/components/ReviewCompareDialog";
 import { personName } from "@/lib/names";
 import {
-  applyIncoming,
   compareRecords,
   hasConflict,
   incomingPerson,
