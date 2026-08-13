@@ -1011,6 +1011,15 @@ function ImportCenter() {
                   spouseMethods.push({ kind: "email", value: v.spouse_email, method_type: "Personal", is_primary: true });
                 if (spouseMethods.length)
                   await addContactMethods(spouse.id, spouseMethods, { importBatchId: batchId, existing: [] });
+                remember({
+                  id: spouse.id,
+                  first: spouseName.first || "",
+                  last: spouseLast || "",
+                  email: v.spouse_email ?? null,
+                  phone: v.spouse_phone ?? null,
+                  householdId,
+                  address: fullAddress,
+                });
               }
               houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
             }
