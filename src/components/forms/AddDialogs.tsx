@@ -538,6 +538,11 @@ export function AddDonationDialog({
   // Both start unchecked: a gift is not thanked until someone says so.
   const [thankYouSent, setThankYouSent] = useState(false);
   const [receiptSent, setReceiptSent] = useState(false);
+  /** Events on or next to the gift's date — asked about once, before saving. */
+  const [nearby, setNearby] = useState<NearbyEvent[] | null>(null);
+  const [linkEventId, setLinkEventId] = useState("");
+  const [attended, setAttended] = useState<"yes" | "sponsor" | "unsure">("yes");
+  const [checking, setChecking] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const { data: campaigns } = useQuery({
@@ -559,7 +564,7 @@ export function AddDonationDialog({
   const campaignName = (campaigns ?? []).find((c) => c.id === form.campaign_id)?.name ?? "";
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (link: { eventId: string; attended: boolean } | null) => {
       const pid = personId ?? form.person_id;
       const amount = Number(form.amount);
       if (!pid) throw new Error("Pick a donor");
@@ -585,6 +590,16 @@ export function AddDonationDialog({
         .select("id, people(display_name, first_name, last_name)")
         .single();
       if (error) throw error;
+
+      // Attribute the gift to the event, and only record attendance when staff said yes.
+      if (link && gift?.id) {
+        await attributeGiftToEvent({
+          donationId: gift.id,
+          personId: pid,
+          eventId: link.eventId,
+          attended: link.attended,
+        });
+      }
 
       // Giving totals and last-activity are maintained by database triggers on
       // donations and interactions, so they stay correct for form, import and API writes.
@@ -619,10 +634,33 @@ export function AddDonationDialog({
       setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", method: "", source: "", notes: "" });
       setThankYouSent(false);
       setReceiptSent(false);
+      setNearby(null);
+      setLinkEventId("");
+      setAttended("yes");
       onOpenChange(false);
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  /**
+   * One lightweight question before saving: was this gift given at the event
+   * that happened on this date? Dismissing it saves the gift unlinked.
+   */
+  async function handleSave() {
+    if (nearby === null) {
+      setChecking(true);
+      const found = await findEventsNearDate(form.date || todayISO());
+      setChecking(false);
+      if (found.length > 0) {
+        setNearby(found);
+        setLinkEventId(found[0]!.id);
+        setAttended("yes");
+        return;
+      }
+      setNearby([]);
+    }
+    save.mutate(null);
+  }
 
   return (
     <ResponsiveModal
