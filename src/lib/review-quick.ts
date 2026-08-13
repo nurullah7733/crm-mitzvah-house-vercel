@@ -61,18 +61,8 @@ async function addRowActivity(personId: string, row: RowValues, source: string) 
           .select("id")
           .single();
         created.registrationId = reg?.id ?? null;
-        const { data: note } = await supabase
-          .from("interactions")
-          .insert({
-            person_id: personId,
-            type: "event",
-            date: match.date ?? today(),
-            text: `Attended ${match.name}`,
-            author: "Import review",
-          } as never)
-          .select("id")
-          .single();
-        if (note?.id) created.interactionIds.push(note.id);
+        // The attendance entry on the timeline comes from the registration itself,
+        // so undoing this (removing the registration) removes the entry too.
         created.addedActivity.push(`attendance at ${match.name}`);
       }
     }
