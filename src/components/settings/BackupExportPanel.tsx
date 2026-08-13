@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Download, CheckCircle2, AlertCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download, CheckCircle2, AlertCircle, Save } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAll } from "@/lib/fetch-all";
-import { csvText, downloadBlob, stamp } from "@/lib/csv";
+import { csvText, stamp } from "@/lib/csv";
 import { makeZip, type ZipEntry } from "@/lib/zip";
 import { logChange } from "@/lib/session-log";
 import { Button } from "@/components/ui/button";
@@ -44,15 +44,25 @@ const STEPS: Step[] = [
 ];
 
 type Result = { label: string; table: string; rows: number; file: string; error?: string };
+type ReadyDownload = { url: string; filename: string };
 
 export function BackupExportPanel() {
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
   const [results, setResults] = useState<Result[] | null>(null);
+  const [readyDownload, setReadyDownload] = useState<ReadyDownload | null>(null);
+
+  useEffect(
+    () => () => {
+      if (readyDownload) URL.revokeObjectURL(readyDownload.url);
+    },
+    [readyDownload],
+  );
 
   async function runExport() {
     setBusy(true);
     setResults(null);
+    setReadyDownload(null);
     const day = stamp();
     const out: Result[] = [];
     const files: ZipEntry[] = [];
@@ -101,15 +111,18 @@ export function BackupExportPanel() {
         ),
       });
 
-      // One single .zip download — browsers block a burst of separate saves.
-      downloadBlob(`mitzvah-house-backup-${day}.zip`, makeZip(files));
+      // Keep a real download link on screen. A synthetic click after the long
+      // export loses user activation and is blocked by embedded browsers.
+      const filename = `mitzvah-house-backup-${day}.zip`;
+      const url = URL.createObjectURL(makeZip(files));
+      setReadyDownload({ url, filename });
 
       setResults(out);
       const failed = out.filter((r) => r.error);
       if (failed.length === 0) {
         const total = out.reduce((sum, r) => sum + r.rows, 0);
         toast.success(
-          `Backup saved — mitzvah-house-backup-${day}.zip (${out.length} files, ${total.toLocaleString()} rows)`,
+          `Backup ready — click “Save backup file” (${out.length} files, ${total.toLocaleString()} rows)`,
         );
         logChange("Downloaded a full data backup");
       } else {
@@ -143,6 +156,19 @@ export function BackupExportPanel() {
           Gathering your data — this takes about half a minute, then one .zip file will be saved.
           Please don't leave this page until it finishes.
         </p>
+      )}
+
+      {readyDownload && (
+        <div className="rounded-xl border border-money/30 bg-money/10 p-4">
+          <p className="mb-3 text-sm font-medium text-foreground">Your backup is ready to save.</p>
+          <Button asChild className="h-11 rounded-xl">
+            <a href={readyDownload.url} download={readyDownload.filename}>
+              <Save className="mr-2 h-4 w-4" />
+              Save backup file
+            </a>
+          </Button>
+          <p className="mt-2 text-xs text-muted-foreground">{readyDownload.filename}</p>
+        </div>
       )}
 
       {results && (
