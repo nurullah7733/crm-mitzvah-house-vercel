@@ -20,7 +20,7 @@ export type StaffEntry = {
 const roleSchema = z.enum(["admin", "marketing", "va"]);
 
 /** Only an admin may see or change who can sign in. */
-async function assertAdmin(context: { supabase: { rpc: (fn: string) => PromiseLike<{ data: unknown }> } }) {
+async function assertAdmin(context: { supabase: { rpc: (fn: "is_admin") => PromiseLike<{ data: unknown }> } }) {
   const { data } = await context.supabase.rpc("is_admin");
   if (data !== true) throw new Error("Only an admin can manage staff.");
 }
