@@ -5,6 +5,7 @@ import { Plus, Trash2, RefreshCw, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
+import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
@@ -143,17 +144,21 @@ type RestorableTable = (typeof RESTORABLE)[number];
 
 function ChangeHistoryPanel() {
   const queryClient = useQueryClient();
+  const isAdmin = useIsAdmin();
 
-  // History is kept for two months and then cleared automatically, so this list
-  // stays short enough to actually read.
-  useQuery({
-    queryKey: ["audit-log-purge"],
-    staleTime: 1000 * 60 * 60,
-    queryFn: async () => {
+  // Anything older than two months is cleared by a nightly job in the database,
+  // so nobody has to remember to do it. Admins can also clear it on demand.
+  const purge = useMutation({
+    mutationFn: async () => {
       const { data, error } = await supabase.rpc("purge_old_audit_log");
       if (error) throw error;
       return data as number;
     },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["audit-log"] });
+      toast.success(`Cleared ${count} old ${count === 1 ? "entry" : "entries"}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const { data: entries } = useQuery({
@@ -187,9 +192,19 @@ function ChangeHistoryPanel() {
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
         Everything anyone has added, edited or removed in the last two months, newest first. Anything
-        older is cleared automatically. Removed records can be put back, and you can open any entry to
-        see exactly what changed.
+        older is cleared automatically each night. Removed records can be put back, and you can open
+        any entry to see exactly what changed.
       </p>
+      {isAdmin && (
+        <Button
+          variant="outline"
+          className="rounded-xl"
+          disabled={purge.isPending}
+          onClick={() => purge.mutate()}
+        >
+          {purge.isPending ? "Clearing…" : "Clear entries older than two months"}
+        </Button>
+      )}
       <div className="space-y-2">
         {(entries ?? []).map((row) => {
           const changes = (row.changes ?? {}) as Record<string, unknown>;
@@ -296,22 +311,7 @@ function StaffPanel() {
 
 function RecalculateTotalsPanel() {
   const queryClient = useQueryClient();
-
-  const { data: isAdmin } = useQuery({
-    queryKey: ["is-admin"],
-    queryFn: async () => {
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData.user?.id;
-      if (!uid) return false;
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", uid)
-        .eq("role", "admin");
-      if (error) throw error;
-      return (data ?? []).length > 0;
-    },
-  });
+  const isAdmin = useIsAdmin();
 
   const recalc = useMutation({
     mutationFn: async () => {
@@ -351,6 +351,7 @@ function RecalculateTotalsPanel() {
 
 function StaffPanelInner() {
   const queryClient = useQueryClient();
+  const isAdmin = useIsAdmin();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("va");
@@ -415,6 +416,11 @@ function StaffPanelInner() {
       <p className="text-xs text-muted-foreground">
         Add the people who work in the CRM and set what each one does. They sign in with this email address.
       </p>
+      {!isAdmin && (
+        <p className="text-xs text-suggestion">
+          Only an admin can add staff, change a role, or remove someone. You can see the list here.
+        </p>
+      )}
       <div className="mt-3 space-y-2">
         {(staff ?? []).map((s) => (
           <div key={s.id} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center">
@@ -424,6 +430,7 @@ function StaffPanelInner() {
               className={selectClass}
               value={s.role}
               aria-label={`Role for ${s.name}`}
+              disabled={!isAdmin}
               onChange={(e) => setStaffRole.mutate({ id: s.id, role: e.target.value as Role })}
             >
               {ROLES.map((r) => (
@@ -436,6 +443,7 @@ function StaffPanelInner() {
               variant="outline"
               className="shrink-0 rounded-xl text-urgent"
               aria-label={`Remove ${s.name}`}
+              disabled={!isAdmin}
               onClick={() => remove.mutate(s.id)}
             >
               <Trash2 className="size-4" />
@@ -445,6 +453,7 @@ function StaffPanelInner() {
         {(staff ?? []).length === 0 && <p className="text-sm text-muted-foreground">No staff added yet.</p>}
       </div>
 
+      {isAdmin && (
       <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
         <Field label="Name">
           <Input className="text-base" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
@@ -476,6 +485,7 @@ function StaffPanelInner() {
           <Plus className="size-4" /> Add staff
         </Button>
       </div>
+      )}
     </div>
   );
 }

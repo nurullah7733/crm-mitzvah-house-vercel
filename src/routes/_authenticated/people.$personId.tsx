@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { formatPhone } from "@/lib/phone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft, CalendarDays, FileText, HandCoins, Phone, StickyNote, Plus } from "lucide-react";
@@ -653,7 +654,7 @@ function PersonPage() {
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium text-foreground">{personName(r)}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {[r.role ?? "Adult", r.phone, r.email].filter(Boolean).join(" · ")}
+                    {[r.role ?? "Adult", formatPhone(r.phone), r.email].filter(Boolean).join(" · ")}
                   </span>
                 </span>
               </Link>

@@ -33,11 +33,17 @@ const PROVIDERS: Record<string, { name: string; purpose: string; primaryKeyField
 const NO_KEY_PROVIDERS = new Set(["wordpress", "cognito_forms", "google_sheets"]);
 const OAUTH_PROVIDERS = new Set(["constant_contact", "quickbooks"]);
 
-function maskHint(credentials: Record<string, string> | null | undefined, primaryKeyField: string): string | null {
-  const value = credentials?.[primaryKeyField];
-  if (!value) return null;
-  const tail = value.slice(-4);
-  return tail ? `•••• ${tail}` : null;
+/** Only an admin may change or read integration credentials. */
+async function requireAdmin(context: { supabase: { rpc: (fn: string) => PromiseLike<{ data: unknown }> } }) {
+  const { data } = await context.supabase.rpc("is_admin");
+  if (data !== true) throw new Error("Only an admin can manage integrations.");
+}
+
+/** Secrets live in the encrypted vault; this reads them server-side only. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readCredentials(admin: any, provider: string): Promise<Record<string, string>> {
+  const { data } = await admin.rpc("get_integration_credentials", { _provider: provider });
+  return (data ?? {}) as Record<string, string>;
 }
 
 function deriveStatus(
@@ -80,11 +86,11 @@ async function buildStatusEntry(
   const meta = PROVIDERS[key]!;
   const { data: credRow } = await admin
     .from("integration_credentials")
-    .select("credentials")
+    .select("masked_hint, credential_keys")
     .eq("provider", key)
     .maybeSingle();
-  const credentials = (credRow?.credentials ?? null) as Record<string, string> | null;
-  const hasCredentials = !!credentials && Object.keys(credentials).length > 0;
+  const keys = (credRow?.credential_keys ?? []) as string[];
+  const hasCredentials = keys.length > 0;
 
   const { data: eventRow } = await admin
     .from("integration_events")
@@ -103,7 +109,7 @@ async function buildStatusEntry(
     name: meta.name,
     purpose: meta.purpose,
     hasCredentials,
-    maskedHint: maskHint(credentials, meta.primaryKeyField),
+    maskedHint: (credRow?.masked_hint as string | null) ?? null,
     lastEvent,
     status: deriveStatus(key, hasCredentials, lastEvent),
   };
@@ -126,7 +132,8 @@ export const saveIntegrationCredentials = createServerFn({ method: "POST" })
       credentials: z.record(z.string(), z.string()),
     }),
   )
-  .handler(async ({ data }): Promise<IntegrationStatusEntry> => {
+  .handler(async ({ data, context }): Promise<IntegrationStatusEntry> => {
+    await requireAdmin(context as never);
     const meta = PROVIDERS[data.provider];
     if (!meta) throw new Error("Unknown integration provider.");
 
@@ -139,9 +146,13 @@ export const saveIntegrationCredentials = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const admin = supabaseAdmin as any;
 
-    await admin
-      .from("integration_credentials")
-      .upsert({ provider: data.provider, credentials: cleaned, updated_at: new Date().toISOString() }, { onConflict: "provider" });
+    // Stored encrypted in the vault; the table keeps only a masked hint.
+    const { error: saveError } = await admin.rpc("save_integration_credentials", {
+      _provider: data.provider,
+      _credentials: cleaned,
+      _primary_field: meta.primaryKeyField,
+    });
+    if (saveError) throw new Error(saveError.message);
 
     await admin.from("integration_events").insert({
       provider: data.provider,
@@ -158,19 +169,15 @@ export const saveIntegrationCredentials = createServerFn({ method: "POST" })
 export const testIntegration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(z.object({ provider: z.string() }))
-  .handler(async ({ data }): Promise<{ ok: boolean; message: string }> => {
+  .handler(async ({ data, context }): Promise<{ ok: boolean; message: string }> => {
+    await requireAdmin(context as never);
     const meta = PROVIDERS[data.provider];
     if (!meta) throw new Error("Unknown integration provider.");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const admin = supabaseAdmin as any;
 
-    const { data: credRow } = await admin
-      .from("integration_credentials")
-      .select("credentials")
-      .eq("provider", data.provider)
-      .maybeSingle();
-    const credentials = (credRow?.credentials ?? {}) as Record<string, string>;
+    const credentials = await readCredentials(admin, data.provider);
 
     let result: { ok: boolean; message: string };
 
@@ -236,14 +243,15 @@ export const testIntegration = createServerFn({ method: "POST" })
 export const disconnectIntegration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(z.object({ provider: z.string() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    await requireAdmin(context as never);
     const meta = PROVIDERS[data.provider];
     if (!meta) throw new Error("Unknown integration provider.");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const admin = supabaseAdmin as any;
 
-    await admin.from("integration_credentials").delete().eq("provider", data.provider);
+    await admin.rpc("delete_integration_credentials", { _provider: data.provider });
     await admin.from("integration_events").insert({
       provider: data.provider,
       kind: "disconnected",

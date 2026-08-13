@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatPhone } from "@/lib/phone";
 import { Plus, Trash2, Star } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,7 +37,7 @@ export function ContactMethodList({
         <p className="text-sm text-foreground">
           {kind === "phone" ? (
             <a href={`tel:${fallback}`} className="text-primary hover:underline">
-              {fallback}
+              {formatPhone(fallback)}
             </a>
           ) : (
             <a href={`mailto:${fallback}`} className="text-primary hover:underline">
@@ -56,7 +57,7 @@ export function ContactMethodList({
             href={kind === "phone" ? `tel:${m.value}` : `mailto:${m.value}`}
             className="break-all font-medium text-primary hover:underline"
           >
-            {m.value}
+            {kind === "phone" ? formatPhone(m.value) : m.value}
           </a>
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{m.method_type}</span>
           {m.is_primary && (

@@ -1,4 +1,5 @@
 import { personInitials, personName } from "@/lib/names";
+import { formatPhone } from "@/lib/phone";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -178,7 +179,7 @@ function EventPage() {
                       {personName(r.people)}
                     </Link>
                     <p className="truncate text-xs text-muted-foreground">
-                      {r.people.email ?? r.people.phone ?? "No contact on file"}
+                      {r.people.email ?? (formatPhone(r.people.phone) || "No contact on file")}
                     </p>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatPhone } from "@/lib/phone";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarDays, HandCoins, Phone, StickyNote } from "lucide-react";
 import { toast } from "sonner";
@@ -128,7 +129,7 @@ function HouseholdPage() {
         <p className="mt-3 text-xs text-muted-foreground">
           These totals are a mailing view only — every gift stays attached to the individual who gave it.
         </p>
-        {h.phone && <p className="mt-2 text-sm text-muted-foreground">Phone: {h.phone}</p>}
+        {h.phone && <p className="mt-2 text-sm text-muted-foreground">Phone: {formatPhone(h.phone)}</p>}
         {h.notes && <p className="mt-1 text-sm text-muted-foreground">{h.notes}</p>}
       </section>
 
@@ -163,7 +164,7 @@ function HouseholdPage() {
               ["ZIP / postal code", h.postal_code],
               ["County", h.county],
               ["Billing address", h.billing_address],
-              ["Phone", h.phone],
+              ["Phone", formatPhone(h.phone)],
               ["Notes", h.notes],
             ] as const
           ).map(([label, value]) => (
@@ -193,7 +194,7 @@ function HouseholdPage() {
                   {p.first_name} {p.last_name}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">{p.role}</span>
                 </p>
-                <p className="truncate text-sm text-muted-foreground">{p.email ?? p.phone ?? "No contact on file"}</p>
+                <p className="truncate text-sm text-muted-foreground">{p.email ?? (formatPhone(p.phone) || "No contact on file")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {currency(p.lifetime_giving)} lifetime · {currency(p.this_year_giving)} this year
                 </p>

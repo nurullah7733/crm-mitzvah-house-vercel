@@ -1,4 +1,5 @@
 import { personInitials, personName } from "@/lib/names";
+import { formatPhone } from "@/lib/phone";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
@@ -215,7 +216,7 @@ function SearchPage() {
                 </p>
               )}
               <p className="truncate text-sm text-muted-foreground">
-                {[p.email, p.phone, p.household_name].filter(Boolean).join(" · ") || "No contact details yet"}
+                {[p.email, formatPhone(p.phone), p.household_name].filter(Boolean).join(" · ") || "No contact details yet"}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {currency(p.lifetime_giving)} lifetime · {currency(p.this_year_giving)} this year

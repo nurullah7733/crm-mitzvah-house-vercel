@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatPhone } from "@/lib/phone";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChevronDown, Download, Plus } from "lucide-react";
@@ -172,7 +173,7 @@ function PeoplePage() {
                   last_name: p.last_name ?? "",
                   contact_type: p.contact_type ?? "individual",
                   email: p.email ?? "",
-                  phone: p.phone ?? "",
+                  phone: formatPhone(p.phone),
                   household: p.households?.name ?? "",
                   role: p.role ?? "",
                   birth_date: p.birth_date ?? "",
@@ -355,7 +356,7 @@ function PeoplePage() {
                     <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.households?.name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{p.email ?? p.phone ?? "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{p.email ?? (formatPhone(p.phone) || "—")}</td>
                   <td className="px-4 py-3 font-medium text-money">{currency(p.lifetime_giving)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{currency(p.this_year_giving)}</td>
                   <td className="px-4 py-3 text-muted-foreground">
@@ -383,7 +384,7 @@ function PeoplePage() {
                     {personName(p)}
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
-                    {p.households?.name ?? "No household"} · {p.email ?? p.phone ?? "No contact"}
+                    {p.households?.name ?? "No household"} · {p.email ?? (formatPhone(p.phone) || "No contact")}
                   </p>
                 </div>
               </div>
