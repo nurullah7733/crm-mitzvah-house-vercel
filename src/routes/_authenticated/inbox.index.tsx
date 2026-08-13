@@ -1031,7 +1031,7 @@ function ImportCenter() {
             const childLast = (child.last ?? "").trim() || last;
             if (!childFirst && !childLast) continue;
             if (inHousehold(childFirst, childLast)) continue;
-            await supabase.from("people").insert({
+            const { data: childRow } = await supabase.from("people").insert({
               first_name: childFirst || null,
               last_name: childLast || null,
               display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
@@ -1042,7 +1042,15 @@ function ImportCenter() {
               met_source: v.met_source ?? null,
               programs: splitList(v.programs),
               import_batch_id: batchId,
-            });
+            }).select("id").single();
+            if (childRow?.id)
+              remember({
+                id: childRow.id,
+                first: childFirst,
+                last: childLast,
+                householdId,
+                address: fullAddress,
+              });
             houseMembers.push({ first_name: childFirst, last_name: childLast });
           }
 
@@ -1167,6 +1175,7 @@ function ImportCenter() {
       toast.error(`${why} Your file is still here, nothing was lost.`);
     } finally {
       setBusy(false);
+      runningRef.current = false;
     }
   }
 
