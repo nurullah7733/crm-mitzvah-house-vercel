@@ -99,6 +99,60 @@ export function hasConflict(fields: FieldComparison[]) {
 }
 
 /**
+ * What the surviving contact will look like: blanks are filled from whichever
+ * record has a value, and conflicts follow the reviewer's choices.
+ */
+export function mergedValues(
+  fields: FieldComparison[],
+  choices: Partial<Record<CompareKey, "existing" | "incoming">>,
+): Record<CompareKey, string | null> {
+  const out = {} as Record<CompareKey, string | null>;
+  for (const f of fields) {
+    if (f.state === "conflict") out[f.key] = choices[f.key] === "incoming" ? f.incoming : f.existing;
+    else out[f.key] = f.existing ?? f.incoming ?? null;
+  }
+  return out;
+}
+
+/** History counts for one contact, so the reviewer can see what is at stake. */
+export type RecordHistory = {
+  donations: number;
+  giving: number;
+  registrations: number;
+  notes: number;
+  tasks: number;
+};
+
+export async function fetchHistory(personId: string): Promise<RecordHistory> {
+  const [donations, registrations, notes, tasks] = await Promise.all([
+    supabase.from("donations").select("amount").eq("person_id", personId).is("deleted_at", null),
+    supabase.from("registrations").select("id", { count: "exact", head: true }).eq("person_id", personId),
+    supabase.from("interactions").select("id", { count: "exact", head: true }).eq("person_id", personId),
+    supabase.from("tasks").select("id", { count: "exact", head: true }).eq("person_id", personId).is("deleted_at", null),
+  ]);
+  const rows = donations.data ?? [];
+  return {
+    donations: rows.length,
+    giving: rows.reduce((sum, d) => sum + Number(d.amount ?? 0), 0),
+    registrations: registrations.count ?? 0,
+    notes: notes.count ?? 0,
+    tasks: tasks.count ?? 0,
+  };
+}
+
+/** Save corrections typed straight onto the stored contact during review. */
+export async function updateExistingFields(personId: string, patch: Partial<Record<CompareKey, string | null>>) {
+  const clean: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    const s = (v ?? "").trim();
+    clean[k] = s === "" ? null : s;
+  }
+  if (Object.keys(clean).length === 0) return;
+  const { error } = await supabase.from("people").update(clean as never).eq("id", personId);
+  if (error) throw error;
+}
+
+/**
  * Apply an incoming row onto a stored contact. Blanks are always filled in;
  * conflicting fields only change when the reviewer chose the incoming value.
  */
