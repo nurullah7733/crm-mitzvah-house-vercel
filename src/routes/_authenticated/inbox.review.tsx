@@ -315,6 +315,9 @@ function DataInbox() {
                   const existing = personById((r.candidate_person_ids ?? [])[0]);
                   const fields = existing ? compareRecords(existing, incoming) : [];
                   const conflicts = fields.filter((f) => f.state === "conflict");
+                  const fills = fields.filter((f) => f.state === "fill");
+                  const safe =
+                    Boolean(existing) && (r.candidate_person_ids ?? []).length === 1 && conflicts.length === 0;
                   const fileName = incoming.display_name ?? "This row";
                   return (
                     <div key={r.id} className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm">
@@ -323,6 +326,17 @@ function DataInbox() {
                           <p className="font-heading font-semibold text-foreground">
                             {plainSummary(fileName, existing ? personName(existing) : null, conflicts.length)}
                           </p>
+                          {existing && (
+                            <p
+                              className={`mt-1 text-sm font-medium ${
+                                conflicts.length > 0 ? "text-urgent" : "text-money"
+                              }`}
+                            >
+                              {conflicts.length > 0
+                                ? `${conflicts.length} field${conflicts.length === 1 ? "" : "s"} disagree — needs review`
+                                : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
+                            </p>
+                          )}
                           <p className="text-xs text-muted-foreground">
                             {r.reason} · from {r.filename ?? "a manual entry"} · uploaded{" "}
                             {formatDate(r.created_at?.slice(0, 10))}
@@ -330,21 +344,64 @@ function DataInbox() {
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <Button className="rounded-xl" onClick={() => setReviewId(r.id)}>
-                            Open and decide
-                          </Button>
-                          {r.status !== "skipped" && (
+                          {safe && existing && (
                             <Button
-                              variant="outline"
                               className="rounded-xl"
-                              disabled={skip.isPending}
-                              onClick={() => skip.mutate(r.id)}
+                              disabled={quick.isPending}
+                              onClick={() =>
+                                quick.mutate({
+                                  id: r.id,
+                                  filename: r.filename,
+                                  row_data: row,
+                                  existing,
+                                })
+                              }
                             >
-                              Skip for now
+                              ✓ Same person — update contact
                             </Button>
                           )}
+                          <Button variant="outline" className="rounded-xl" onClick={() => setReviewId(r.id)}>
+                            ✏️ Open and decide
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="rounded-xl text-urgent"
+                            onClick={() => {
+                              setDeleteFor(deleteFor === r.id ? null : r.id);
+                              setDeleteReason("");
+                            }}
+                          >
+                            🗑️ Delete this row
+                          </Button>
                         </div>
                       </div>
+
+                      {deleteFor === r.id && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-urgent/40 bg-urgent/5 p-3">
+                          <Input
+                            className="min-w-[12rem] flex-1 text-base"
+                            placeholder="Why are you throwing this row away?"
+                            value={deleteReason}
+                            onChange={(e) => setDeleteReason(e.target.value)}
+                          />
+                          <Button
+                            className="rounded-xl"
+                            disabled={discard.isPending || !deleteReason.trim()}
+                            onClick={() =>
+                              discard.mutate({ id: r.id, reason: deleteReason, personId: existing?.id ?? null })
+                            }
+                          >
+                            Delete row
+                          </Button>
+                          <button
+                            type="button"
+                            className="text-sm text-muted-foreground underline"
+                            onClick={() => setDeleteFor(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
 
                       {existing ? (
                         <div className="mt-3 overflow-hidden rounded-xl border border-border">
