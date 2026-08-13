@@ -194,7 +194,7 @@ function HouseholdPage() {
                   {p.first_name} {p.last_name}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">{p.role}</span>
                 </p>
-                <p className="truncate text-sm text-muted-foreground">{p.email ?? formatPhone(p.phone) ?? "No contact on file"}</p>
+                <p className="truncate text-sm text-muted-foreground">{p.email ?? (formatPhone(p.phone) || "No contact on file")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {currency(p.lifetime_giving)} lifetime · {currency(p.this_year_giving)} this year
                 </p>

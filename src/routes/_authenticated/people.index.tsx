@@ -356,7 +356,7 @@ function PeoplePage() {
                     <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.households?.name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{p.email ?? formatPhone(p.phone) ?? "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{p.email ?? (formatPhone(p.phone) || "—")}</td>
                   <td className="px-4 py-3 font-medium text-money">{currency(p.lifetime_giving)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{currency(p.this_year_giving)}</td>
                   <td className="px-4 py-3 text-muted-foreground">
@@ -384,7 +384,7 @@ function PeoplePage() {
                     {personName(p)}
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
-                    {p.households?.name ?? "No household"} · {p.email ?? formatPhone(p.phone) ?? "No contact"}
+                    {p.households?.name ?? "No household"} · {p.email ?? (formatPhone(p.phone) || "No contact")}
                   </p>
                 </div>
               </div>

@@ -179,7 +179,7 @@ function EventPage() {
                       {personName(r.people)}
                     </Link>
                     <p className="truncate text-xs text-muted-foreground">
-                      {r.people.email ?? formatPhone(r.people.phone) ?? "No contact on file"}
+                      {r.people.email ?? (formatPhone(r.people.phone) || "No contact on file")}
                     </p>
                   </div>
                 </div>
