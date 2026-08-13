@@ -106,6 +106,16 @@ function PeoplePage() {
       ),
   });
 
+  const { data: lifecycleSettings } = useLifecycleSettings();
+  const lifecycle = lifecycleSettings ?? LIFECYCLE_DEFAULTS;
+
+  /** A child within a year of the adult age, or already past it and unreviewed. */
+  function nearAdult(p: { role?: string | null; birth_date?: string | null }) {
+    if (!isChild(p.role) || !p.birth_date) return false;
+    const m = hebrewMilestone(p.birth_date, lifecycle.adult_age);
+    return !!m && m.days <= 365;
+  }
+
   const rows = (data ?? []).map((p) => {
     const bday = nextHebrewAnniversary(p.birth_date);
     const anniv = nextHebrewAnniversary(p.anniversary_date);
