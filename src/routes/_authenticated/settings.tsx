@@ -88,6 +88,14 @@ function SettingsPage() {
               <RenewalSettingsPanel />
             </AccordionContent>
           </AccordionItem>
+          <AccordionItem value="lifecycle" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Children growing up
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <LifecycleSettingsPanel />
+            </AccordionContent>
+          </AccordionItem>
         </Accordion>
 
         <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
