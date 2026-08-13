@@ -95,15 +95,13 @@ function DonationsPage() {
   }
 
   async function toggleReceipt(id: string, sent: boolean) {
-    const { error } = await supabase
-      .from("donations")
-      .update({ receipt_sent: sent, receipt_sent_date: sent ? new Date().toISOString().slice(0, 10) : null })
-      .eq("id", id);
+    // Ticking adds the date and a timeline entry; unticking clears both.
+    const { error } = await supabase.rpc("mark_receipt_sent", { _donation_id: id, _sent: sent });
     if (error) {
       toast.error(error.message);
       return;
     }
-    await queryClient.invalidateQueries({ queryKey: ["donations-list"] });
+    await queryClient.invalidateQueries();
   }
 
   return (
