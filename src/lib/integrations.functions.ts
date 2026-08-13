@@ -169,7 +169,8 @@ export const saveIntegrationCredentials = createServerFn({ method: "POST" })
 export const testIntegration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(z.object({ provider: z.string() }))
-  .handler(async ({ data }): Promise<{ ok: boolean; message: string }> => {
+  .handler(async ({ data, context }): Promise<{ ok: boolean; message: string }> => {
+    await requireAdmin(context as never);
     const meta = PROVIDERS[data.provider];
     if (!meta) throw new Error("Unknown integration provider.");
 
@@ -242,7 +243,8 @@ export const testIntegration = createServerFn({ method: "POST" })
 export const disconnectIntegration = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(z.object({ provider: z.string() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    await requireAdmin(context as never);
     const meta = PROVIDERS[data.provider];
     if (!meta) throw new Error("Unknown integration provider.");
 
