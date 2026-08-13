@@ -30,6 +30,7 @@ export function EditableCard({
   children,
   editHint,
   className,
+  extraEditor,
 }: {
   title: string;
   action?: ReactNode;
@@ -41,6 +42,8 @@ export function EditableCard({
   children: ReactNode;
   editHint?: string;
   className?: string;
+  /** Extra controls shown only while editing, beneath the fields. */
+  extraEditor?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -136,6 +139,7 @@ export function EditableCard({
               </Field>
             ))}
           </div>
+          {extraEditor ? <div className="mt-4 border-t border-border pt-4">{extraEditor}</div> : null}
           <div className="mt-4 flex gap-2">
             <Button className="rounded-xl" disabled={saving} onClick={save}>
               {saving ? "Saving…" : "Save changes"}

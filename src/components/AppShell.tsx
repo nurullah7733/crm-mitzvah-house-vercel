@@ -33,12 +33,11 @@ const SETTINGS = { to: "/settings", label: "Settings", icon: SettingsIcon } as c
 const INBOX = { to: "/inbox", label: "Inbox", icon: InboxIcon } as const;
 const MENU_NAV = [...NAV, INBOX, SETTINGS] as const;
 
-/* Only five fit a phone tab bar — the rest live in the hamburger menu. */
+/* Only three fit a phone tab bar with a legible label — the rest live in the hamburger menu. */
 const TAB_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/people", label: "People", icon: Users },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
-  { to: "/events", label: "Events", icon: CalendarDays },
 ] as const;
 
 export function AppShell({
@@ -164,12 +163,16 @@ export function AppShell({
       <div className="lg:pl-60">
         <div className="border-b border-border bg-card px-5 py-3 sm:px-8">
           <div className="mx-auto max-w-5xl">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div className="min-w-0">
                 <h1 className="truncate font-heading text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
                 {subtitle ? <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p> : null}
               </div>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{action}</div>
+              {action ? (
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end [&>*]:min-h-11 sm:[&>*]:min-h-0">
+                  {action}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -178,16 +181,16 @@ export function AppShell({
       </div>
 
       {/* Mobile bottom tabs */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 flex overflow-x-auto border-t border-border bg-card px-1 py-2 lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-20 flex border-t border-border bg-card px-2 py-2 lg:hidden">
         {TAB_NAV.map(({ to, label, icon: Icon }) => (
           <Link
             key={to}
             to={to}
-            className="flex min-w-[64px] flex-1 flex-col items-center gap-1 rounded-xl px-2 py-1 text-[11px] text-muted-foreground"
+            className="flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-1 text-xs font-medium text-muted-foreground"
             activeProps={{ className: "!text-primary font-medium bg-primary/10" }}
           >
             <Icon className="size-5" />
-            {label}
+            <span className="whitespace-nowrap">{label}</span>
           </Link>
         ))}
       </nav>

@@ -22,6 +22,7 @@ import {
 import { HEBREW_MONTHS, hebrewDateFromEnglish, hebrewMonthName, nextBirthday, nextYahrzeit } from "@/lib/hebrew";
 import { ChipEditor } from "@/components/ChipEditor";
 import { EditableCard } from "@/components/EditableCard";
+import { YahrzeitEditor } from "@/components/YahrzeitEditor";
 import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
 
@@ -460,10 +461,14 @@ function PersonPage() {
             ]}
             onSave={savePersonFields}
             editHint="Hebrew dates and next-observance countdowns are worked out again as soon as you save."
-            action={
-              <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("yahrzeit")}>
-                <Plus className="size-3.5" /> Add yahrzeit
-              </Button>
+            extraEditor={
+              <YahrzeitEditor
+                personId={personId}
+                rows={(data?.yahrzeits ?? []) as never}
+                onChanged={async () => {
+                  await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+                }}
+              />
             }
           >
             <div className="border-b border-border pb-2">
