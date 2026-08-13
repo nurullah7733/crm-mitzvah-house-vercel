@@ -16,6 +16,7 @@ import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { fuzzyScoreAny } from "@/lib/nl-search";
 import { LabelChips } from "@/components/LabelChips";
+import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (
@@ -68,6 +69,7 @@ function PeoplePage() {
   const [giveMax, setGiveMax] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
+  const selection = useSelection();
   const activeTag = search.tag ?? null;
   const activeProgram = search.program ?? null;
 
@@ -335,6 +337,7 @@ function PeoplePage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
+                <th className="w-10 px-2 py-3" aria-label="Select" />
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Household</th>
                 <th className="px-4 py-3 font-medium">Contact</th>
@@ -346,6 +349,13 @@ function PeoplePage() {
             <tbody>
               {people.map((p) => (
                 <tr key={p.id} className="border-t border-border hover:bg-muted/40">
+                  <td className="px-2 py-3">
+                    <SelectBox
+                      checked={selection.has(p.id)}
+                      onChange={() => selection.toggle(p.id)}
+                      label={personName(p)}
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <Link to="/people/$personId" params={{ personId: p.id }} className="font-medium text-primary">
                       {personName(p)}
@@ -373,7 +383,9 @@ function PeoplePage() {
       <div className="mt-5 space-y-3 lg:hidden">
         {people.map((p) => (
           <div key={p.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <Link to="/people/$personId" params={{ personId: p.id }} className="block">
+            <div className="flex items-start gap-2">
+              <SelectBox checked={selection.has(p.id)} onChange={() => selection.toggle(p.id)} label={personName(p)} />
+              <Link to="/people/$personId" params={{ personId: p.id }} className="block min-w-0 flex-1">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
@@ -396,10 +408,18 @@ function PeoplePage() {
               </div>
             </div>
             </Link>
+            </div>
             <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
           </div>
         ))}
       </div>
+
+      <BulkPeopleBar
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={people.map((p) => p.id)}
+        onSelectAll={() => selection.selectAll(people.map((p) => p.id))}
+      />
 
       <AddPersonDialog open={addOpen} onOpenChange={setAddOpen} />
     </AppShell>

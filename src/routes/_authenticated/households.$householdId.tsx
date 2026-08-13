@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
 import { EditableCard } from "@/components/EditableCard";
+import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
+import { personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
 
 export const Route = createFileRoute("/_authenticated/households/$householdId")({
@@ -32,6 +34,7 @@ const ICONS: Record<string, typeof StickyNote> = {
 function HouseholdPage() {
   const { householdId } = Route.useParams();
   const queryClient = useQueryClient();
+  const selection = useSelection();
 
   const { data, isLoading } = useQuery({
     queryKey: ["household", householdId],
@@ -180,12 +183,13 @@ function HouseholdPage() {
         <h2 className="font-heading font-semibold text-foreground">Members</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {members.map((p) => (
-            <Link
-              key={p.id}
-              to="/people/$personId"
-              params={{ personId: p.id }}
-              className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/50"
-            >
+            <div key={p.id} className="flex items-start gap-2 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/50">
+              <SelectBox checked={selection.has(p.id)} onChange={() => selection.toggle(p.id)} label={personName(p)} />
+              <Link
+                to="/people/$personId"
+                params={{ personId: p.id }}
+                className="flex min-w-0 flex-1 items-start gap-3"
+              >
               <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
                 {initials(p.first_name, p.last_name)}
               </span>
@@ -204,10 +208,17 @@ function HouseholdPage() {
                     : `Last activity ${daysSince(p.last_activity_date)} days ago`}
                 </p>
               </div>
-            </Link>
+              </Link>
+            </div>
           ))}
           {members.length === 0 && <EmptyState label="No one is in this household yet." />}
         </div>
+        <BulkPeopleBar
+          selectedIds={selection.ids}
+          onClear={selection.clear}
+          visibleIds={members.map((p) => p.id)}
+          onSelectAll={() => selection.selectAll(members.map((p) => p.id))}
+        />
       </section>
 
       <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
