@@ -351,6 +351,7 @@ function PeoplePage() {
                     <span className="ml-2 text-xs text-muted-foreground">
                       {p.contact_type && p.contact_type !== "individual" ? p.contact_type : p.role}
                     </span>
+                    <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.households?.name ?? "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">{p.email ?? p.phone ?? "—"}</td>
@@ -369,12 +370,8 @@ function PeoplePage() {
       {/* Mobile cards */}
       <div className="mt-5 space-y-3 lg:hidden">
         {people.map((p) => (
-          <Link
-            key={p.id}
-            to="/people/$personId"
-            params={{ personId: p.id }}
-            className="block rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/40"
-          >
+          <div key={p.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <Link to="/people/$personId" params={{ personId: p.id }} className="block">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
@@ -396,7 +393,9 @@ function PeoplePage() {
                 </p>
               </div>
             </div>
-          </Link>
+            </Link>
+            <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
+          </div>
         ))}
       </div>
 
