@@ -45,12 +45,27 @@ function DonationsPage() {
       fetchAll((from, to) =>
         supabase
           .from("donations")
-          .select("*, people(id, display_name, first_name, last_name), campaigns(id, name), grants(id, name)")
+          .select(
+            "*, people(id, display_name, first_name, last_name), campaigns(id, name), grants(id, name), events(id, name, date)",
+          )
           .is("deleted_at", null)
           .order("date", { ascending: false })
           .order("id")
           .range(from, to),
       ),
+  });
+
+  const { data: eventOptions } = useQuery({
+    queryKey: ["events-picker"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, date")
+        .is("deleted_at", null)
+        .order("date", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   const gifts = (data ?? []).filter((d) => {
@@ -220,6 +235,15 @@ function DonationsPage() {
                     Grant payment — {d.grants.name}
                   </Link>
                 )}
+                {d.events && (
+                  <Link
+                    to="/events/$eventId"
+                    params={{ eventId: d.events.id }}
+                    className="mt-1 block text-xs text-primary hover:underline"
+                  >
+                    Given at {d.events.name}
+                  </Link>
+                )}
                 {d.notes && <p className="mt-1 text-sm text-muted-foreground">{d.notes}</p>}
                 {d.source && <p className="mt-1 text-xs text-muted-foreground">Source: {d.source}</p>}
               </div>
@@ -288,6 +312,12 @@ function DonationsPage() {
             { key: "date", label: "Date", type: "date" },
             { key: "method", label: "Method" },
             { key: "source", label: "Source" },
+            {
+              key: "event_id",
+              label: "Given at this event",
+              type: "select",
+              options: (eventOptions ?? []).map((ev) => ({ value: ev.id, label: `${ev.name} (${ev.date})` })),
+            },
             { key: "notes", label: "Notes", type: "textarea" },
           ]}
         />

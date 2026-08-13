@@ -14,6 +14,7 @@ import { fetchAll } from "@/lib/fetch-all";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
+import { attributeGiftToEvent } from "@/lib/gift-events";
 import {
   EMPTY_BULK_TARGET,
   RELATIONSHIP_OPTIONS,
@@ -247,6 +248,13 @@ function splitList(raw: string | undefined) {
   return raw ? raw.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [];
 }
 
+/** Same date, shifted by whole days — used for the one-day event window. */
+function dayShift(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 const DRAFT_KEY = "mh-import-draft";
 
 function ImportCenter() {
@@ -263,6 +271,8 @@ function ImportCenter() {
   const [bulkTarget, setBulkTarget] = useState<BulkTarget>(EMPTY_BULK_TARGET);
   /** One answer per group of people sharing an address. */
   const [addressDecisions, setAddressDecisions] = useState<Record<string, AddressDecision>>({});
+  /** One answer per event whose date matches gifts in this file. */
+  const [giftEventDecisions, setGiftEventDecisions] = useState<Record<string, "attended" | "gift_only" | "skip">>({});
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
@@ -439,6 +449,30 @@ function ImportCenter() {
     });
     return { perRow, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
   }, [analysed, fileEvents, eventDecisions, events, bulkTarget.eventId]);
+
+  /**
+   * Gifts in this file whose date lands on an event (or a day either side).
+   * One decision covers the whole batch, not row by row.
+   */
+  const giftEventGroups = useMemo(() => {
+    const groups = new Map<string, { event: EventOption; rows: number; total: number }>();
+    analysed.forEach((a) => {
+      if (a.match.status === "ambiguous") return;
+      const amount = Number(String(a.values.amount ?? "").replace(/[^0-9.-]/g, ""));
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      const giftDate = isoDate(a.values.date);
+      if (!giftDate) return;
+      const match = (events ?? []).find(
+        (ev) => ev.date >= dayShift(giftDate, -1) && ev.date <= dayShift(giftDate, 1),
+      );
+      if (!match) return;
+      const entry = groups.get(match.id) ?? { event: match, rows: 0, total: 0 };
+      entry.rows += 1;
+      entry.total += amount;
+      groups.set(match.id, entry);
+    });
+    return [...groups.values()];
+  }, [analysed, events]);
 
   /** People at the same address with different surnames — a question, never an assumption. */
   const addressGroups = useMemo(
@@ -951,7 +985,9 @@ function ImportCenter() {
                 : dupeCheck.is("campaign", null)
               ).limit(1);
               if (!existingGift?.length) {
-                await supabase.from("donations").insert({
+                const { data: newGift } = await supabase
+                  .from("donations")
+                  .insert({
                   person_id: personId,
                   amount,
                   date: giftDate,
@@ -959,7 +995,23 @@ function ImportCenter() {
                   source,
                   notes: v.notes ?? null,
                   import_batch_id: batch.id,
-                });
+                  })
+                  .select("id")
+                  .single();
+
+                // Apply the reviewer's one decision about gifts made on an event date.
+                const giftEvent = giftEventGroups.find(
+                  (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+                );
+                const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
+                if (newGift?.id && giftEvent && (decision === "attended" || decision === "gift_only")) {
+                  await attributeGiftToEvent({
+                    donationId: newGift.id,
+                    personId,
+                    eventId: giftEvent.event.id,
+                    attended: decision === "attended",
+                  });
+                }
               }
             }
           }
@@ -1151,6 +1203,52 @@ function ImportCenter() {
                           </p>
                         </div>
                       )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {giftEventGroups.length > 0 && (
+            <section className="rounded-2xl border border-money/40 bg-money/5 p-5 shadow-sm">
+              <h2 className="font-heading font-semibold text-foreground">Gifts made on an event date</h2>
+              <p className="text-sm text-muted-foreground">
+                One answer covers the whole file — we won't ask row by row.
+              </p>
+              <div className="mt-3 space-y-3">
+                {giftEventGroups.map((g) => {
+                  const decision = giftEventDecisions[g.event.id];
+                  return (
+                    <div key={g.event.id} className="rounded-xl border border-border bg-card p-3">
+                      <p className="text-sm text-foreground">
+                        These {g.rows} {g.rows === 1 ? "gift" : "gifts"} were made on the date of “{g.event.name}” (
+                        {g.event.date}) — link them to that event?
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["attended", "Yes — link gifts and mark them as attended"],
+                            ["gift_only", "Link the gifts only (they may not have come)"],
+                            ["skip", "No, keep them unlinked"],
+                          ] as const
+                        ).map(([action, label]) => (
+                          <button
+                            key={action}
+                            type="button"
+                            className={`rounded-xl border px-3 py-2 text-sm ${
+                              decision === action
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-card text-foreground"
+                            }`}
+                            onClick={() =>
+                              setGiftEventDecisions((d) => ({ ...d, [g.event.id]: action }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
