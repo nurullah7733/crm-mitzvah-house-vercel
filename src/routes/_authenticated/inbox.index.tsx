@@ -176,7 +176,42 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
   if (children.length > 0) out.children = children;
   if (phones.length > 0) out.phones = phones;
   if (emails.length > 0) out.emails = emails;
-  return out;
+  return tidyCase(out);
+}
+
+/**
+ * Tidy capitalisation on the text that people read: names, addresses, cities.
+ * Spelling is never touched, and anything already typed with deliberate internal
+ * capitals is left exactly as it is.
+ */
+function tidyCase(v: RowValues): RowValues {
+  const nameKeys: FieldKey[] = [
+    "first_name",
+    "middle_name",
+    "last_name",
+    "full_name",
+    "household_name",
+    "spouse_full_name",
+    "spouse_first_name",
+    "spouse_last_name",
+    "school",
+    "city",
+    "county",
+  ];
+  for (const k of nameKeys) if (v[k]) v[k] = properCase(v[k]!);
+  for (const k of ["address", "address_line2", "address_line3", "billing_address"] as FieldKey[]) {
+    if (v[k]) v[k] = properCaseAddress(v[k]!);
+  }
+  if (v.state) v.state = normalizeState(v.state);
+  if (v.children) {
+    v.children = v.children.map((c) => ({
+      ...c,
+      first: properCase(c.first),
+      ...(c.last ? { last: properCase(c.last) } : {}),
+      ...(c.school ? { school: properCase(c.school) } : {}),
+    }));
+  }
+  return v;
 }
 
 /** Join the first / middle / last / suffix columns a file happens to have. */
