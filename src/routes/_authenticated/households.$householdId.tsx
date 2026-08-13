@@ -143,7 +143,7 @@ function HouseholdPage() {
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {addressOnly && (
-          <span className="rounded-full bg-warning/15 px-3 py-1 text-xs font-semibold text-foreground">
+          <span className="rounded-full bg-suggestion/20 px-3 py-1 text-xs font-semibold text-foreground">
             Address only — no contact yet
           </span>
         )}
