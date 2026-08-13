@@ -10,6 +10,14 @@ import { personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { logChange } from "@/lib/session-log";
 import { friendlyDbError } from "@/lib/db-errors";
+import {
+  MergeCompare,
+  diffRecords,
+  mergedResult,
+  writableValues,
+  type MergeField,
+  type Side,
+} from "@/components/MergeCompare";
 
 type Person = {
   id: string;
@@ -28,9 +36,10 @@ type Person = {
   tags: string[] | null;
   programs: string[] | null;
   lifetime_giving: number | string | null;
+  households?: { name: string | null } | null;
 };
 
-const FIELDS: { key: keyof Person; label: string }[] = [
+const FIELDS: MergeField[] = [
   { key: "display_name", label: "Name shown" },
   { key: "first_name", label: "First name" },
   { key: "last_name", label: "Last name" },
@@ -47,10 +56,11 @@ const FIELDS: { key: keyof Person; label: string }[] = [
   { key: "programs", label: "Programs" },
 ];
 
-function show(value: unknown) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
-  return String(value);
+/** Households are shown by name; the id is put back when saving. */
+function toCompareRecord(p: Person, houseNames: Map<string, string>) {
+  const rec: Record<string, unknown> = { ...p };
+  rec["household_id"] = p.household_id ? (houseNames.get(p.household_id) ?? "Household on file") : null;
+  return rec;
 }
 
 /**
@@ -64,19 +74,21 @@ export function MergeContactsDialog({
   primaryId,
   suggestedIds = [],
   onMerged,
+  lockSelection = false,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   primaryId?: string;
   suggestedIds?: string[];
   onMerged?: (survivingId: string) => void;
+  lockSelection?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [leftId, setLeftId] = useState(primaryId ?? "");
   const [rightId, setRightId] = useState(suggestedIds[0] ?? "");
   const [keepLeft, setKeepLeft] = useState(true);
-  const [picks, setPicks] = useState<Record<string, "left" | "right">>({});
+  const [picks, setPicks] = useState<Record<string, Side>>({});
 
   const { data: people } = useQuery({
     queryKey: ["merge-people"],
@@ -86,7 +98,7 @@ export function MergeContactsDialog({
         supabase
           .from("people")
           .select(
-            "id, display_name, first_name, last_name, email, phone, role, contact_type, owner, met_source, met_date, birth_date, household_id, tags, programs, lifetime_giving",
+            "id, display_name, first_name, last_name, email, phone, role, contact_type, owner, met_source, met_date, birth_date, household_id, tags, programs, lifetime_giving, households(name)",
           )
           .is("deleted_at", null)
           .order("display_name")
@@ -114,6 +126,20 @@ export function MergeContactsDialog({
     return list.slice(0, 200);
   }, [people, search]);
 
+  const houseNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of people ?? []) if (p.household_id && p.households?.name) map.set(p.household_id, p.households.name);
+    return map;
+  }, [people]);
+
+  const rows = useMemo(
+    () =>
+      left && right
+        ? diffRecords(FIELDS, toCompareRecord(left, houseNames), toCompareRecord(right, houseNames))
+        : [],
+    [left, right, houseNames],
+  );
+
   const merge = useMutation({
     mutationFn: async () => {
       if (!left || !right) throw new Error("Pick two contacts");
@@ -121,13 +147,18 @@ export function MergeContactsDialog({
       const survivor = keepLeft ? left : right;
       const loser = keepLeft ? right : left;
 
-      const fieldValues: Record<string, unknown> = {};
-      for (const f of FIELDS) {
-        const side = picks[f.key as string] ?? (keepLeft ? "left" : "right");
-        const chosen = side === "left" ? left[f.key] : right[f.key];
-        if (chosen !== null && chosen !== undefined && chosen !== "") {
-          fieldValues[f.key as string] = chosen;
-        }
+      const fieldValues = writableValues(mergedResult(rows, picks, keepLeft ? "left" : "right"));
+      // Put the household back as an id, choosing whichever record's household won.
+      const chosenHouse = fieldValues["household_id"];
+      if (chosenHouse !== undefined) {
+        const name = String(chosenHouse);
+        const id =
+          [left, right].find((p) => p.household_id && (houseNames.get(p.household_id) ?? "") === name)?.household_id ??
+          survivor.household_id ??
+          loser.household_id ??
+          null;
+        if (id) fieldValues["household_id"] = id;
+        else delete fieldValues["household_id"];
       }
 
       const { error } = await supabase.rpc("merge_people", {
@@ -170,37 +201,41 @@ export function MergeContactsDialog({
       }
     >
       <div className="grid gap-3">
-        <Field label="Find a contact">
-          <Input
-            className="text-base"
-            value={search}
-            placeholder="Type a name to narrow the lists"
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </Field>
+        {!lockSelection && (
+          <>
+            <Field label="Find a contact">
+              <Input
+                className="text-base"
+                value={search}
+                placeholder="Type a name to narrow the lists"
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </Field>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Contact A">
-            <select className={selectClass} value={leftId} onChange={(e) => setLeftId(e.target.value)}>
-              <option value="">Choose a contact</option>
-              {options.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {personName(p)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Contact B (the possible duplicate)">
-            <select className={selectClass} value={rightId} onChange={(e) => setRightId(e.target.value)}>
-              <option value="">Choose a contact</option>
-              {options.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {personName(p)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Contact A">
+                <select className={selectClass} value={leftId} onChange={(e) => setLeftId(e.target.value)}>
+                  <option value="">Choose a contact</option>
+                  {options.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {personName(p)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Contact B (the possible duplicate)">
+                <select className={selectClass} value={rightId} onChange={(e) => setRightId(e.target.value)}>
+                  <option value="">Choose a contact</option>
+                  {options.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {personName(p)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          </>
+        )}
 
         {left && right && (
           <>
@@ -215,38 +250,22 @@ export function MergeContactsDialog({
               </label>
             </div>
 
-            <div className="space-y-2">
-              {FIELDS.map((f) => {
-                const side = picks[f.key as string] ?? (keepLeft ? "left" : "right");
-                return (
-                  <div key={f.key as string} className="rounded-xl border border-border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{f.label}</p>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {(["left", "right"] as const).map((s) => (
-                        <label
-                          key={s}
-                          className={`flex items-start gap-2 rounded-lg px-2 py-1 text-sm ${
-                            side === s ? "bg-primary/10 text-foreground" : "text-muted-foreground"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            className="mt-1"
-                            checked={side === s}
-                            onChange={() => setPicks((p) => ({ ...p, [f.key as string]: s }))}
-                          />
-                          <span className="break-words">{show(s === "left" ? left[f.key] : right[f.key])}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <MergeCompare
+              rows={rows}
+              picks={picks}
+              onPick={(key, side) => setPicks((p) => ({ ...p, [key]: side }))}
+              onUseAll={(side) =>
+                setPicks(Object.fromEntries(rows.filter((r) => r.state === "conflict").map((r) => [r.key, side])))
+              }
+              leftLabel={personName(left)}
+              rightLabel={personName(right)}
+              defaultSide={keepLeft ? "left" : "right"}
+            />
 
             <p className="rounded-xl bg-suggestion/10 px-3 py-2 text-xs text-foreground">
-              Merging cannot be undone automatically, but every merge is recorded with a full copy of the
-              record that was merged away.
+              Every donation, note, event, task, special date and source moves to the surviving record. Merging
+              cannot be undone automatically, but each merge is recorded with a full copy of the record that was
+              merged away.
             </p>
           </>
         )}
