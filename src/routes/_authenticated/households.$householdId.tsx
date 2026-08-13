@@ -34,6 +34,7 @@ const ICONS: Record<string, typeof StickyNote> = {
 function HouseholdPage() {
   const { householdId } = Route.useParams();
   const queryClient = useQueryClient();
+  const selection = useSelection();
 
   const { data, isLoading } = useQuery({
     queryKey: ["household", householdId],
