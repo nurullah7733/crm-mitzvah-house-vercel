@@ -44,7 +44,7 @@
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-router": "1.170.18",
-    "@tanstack/react-start": "1.168.32",
+    "@tanstack/react-start": "1.168.44",
     "@tanstack/router-plugin": "1.168.23",
     "@types/papaparse": "^5.5.2",
     "class-variance-authority": "^0.7.1",
@@ -89,5 +89,11 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0"
+  },
+  "overrides": {
+    "js-yaml": "^4.3.1"
+  },
+  "resolutions": {
+    "js-yaml": "^4.3.1"
   }
 }
