@@ -18,6 +18,7 @@ import { MethodDraftList } from "@/components/ContactMethodsEditor";
 import { addContactMethods, emptyDraft, phoneKey, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case";
 import { attributeGiftToEvent, findEventsNearDate, type NearbyEvent } from "@/lib/gift-events";
+import { createFindOutWhoTask, findHouseholdAtAddress, nameFromAddress } from "@/lib/address-household";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -109,6 +110,14 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const { data: metSources } = useMetSourceOptions();
   const hebrew = hebrewDateFromEnglish(form.birth_date);
   const isOrg = form.contact_type !== "individual";
+
+  // If we already have this address on file, offer to join that household instead of making a second one.
+  const { data: addressMatch } = useQuery({
+    queryKey: ["household-at-address", form.address.trim()],
+    enabled: form.address.trim().length > 5,
+    queryFn: () => findHouseholdAtAddress(form.address.trim()),
+  });
+  const suggestHousehold = addressMatch && !form.household_id && !form.new_household.trim() ? addressMatch : null;
 
   const enteredPhones = phones.map((p) => p.value.trim()).filter(Boolean);
   const enteredEmails = emails.map((e) => normalizeEmail(e.value)).filter(Boolean);
@@ -444,6 +453,23 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
 
         <Field label="Address" className="sm:col-span-2">
           <Input className="text-base" value={form.address} onChange={(e) => set("address", e.target.value)} />
+          {suggestHousehold && (
+            <div className="mt-2 rounded-xl border border-primary/40 bg-primary/5 p-3 text-sm">
+              <p className="text-foreground">
+                There's already a household at this address:{" "}
+                <span className="font-semibold">{suggestHousehold.name}</span>
+                {suggestHousehold.status === "address_only" ? " (address only — no contact yet)" : ""}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-2 rounded-xl"
+                onClick={() => set("household_id", suggestHousehold.id)}
+              >
+                Add this person to it
+              </Button>
+            </div>
+          )}
         </Field>
 
         <Field label="Birthday" hint={hebrew ? `Hebrew date: ${hebrew}` : null} className="sm:col-span-2">
