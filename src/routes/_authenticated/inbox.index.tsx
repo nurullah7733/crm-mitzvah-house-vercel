@@ -1631,7 +1631,7 @@ function ImportCenter() {
 
           <div className="sticky bottom-24 flex flex-wrap gap-2 rounded-2xl border border-border bg-card p-4 shadow-sm lg:bottom-4">
             {(priorImports ?? []).length > 0 && (
-              <label className="flex w-full items-start gap-2 rounded-xl bg-warning/10 px-3 py-2 text-sm text-foreground">
+              <label className="flex w-full items-start gap-2 rounded-xl bg-suggestion/10 px-3 py-2 text-sm text-foreground">
                 <input
                   type="checkbox"
                   className="mt-1"
