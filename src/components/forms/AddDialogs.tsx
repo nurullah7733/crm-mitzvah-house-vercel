@@ -13,6 +13,9 @@ import { hebrewDateFromEnglish } from "@/lib/hebrew";
 import { personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { ContactPicker } from "@/components/forms/ContactPicker";
+import { MethodDraftList } from "@/components/ContactMethodsEditor";
+import { addContactMethods, emptyDraft, phoneKey, type MethodDraft } from "@/lib/contact-methods";
+import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -93,6 +96,8 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const refresh = useRefresh();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(EMPTY_PERSON);
+  const [phones, setPhones] = useState<MethodDraft[]>([emptyDraft("phone", true)]);
+  const [emails, setEmails] = useState<MethodDraft[]>([emptyDraft("email", true)]);
   const [newSource, setNewSource] = useState("");
   const [showNewSource, setShowNewSource] = useState(false);
   const set = (k: keyof typeof EMPTY_PERSON, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -102,26 +107,57 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const hebrew = hebrewDateFromEnglish(form.birth_date);
   const isOrg = form.contact_type !== "individual";
 
-  // Duplicate guard: warn before a second copy of a contact is created.
-  const dupEmail = form.email.trim();
-  const dupPhone = form.phone.replace(/\D/g, "");
+  const enteredPhones = phones.map((p) => p.value.trim()).filter(Boolean);
+  const enteredEmails = emails.map((e) => normalizeEmail(e.value)).filter(Boolean);
+
+  // Duplicate guard: every number and address entered is checked, not just the first.
+  const dupEmail = enteredEmails[0] ?? "";
+  const dupPhone = phoneKey(enteredPhones[0] ?? "");
   const dupName = isOrg ? form.org_name.trim() : `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
   const { data: duplicates } = useQuery({
-    queryKey: ["duplicate-check", dupEmail, dupPhone, dupName],
-    enabled: dupEmail.length > 3 || dupPhone.length >= 7 || dupName.length > 2,
+    queryKey: ["duplicate-check", enteredEmails.join(","), enteredPhones.join(","), dupName],
+    enabled: enteredEmails.length > 0 || enteredPhones.length > 0 || dupName.length > 2,
     queryFn: async () => {
       const filters: string[] = [];
-      if (dupEmail.length > 3) filters.push(`email.ilike.${dupEmail}`);
-      if (dupPhone.length >= 7) filters.push(`phone.ilike.%${dupPhone.slice(-7)}%`);
+      for (const e of enteredEmails) if (e.length > 3) filters.push(`email.ilike.${e}`);
+      for (const p of enteredPhones) {
+        const key = phoneKey(p);
+        if (key) filters.push(`phone.ilike.%${key.slice(-7)}%`);
+      }
       if (dupName.length > 2) filters.push(`display_name.ilike.${dupName}`);
-      if (!filters.length) return [];
-      const { data, error } = await supabase
-        .from("people")
-        .select("id, display_name, first_name, last_name, email, phone")
-        .or(filters.join(","))
-        .limit(5);
-      if (error) throw error;
-      return data ?? [];
+
+      const found = new Map<string, { id: string; display_name: string | null; first_name: string | null; last_name: string | null; email: string | null; phone: string | null }>();
+
+      if (filters.length) {
+        const { data, error } = await supabase
+          .from("people")
+          .select("id, display_name, first_name, last_name, email, phone")
+          .is("deleted_at", null)
+          .or(filters.join(","))
+          .limit(5);
+        if (error) throw error;
+        for (const row of data ?? []) found.set(row.id, row);
+      }
+
+      // Also look through every stored phone number and email address.
+      const methodFilters: string[] = [];
+      for (const e of enteredEmails) if (e.length > 3) methodFilters.push(`value.ilike.${e}`);
+      for (const p of enteredPhones) {
+        const key = phoneKey(p);
+        if (key) methodFilters.push(`value.ilike.%${key.slice(-7)}%`);
+      }
+      if (methodFilters.length) {
+        const { data } = await supabase
+          .from("contact_methods")
+          .select("people(id, display_name, first_name, last_name, email, phone)")
+          .or(methodFilters.join(","))
+          .limit(10);
+        for (const row of data ?? []) {
+          const person = row.people as typeof found extends Map<string, infer V> ? V | null : never;
+          if (person && !found.has(person.id)) found.set(person.id, person);
+        }
+      }
+      return [...found.values()].slice(0, 5);
     },
   });
 
@@ -154,16 +190,21 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       }
 
       let householdId = form.household_id || null;
+      const address = properCaseAddress(form.address);
       if (form.new_household.trim()) {
         const { data, error } = await supabase
           .from("households")
-          .insert({ name: form.new_household.trim(), address: form.address || null, phone: form.phone || null })
+          .insert({
+            name: properCase(form.new_household),
+            address: address || null,
+            phone: enteredPhones[0] ?? null,
+          })
           .select("id")
           .single();
         if (error) throw error;
         householdId = data.id;
-      } else if (householdId && form.address.trim()) {
-        await supabase.from("households").update({ address: form.address.trim() }).eq("id", householdId);
+      } else if (householdId && address) {
+        await supabase.from("households").update({ address }).eq("id", householdId);
       }
 
       const list = (value: string) =>
@@ -176,12 +217,12 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
         .from("people")
         .insert({
           contact_type: form.contact_type,
-          display_name: isOrg ? form.org_name.trim() : null,
-          first_name: isOrg ? null : form.first_name.trim() || null,
-          last_name: isOrg ? null : form.last_name.trim() || null,
+          display_name: isOrg ? properCase(form.org_name) : null,
+          first_name: isOrg ? null : properCase(form.first_name) || null,
+          last_name: isOrg ? null : properCase(form.last_name) || null,
           parent_org_id: form.parent_org_id || null,
-          phone: form.phone.trim() || null,
-          email: form.email.trim() || null,
+          phone: enteredPhones[0] ?? null,
+          email: enteredEmails[0] ?? null,
           met_source: form.met_source || null,
           met_date: form.met_date || todayISO(),
           household_id: householdId,
@@ -195,10 +236,22 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
         .single();
       if (error) throw error;
 
+      // Every phone number and email address entered is saved to the contact.
+      const drafts: MethodDraft[] = [
+        ...phones.filter((p) => p.value.trim()).map((p, i) => ({ ...p, is_primary: i === 0 })),
+        ...emails.filter((e) => e.value.trim()).map((e, i) => ({ ...e, is_primary: i === 0 })),
+      ];
+      if (drafts.length) await addContactMethods(person.id, drafts, { existing: [] });
+
       const source = form.met_source || "Manual entry";
       const recorded = form.met_date || todayISO();
+      const provided: Record<"phone" | "email" | "address", boolean> = {
+        phone: enteredPhones.length > 0,
+        email: enteredEmails.length > 0,
+        address: Boolean(address),
+      };
       const sourceRows = (["phone", "email", "address"] as const)
-        .filter((f) => (f === "address" ? form.address.trim() : form[f].trim()))
+        .filter((f) => provided[f])
         .map((field_name) => ({ person_id: person.id, field_name, source, recorded_date: recorded }));
       if (sourceRows.length) await supabase.from("field_sources").insert(sourceRows);
 
@@ -217,6 +270,8 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       logChange("Added a person");
       refresh();
       setForm(EMPTY_PERSON);
+      setPhones([emptyDraft("phone", true)]);
+      setEmails([emptyDraft("email", true)]);
       onOpenChange(false);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -285,12 +340,12 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
             />
           </>
         )}
-        <Field label="Phone">
-          <Input className="text-base" type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
-        </Field>
-        <Field label="Email">
-          <Input className="text-base" type="email" inputMode="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
-        </Field>
+        <div className="sm:col-span-2">
+          <MethodDraftList kind="phone" drafts={phones} onChange={setPhones} />
+        </div>
+        <div className="sm:col-span-2">
+          <MethodDraftList kind="email" drafts={emails} onChange={setEmails} />
+        </div>
 
         <Field label="Where did we meet them?" className="sm:col-span-2">
           <div className="flex gap-2">
