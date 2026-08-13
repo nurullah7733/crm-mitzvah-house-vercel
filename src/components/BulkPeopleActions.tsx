@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, Check, Tag, Trash2, X } from "lucide-react";
+import { CalendarPlus, Check, Merge, Tag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
+import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 
 /** Shared multi-select state for any list of people. */
 export function useSelection() {
@@ -70,6 +71,7 @@ export function BulkPeopleBar({
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<null | "tag" | "program" | "event" | "delete">(null);
   const [value, setValue] = useState("");
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const { data: options } = useQuery({
     queryKey: ["bulk-options"],
@@ -180,6 +182,11 @@ export function BulkPeopleBar({
             <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMode("event")}>
               <CalendarPlus className="size-4" /> Add to event
             </Button>
+            {selectedIds.length === 2 && (
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMergeOpen(true)}>
+                <Merge className="size-4" /> Merge
+              </Button>
+            )}
             {extraAction && (
               <Button
                 variant="outline"
@@ -298,6 +305,17 @@ export function BulkPeopleBar({
           Their donations and history stay in the change history, so nothing is lost permanently.
         </p>
       </ResponsiveModal>
+
+      {selectedIds.length === 2 && (
+        <MergeContactsDialog
+          open={mergeOpen}
+          onOpenChange={setMergeOpen}
+          lockSelection
+          primaryId={selectedIds[0]!}
+          suggestedIds={[selectedIds[1]!]}
+          onMerged={() => onClear()}
+        />
+      )}
     </>
   );
 }

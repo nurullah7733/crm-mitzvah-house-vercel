@@ -102,6 +102,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const [emails, setEmails] = useState<MethodDraft[]>([emptyDraft("email", true)]);
   const [newSource, setNewSource] = useState("");
   const [showNewSource, setShowNewSource] = useState(false);
+  const [saveAnyway, setSaveAnyway] = useState(false);
   const set = (k: keyof typeof EMPTY_PERSON, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const { data: households } = useHouseholdsMini();
@@ -296,8 +297,12 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
           <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
-            Save person
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending || ((duplicates ?? []).length > 0 && !saveAnyway)}
+          >
+            {(duplicates ?? []).length > 0 && !saveAnyway ? "Check the match above" : "Save person"}
           </Button>
         </>
       }
@@ -316,6 +321,15 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
             <p className="mt-1 text-xs text-muted-foreground">
               Check the existing record first so you do not create a duplicate.
             </p>
+            <label className="mt-2 flex items-start gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={saveAnyway}
+                onChange={(e) => setSaveAnyway(e.target.checked)}
+              />
+              This is a different person — save it anyway
+            </label>
           </div>
         )}
         <Field label="Contact type" className="sm:col-span-2">

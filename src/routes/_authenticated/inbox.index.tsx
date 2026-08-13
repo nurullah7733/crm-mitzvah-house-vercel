@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, UserPlus, Users } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
@@ -273,6 +273,10 @@ function ImportCenter() {
   const [addressDecisions, setAddressDecisions] = useState<Record<string, AddressDecision>>({});
   /** One answer per event whose date matches gifts in this file. */
   const [giftEventDecisions, setGiftEventDecisions] = useState<Record<string, "attended" | "gift_only" | "skip">>({});
+  /** Set when staff confirm they really do want to import a file already imported before. */
+  const [reimportConfirmed, setReimportConfirmed] = useState(false);
+  /** Blocks a double-tap or a browser retry from running the same import twice. */
+  const runningRef = useRef(false);
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
@@ -332,6 +336,21 @@ function ImportCenter() {
         .select("id", { count: "exact", head: true })
         .eq("status", "pending");
       return count ?? 0;
+    },
+  });
+
+  /** Has this exact file been imported before? */
+  const { data: priorImports } = useQuery({
+    queryKey: ["prior-imports", sheet?.name ?? ""],
+    enabled: Boolean(sheet?.name),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("import_batches")
+        .select("id, import_date, total_rows, created_at")
+        .eq("filename", sheet!.name)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
@@ -517,6 +536,8 @@ function ImportCenter() {
     setEventDecisions({});
     setAddressDecisions({});
     setBulkTarget(EMPTY_BULK_TARGET);
+    setGiftEventDecisions({});
+    setReimportConfirmed(false);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
     } catch {
@@ -526,6 +547,7 @@ function ImportCenter() {
 
   async function approve() {
     if (!sheet) return;
+    if (runningRef.current || busy) return;
     if (unresolvedEvents.length > 0) {
       toast.error("Tell us what to do with the event names in this file first.");
       return;
@@ -534,6 +556,11 @@ function ImportCenter() {
       toast.error("Answer the shared-address questions first.");
       return;
     }
+    if ((priorImports ?? []).length > 0 && !reimportConfirmed) {
+      toast.error("This file was imported before. Tick the box to confirm you want to import it again.");
+      return;
+    }
+    runningRef.current = true;
     setBusy(true);
     setProgress({ done: 0, total: analysed.length });
     try {
@@ -580,6 +607,39 @@ function ImportCenter() {
         if (k && !houseByKey.has(k)) houseByKey.set(k, h.id);
         const nk = (h.name ?? "").trim().toLowerCase();
         if (nk && !houseByKey.has(`name:${nk}`)) houseByKey.set(`name:${nk}`, h.id);
+      }
+
+      // Everyone we can match against — the contacts already on file PLUS every
+      // person this import creates as it goes, so the same person listed three
+      // times in one file is only ever created once.
+      const livePeople: ExistingPerson[] = [...(people ?? [])];
+      function remember(entry: {
+        id: string;
+        first: string;
+        last: string;
+        email?: string | null;
+        phone?: string | null;
+        householdId?: string | null;
+        address?: string | null;
+        methods?: { kind: string; value: string }[];
+      }) {
+        const existing = livePeople.find((p) => p.id === entry.id);
+        if (existing) {
+          existing.email = existing.email ?? entry.email ?? null;
+          existing.phone = existing.phone ?? entry.phone ?? null;
+          existing.contact_methods = [...(existing.contact_methods ?? []), ...(entry.methods ?? [])];
+          return;
+        }
+        livePeople.push({
+          id: entry.id,
+          first_name: entry.first,
+          last_name: entry.last,
+          email: entry.email ?? null,
+          phone: entry.phone ?? null,
+          household_id: entry.householdId ?? null,
+          households: entry.address ? { name: "", address: entry.address } : null,
+          contact_methods: entry.methods ?? [],
+        });
       }
 
       // Which event each row links to. Names the reviewer asked us to create are
@@ -670,20 +730,28 @@ function ImportCenter() {
         const v = item.values;
 
         try {
-          if (item.match.status === "ambiguous") {
+          // Match again, now against the contacts this import has already created.
+          const flaggedByPreview =
+            item.match.status === "ambiguous" && !item.match.reason.startsWith("Appears more than once");
+          const live = matchRow(v, livePeople);
+          const match = live;
+
+          // A flagged row is never written. It waits in the Data Inbox for a person.
+          if (flaggedByPreview || live.status === "ambiguous") {
+            const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
             await supabase.from("review_queue").insert({
               batch_id: batch.id,
               filename: sheet.name,
-              reason: item.match.reason,
+              reason,
               row_data: v as unknown as Record<string, string>,
-              candidate_person_ids: item.match.candidates.map((c) => c.id),
+              candidate_person_ids: (live.candidates.length ? live.candidates : item.match.candidates).map((c) => c.id),
               status: "pending",
             });
             continue;
           }
 
-          let personId = item.match.candidates[0]?.id ?? null;
-          let householdId = item.match.candidates[0]?.household_id ?? null;
+          let personId = match.candidates[0]?.id ?? null;
+          let householdId = match.candidates[0]?.household_id ?? null;
           const { first, last, surname, display } = mainName(v);
           const displayName = display || null;
           const personRole = roleFromRow({
@@ -710,7 +778,7 @@ function ImportCenter() {
           const allowAddressLink = !addressAnswer || addressAnswer.action === "household";
           const relationship = addressAnswer?.relationship || null;
 
-          if (item.match.status === "new") {
+          if (match.status === "new") {
             if (hasFamily || v.billing_address) {
               householdId = await ensureHousehold(
                 householdName,
@@ -743,8 +811,21 @@ function ImportCenter() {
               .single();
             if (createError) throw createError;
             personId = created.id;
+            remember({
+              id: personId,
+              first,
+              last,
+              email: v.email ?? null,
+              phone: v.phone ?? null,
+              householdId,
+              address: fullAddress,
+              methods: [
+                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+              ],
+            });
           } else if (personId) {
-            const existing = item.match.candidates[0]!;
+            const existing = match.candidates[0]!;
             const patch: {
               email?: string;
               phone?: string;
@@ -764,6 +845,17 @@ function ImportCenter() {
             if (v.school) patch["school"] = v.school;
             if (v.person_notes) patch["notes"] = v.person_notes;
             if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
+            remember({
+              id: personId,
+              first,
+              last,
+              email: v.email ?? null,
+              phone: v.phone ?? null,
+              methods: [
+                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+              ],
+            });
 
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
@@ -862,19 +954,19 @@ function ImportCenter() {
               kind: "phone" as const,
               value: m.value,
               method_type: m.method_type,
-              is_primary: mi === 0 && item.match.status === "new",
+              is_primary: mi === 0 && match.status === "new",
             })),
             ...(v.emails ?? []).map((m, mi) => ({
               kind: "email" as const,
               value: m.value,
               method_type: m.method_type,
-              is_primary: mi === 0 && item.match.status === "new",
+              is_primary: mi === 0 && match.status === "new",
             })),
           ];
           if (methodDrafts.length > 0) {
             await addContactMethods(personId, methodDrafts, {
               importBatchId: batchId,
-              ...(item.match.status === "new" ? { existing: [] } : {}),
+              ...(match.status === "new" ? { existing: [] } : {}),
             });
           }
 
@@ -921,6 +1013,15 @@ function ImportCenter() {
                   spouseMethods.push({ kind: "email", value: v.spouse_email, method_type: "Personal", is_primary: true });
                 if (spouseMethods.length)
                   await addContactMethods(spouse.id, spouseMethods, { importBatchId: batchId, existing: [] });
+                remember({
+                  id: spouse.id,
+                  first: spouseName.first || "",
+                  last: spouseLast || "",
+                  email: v.spouse_email ?? null,
+                  phone: v.spouse_phone ?? null,
+                  householdId,
+                  address: fullAddress,
+                });
               }
               houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
             }
@@ -932,7 +1033,7 @@ function ImportCenter() {
             const childLast = (child.last ?? "").trim() || last;
             if (!childFirst && !childLast) continue;
             if (inHousehold(childFirst, childLast)) continue;
-            await supabase.from("people").insert({
+            const { data: childRow } = await supabase.from("people").insert({
               first_name: childFirst || null,
               last_name: childLast || null,
               display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
@@ -943,7 +1044,15 @@ function ImportCenter() {
               met_source: v.met_source ?? null,
               programs: splitList(v.programs),
               import_batch_id: batchId,
-            });
+            }).select("id").single();
+            if (childRow?.id)
+              remember({
+                id: childRow.id,
+                first: childFirst,
+                last: childLast,
+                householdId,
+                address: fullAddress,
+              });
             houseMembers.push({ first_name: childFirst, last_name: childLast });
           }
 
@@ -1068,6 +1177,7 @@ function ImportCenter() {
       toast.error(`${why} Your file is still here, nothing was lost.`);
     } finally {
       setBusy(false);
+      runningRef.current = false;
     }
   }
 
@@ -1520,6 +1630,22 @@ function ImportCenter() {
           </section>
 
           <div className="sticky bottom-24 flex flex-wrap gap-2 rounded-2xl border border-border bg-card p-4 shadow-sm lg:bottom-4">
+            {(priorImports ?? []).length > 0 && (
+              <label className="flex w-full items-start gap-2 rounded-xl bg-suggestion/10 px-3 py-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={reimportConfirmed}
+                  onChange={(e) => setReimportConfirmed(e.target.checked)}
+                />
+                <span>
+                  A file named <strong>{sheet.name}</strong> was already imported
+                  {priorImports![0]?.import_date ? ` on ${priorImports![0]!.import_date}` : ""}
+                  {(priorImports ?? []).length > 1 ? ` (${priorImports!.length} times)` : ""}. Tick this box if you
+                  really want to import it again.
+                </span>
+              </label>
+            )}
             <Button className="rounded-xl" disabled={busy} onClick={() => void approve()}>
               {busy ? `Importing… ${progress?.done ?? 0}/${progress?.total ?? 0}` : "Approve & import"}
             </Button>
