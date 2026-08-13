@@ -3,7 +3,8 @@ import { Download, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAll } from "@/lib/fetch-all";
-import { downloadCsv, stamp } from "@/lib/csv";
+import { csvText, downloadBlob, stamp } from "@/lib/csv";
+import { makeZip, type ZipEntry } from "@/lib/zip";
 import { logChange } from "@/lib/session-log";
 import { Button } from "@/components/ui/button";
 
@@ -44,10 +45,6 @@ const STEPS: Step[] = [
 
 type Result = { label: string; table: string; rows: number; file: string; error?: string };
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function BackupExportPanel() {
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
@@ -58,6 +55,7 @@ export function BackupExportPanel() {
     setResults(null);
     const day = stamp();
     const out: Result[] = [];
+    const files: ZipEntry[] = [];
 
     try {
       for (let i = 0; i < STEPS.length; i += 1) {
@@ -74,7 +72,8 @@ export function BackupExportPanel() {
           );
           // An empty table still gets a header-only file, so the person
           // restoring can see nothing was skipped.
-          downloadCsv(file, rows.length > 0 ? rows : [{ note: "no rows" }]);
+          files.push({ file, text: csvText(rows.length > 0 ? rows : [{ note: "no rows" }]) } as never as ZipEntry);
+          files[files.length - 1] = { name: file, text: csvText(rows.length > 0 ? rows : [{ note: "no rows" }]) };
           out.push({ label: step.label, table: step.table, rows: rows.length, file });
         } catch (e) {
           out.push({
@@ -85,15 +84,14 @@ export function BackupExportPanel() {
             error: e instanceof Error ? e.message : "Could not export",
           });
         }
-        // Browsers drop downloads fired too close together.
-        await wait(450);
       }
 
       // A manifest so anyone reloading the data knows the order to use.
       setCurrent("Backup summary");
-      downloadCsv(
-        `00-READ-ME-load-order-${day}.csv`,
-        out.map((r, i) => ({
+      files.unshift({
+        name: `00-READ-ME-load-order-${day}.csv`,
+        text: csvText(
+          out.map((r, i) => ({
           load_order: i + 1,
           file: r.file,
           table: r.table,
@@ -101,13 +99,19 @@ export function BackupExportPanel() {
           rows: r.rows,
           status: r.error ? `FAILED: ${r.error}` : "ok",
         })),
-      );
+        ),
+      });
+
+      // One single .zip download — browsers block a burst of separate saves.
+      downloadBlob(`mitzvah-house-backup-${day}.zip`, makeZip(files));
 
       setResults(out);
       const failed = out.filter((r) => r.error);
       if (failed.length === 0) {
         const total = out.reduce((sum, r) => sum + r.rows, 0);
-        toast.success(`Backup complete — ${out.length} files, ${total.toLocaleString()} rows`);
+        toast.success(
+          `Backup saved — mitzvah-house-backup-${day}.zip (${out.length} files, ${total.toLocaleString()} rows)`,
+        );
         logChange("Downloaded a full data backup");
       } else {
         toast.error(`${failed.length} of ${out.length} files could not be exported`);
@@ -125,8 +129,9 @@ export function BackupExportPanel() {
       <p className="text-xs text-muted-foreground">
         Downloads everything in the CRM as spreadsheet files — people, households, donations, events,
         tasks, timeline notes, grants and your shared lists. The files are numbered in the order they
-        would be loaded back in, and a “READ ME” file lists them all. Keep a copy somewhere safe
-        before any big import.
+        would be loaded back in, and a “READ ME” file lists them all. Everything arrives as one
+        <span className="font-medium"> .zip</span> file in your Downloads folder — double-click it to
+        see the spreadsheets. Keep a copy somewhere safe before any big import.
       </p>
 
       <Button onClick={runExport} disabled={busy} className="h-11 rounded-xl">
@@ -136,8 +141,8 @@ export function BackupExportPanel() {
 
       {busy && (
         <p className="text-xs text-muted-foreground">
-          Your browser will save one file at a time — this takes about half a minute. Please don't
-          leave this page until it finishes.
+          Gathering your data — this takes about half a minute, then one .zip file will be saved.
+          Please don't leave this page until it finishes.
         </p>
       )}
 
@@ -155,7 +160,7 @@ export function BackupExportPanel() {
             )}
             <span className="font-medium">
               {failedCount === 0
-                ? `${results.length} files saved — ${results
+                ? `${results.length} files zipped — ${results
                     .reduce((sum, r) => sum + r.rows, 0)
                     .toLocaleString()} rows in total`
                 : `${failedCount} file${failedCount === 1 ? "" : "s"} failed — try again`}
