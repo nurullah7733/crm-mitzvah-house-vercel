@@ -545,6 +545,7 @@ function ImportCenter() {
 
   async function approve() {
     if (!sheet) return;
+    if (runningRef.current || busy) return;
     if (unresolvedEvents.length > 0) {
       toast.error("Tell us what to do with the event names in this file first.");
       return;
@@ -553,6 +554,11 @@ function ImportCenter() {
       toast.error("Answer the shared-address questions first.");
       return;
     }
+    if ((priorImports ?? []).length > 0 && !reimportConfirmed) {
+      toast.error("This file was imported before. Tick the box to confirm you want to import it again.");
+      return;
+    }
+    runningRef.current = true;
     setBusy(true);
     setProgress({ done: 0, total: analysed.length });
     try {
@@ -599,6 +605,39 @@ function ImportCenter() {
         if (k && !houseByKey.has(k)) houseByKey.set(k, h.id);
         const nk = (h.name ?? "").trim().toLowerCase();
         if (nk && !houseByKey.has(`name:${nk}`)) houseByKey.set(`name:${nk}`, h.id);
+      }
+
+      // Everyone we can match against — the contacts already on file PLUS every
+      // person this import creates as it goes, so the same person listed three
+      // times in one file is only ever created once.
+      const livePeople: ExistingPerson[] = [...(people ?? [])];
+      function remember(entry: {
+        id: string;
+        first: string;
+        last: string;
+        email?: string | null;
+        phone?: string | null;
+        householdId?: string | null;
+        address?: string | null;
+        methods?: { kind: string; value: string }[];
+      }) {
+        const existing = livePeople.find((p) => p.id === entry.id);
+        if (existing) {
+          existing.email = existing.email ?? entry.email ?? null;
+          existing.phone = existing.phone ?? entry.phone ?? null;
+          existing.contact_methods = [...(existing.contact_methods ?? []), ...(entry.methods ?? [])];
+          return;
+        }
+        livePeople.push({
+          id: entry.id,
+          first_name: entry.first,
+          last_name: entry.last,
+          email: entry.email ?? null,
+          phone: entry.phone ?? null,
+          household_id: entry.householdId ?? null,
+          households: entry.address ? { name: "", address: entry.address } : null,
+          contact_methods: entry.methods ?? [],
+        });
       }
 
       // Which event each row links to. Names the reviewer asked us to create are
@@ -689,20 +728,28 @@ function ImportCenter() {
         const v = item.values;
 
         try {
-          if (item.match.status === "ambiguous") {
+          // Match again, now against the contacts this import has already created.
+          const flaggedByPreview =
+            item.match.status === "ambiguous" && !item.match.reason.startsWith("Appears more than once");
+          const live = matchRow(v, livePeople);
+          const match = live;
+
+          // A flagged row is never written. It waits in the Data Inbox for a person.
+          if (flaggedByPreview || live.status === "ambiguous") {
+            const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
             await supabase.from("review_queue").insert({
               batch_id: batch.id,
               filename: sheet.name,
-              reason: item.match.reason,
+              reason,
               row_data: v as unknown as Record<string, string>,
-              candidate_person_ids: item.match.candidates.map((c) => c.id),
+              candidate_person_ids: (live.candidates.length ? live.candidates : item.match.candidates).map((c) => c.id),
               status: "pending",
             });
             continue;
           }
 
-          let personId = item.match.candidates[0]?.id ?? null;
-          let householdId = item.match.candidates[0]?.household_id ?? null;
+          let personId = match.candidates[0]?.id ?? null;
+          let householdId = match.candidates[0]?.household_id ?? null;
           const { first, last, surname, display } = mainName(v);
           const displayName = display || null;
           const personRole = roleFromRow({
@@ -729,7 +776,7 @@ function ImportCenter() {
           const allowAddressLink = !addressAnswer || addressAnswer.action === "household";
           const relationship = addressAnswer?.relationship || null;
 
-          if (item.match.status === "new") {
+          if (match.status === "new") {
             if (hasFamily || v.billing_address) {
               householdId = await ensureHousehold(
                 householdName,
@@ -762,8 +809,21 @@ function ImportCenter() {
               .single();
             if (createError) throw createError;
             personId = created.id;
+            remember({
+              id: personId,
+              first,
+              last,
+              email: v.email ?? null,
+              phone: v.phone ?? null,
+              householdId,
+              address: fullAddress,
+              methods: [
+                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+              ],
+            });
           } else if (personId) {
-            const existing = item.match.candidates[0]!;
+            const existing = match.candidates[0]!;
             const patch: {
               email?: string;
               phone?: string;
@@ -783,6 +843,17 @@ function ImportCenter() {
             if (v.school) patch["school"] = v.school;
             if (v.person_notes) patch["notes"] = v.person_notes;
             if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
+            remember({
+              id: personId,
+              first,
+              last,
+              email: v.email ?? null,
+              phone: v.phone ?? null,
+              methods: [
+                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+              ],
+            });
 
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
