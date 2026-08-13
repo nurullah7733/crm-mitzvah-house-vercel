@@ -9,6 +9,7 @@ import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
+import { BackupExportPanel } from "@/components/settings/BackupExportPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
@@ -64,6 +65,17 @@ function SettingsPage() {
         </Accordion>
 
         <RecalculateTotalsPanel />
+
+        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+          <AccordionItem value="backup" className="border-0">
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Download a full backup
+            </AccordionTrigger>
+            <AccordionContent className="px-5 pb-5">
+              <BackupExportPanel />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
         <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
           <AccordionItem value="lists" className="border-0">
