@@ -202,25 +202,30 @@ function DonationsPage() {
         {isLoading && <EmptyState label="Loading donations…" />}
         {!isLoading && gifts.length === 0 && <EmptyState label="No gifts match those filters." />}
         {gifts.map((d) => (
-          <div key={d.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <SelectBox
-                checked={selection.has(d.id)}
-                onChange={() => selection.toggle(d.id)}
-                label="this gift"
-              />
-              <div className="min-w-0">
+          <div key={d.id} className="rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 pt-0.5">
+                <SelectBox
+                  checked={selection.has(d.id)}
+                  onChange={() => selection.toggle(d.id)}
+                  label="this gift"
+                />
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                 {d.people ? (
                   <Link
                     to="/people/$personId"
                     params={{ personId: d.people.id }}
-                    className="font-heading font-semibold text-primary hover:underline"
+                    className="min-w-0 break-words text-left font-heading font-semibold text-primary hover:underline"
                   >
                     {personName(d.people)}
                   </Link>
                 ) : (
                   <p className="font-heading font-semibold text-foreground">Unknown donor</p>
                 )}
+                  <p className="shrink-0 font-heading text-lg font-semibold text-money">{currency(d.amount)}</p>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {formatDate(d.date)} · {d.campaigns?.name ?? d.campaign ?? "General"} · {d.method ?? "—"}
                 </p>
@@ -245,7 +250,6 @@ function DonationsPage() {
                 {d.notes && <p className="mt-1 text-sm text-muted-foreground">{d.notes}</p>}
                 {d.source && <p className="mt-1 text-xs text-muted-foreground">Source: {d.source}</p>}
               </div>
-              <p className="shrink-0 font-heading text-lg font-semibold text-money">{currency(d.amount)}</p>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border pt-3">
               <label className="flex items-center gap-2 text-sm text-foreground">
