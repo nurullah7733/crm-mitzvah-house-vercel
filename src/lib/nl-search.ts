@@ -8,10 +8,41 @@ import { nextBirthday } from "@/lib/hebrew";
 /** More typos allowed in longer words. */
 export function allowedTypos(term: string) {
   const n = term.length;
-  if (n <= 3) return 0;
+  if (n <= 2) return 0;
   if (n <= 5) return 1;
   if (n <= 8) return 2;
   return 3;
+}
+
+/**
+ * Damerau-Levenshtein (optimal string alignment) distance: like Levenshtein,
+ * but swapping two neighbouring letters counts as ONE mistake, so "ruht"
+ * is one error away from "ruth" and "klien" one away from "klein".
+ */
+export function damerau(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const rows: number[][] = [];
+  for (let i = 0; i <= a.length; i++) rows.push(new Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) rows[i]![0] = i;
+  for (let j = 0; j <= b.length; j++) rows[0]![j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        v = Math.min(v, rows[i - 2]![j - 2]! + 1);
+      }
+      rows[i]![j] = v;
+    }
+  }
+  return rows[a.length]![b.length]!;
+}
+
+/** Cheapest of plain Levenshtein and the transposition-aware variant. */
+function editDistance(a: string, b: string) {
+  return Math.min(distance(a, b), damerau(a, b));
 }
 
 /**
@@ -31,11 +62,11 @@ export function fuzzyScore(term: string, haystack: string): number | null {
   let best: number | null = null;
   for (const word of h.split(/[^a-z0-9']+/i)) {
     if (!word) continue;
-    const d = distance(t, word);
+    const d = editDistance(t, word);
     if (d <= budget && (best === null || d < best)) best = d;
     // also compare against the same-length prefix, so "klien" hits "kleinberg"
     if (word.length > t.length) {
-      const p = distance(t, word.slice(0, t.length));
+      const p = editDistance(t, word.slice(0, t.length));
       if (p <= budget && (best === null || p < best)) best = p;
     }
   }

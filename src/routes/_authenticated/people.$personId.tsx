@@ -346,6 +346,7 @@ function PersonPage() {
                 options={options?.tags ?? []}
                 emptyLabel="No tags yet."
                 placeholder="New tag…"
+                linkKind="tag"
                 onChange={(next) => saveChips.mutate({ tags: next })}
               />
             </div>
@@ -357,6 +358,7 @@ function PersonPage() {
                 tone="primary"
                 emptyLabel="No programs yet."
                 placeholder="New program…"
+                linkKind="program"
                 onChange={(next) => saveChips.mutate({ programs: next })}
               />
             </div>

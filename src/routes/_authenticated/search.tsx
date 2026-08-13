@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
 import { describeIntents, parseQuery, runIntents, type SearchPerson } from "@/lib/nl-search";
+import { LabelChips } from "@/components/LabelChips";
 import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/search")({
@@ -38,10 +39,70 @@ const EXAMPLES = [
   "Mitzvah Kitchen",
 ];
 
+type Hit = { person_id: string; reason: string; score: number };
+
 function SearchPage() {
   const { q = "" } = Route.useSearch();
 
+  /** Keyword-style question? Then let Postgres do the fuzzy matching server-side. */
+  const { data: options } = useQuery({
+    queryKey: ["search-options"],
+    queryFn: async () => {
+      const [programs, tags, metSources] = await Promise.all([
+        supabase.from("program_options").select("label"),
+        supabase.from("tag_options").select("label"),
+        supabase.from("met_source_options").select("label"),
+      ]);
+      return {
+        programs: (programs.data ?? []).map((p) => p.label),
+        tags: (tags.data ?? []).map((t) => t.label),
+        metSources: (metSources.data ?? []).map((m) => m.label),
+      };
+    },
+  });
+
+  const parsed = parseQuery(q, {
+    programs: options?.programs ?? [],
+    tags: options?.tags ?? [],
+    metSources: options?.metSources ?? [],
+  });
+  const keywordMode =
+    Boolean(q.trim()) &&
+    parsed.every((i) => i.kind === "text" || i.kind === "tag" || i.kind === "program" || i.kind === "met_at");
+
+  const { data: keyword, isLoading: keywordLoading } = useQuery({
+    enabled: keywordMode,
+    queryKey: ["search-keyword", q],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("search_people", { _q: q.trim(), _limit: 200 });
+      if (error) throw error;
+      const hits = (data ?? []) as Hit[];
+      if (hits.length === 0) return { rows: [] as (SearchPerson & { reason: string })[] };
+      const ids = hits.map((h) => h.person_id);
+      const { data: people, error: peopleError } = await supabase
+        .from("people")
+        .select("*, households(name)")
+        .in("id", ids)
+        .is("deleted_at", null);
+      if (peopleError) throw peopleError;
+      const byId = new Map((people ?? []).map((p) => [p.id, p]));
+      const rows = hits
+        .map((h) => {
+          const p = byId.get(h.person_id);
+          if (!p) return null;
+          return {
+            ...p,
+            household_name: p.households?.name ?? null,
+            reason: h.reason,
+          } as SearchPerson & { reason: string; household_name: string | null };
+        })
+        .filter(Boolean) as (SearchPerson & { reason: string; household_name: string | null })[];
+      return { rows };
+    },
+  });
+
   const { data, isLoading } = useQuery({
+    enabled: Boolean(q.trim()) && !keywordMode,
     queryKey: ["search-corpus"],
     queryFn: async () => {
       const lastYear = new Date().getFullYear() - 1;
@@ -87,22 +148,26 @@ function SearchPage() {
     },
   });
 
-  const intents = parseQuery(q, {
-    programs: data?.programs ?? [],
-    tags: data?.tags ?? [],
-    metSources: data?.metSources ?? [],
-  });
-  const matches = data ? runIntents(intents, data.people) : [];
+  const intents = parsed;
+  const matches: (SearchPerson & { reason?: string })[] = keywordMode
+    ? keyword?.rows ?? []
+    : data
+      ? runIntents(intents, data.people)
+      : [];
+  const loading = keywordMode ? keywordLoading : isLoading;
 
   return (
     <AppShell title="Search" subtitle={q ? `“${q}”` : "Ask a question in the bar above"}>
       {q && (
         <div className="rounded-2xl border border-suggestion/40 bg-suggestion/10 p-4">
           <p className="flex items-center gap-2 font-heading text-sm font-semibold text-foreground">
-            <Sparkles className="size-4 text-suggestion" /> Understood as: {describeIntents(intents)}
+            <Sparkles className="size-4 text-suggestion" />{" "}
+            {keywordMode
+              ? "Searching names, tags, programs, events, campaigns, households, notes, tasks and grants"
+              : `Understood as: ${describeIntents(intents)}`}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isLoading ? "Searching…" : `${matches.length} ${matches.length === 1 ? "person" : "people"} matched`}
+            {loading ? "Searching…" : `${matches.length} ${matches.length === 1 ? "person" : "people"} matched`}
           </p>
         </div>
       )}
@@ -129,14 +194,14 @@ function SearchPage() {
       )}
 
       <div className="mt-4 space-y-3">
-        {q && !isLoading && matches.length === 0 && <EmptyState label="Nobody matched that question." />}
+        {q && !loading && matches.length === 0 && <EmptyState label="Nobody matched that question." />}
         {matches.map((p) => (
-          <Link
-            key={p.id}
-            to="/people/$personId"
-            params={{ personId: p.id }}
-            className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/50"
-          >
+          <div key={p.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <Link
+              to="/people/$personId"
+              params={{ personId: p.id }}
+              className="flex items-start gap-3 transition hover:opacity-90"
+            >
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
               {personInitials(p)}
             </span>
@@ -144,6 +209,11 @@ function SearchPage() {
               <p className="font-heading font-semibold text-primary">
                 {personName(p)}
               </p>
+              {p.reason && (
+                <p className="mt-0.5 text-xs font-medium text-foreground">
+                  Matched — {p.reason}
+                </p>
+              )}
               <p className="truncate text-sm text-muted-foreground">
                 {[p.email, p.phone, p.household_name].filter(Boolean).join(" · ") || "No contact details yet"}
               </p>
@@ -158,7 +228,9 @@ function SearchPage() {
               <p>{formatDate(p.last_activity_date)}</p>
               {daysSince(p.last_activity_date) !== null && <p>{daysSince(p.last_activity_date)} days ago</p>}
             </div>
-          </Link>
+            </Link>
+            <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
+          </div>
         ))}
       </div>
     </AppShell>
