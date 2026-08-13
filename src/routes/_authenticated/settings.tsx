@@ -5,6 +5,7 @@ import { Plus, Trash2, RefreshCw, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
 import { supabase } from "@/integrations/supabase/client";
+import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, formatDate } from "@/components/AppShell";
 import { EditableList } from "@/components/EditableList";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
