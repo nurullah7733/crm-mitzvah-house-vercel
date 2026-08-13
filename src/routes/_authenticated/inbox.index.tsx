@@ -110,14 +110,14 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
       for (const part of value.split(/[;,|]|\s\/\s/).map((s) => s.trim()).filter(Boolean)) {
         phones.push({ value: part, method_type: PHONE_COLUMNS[m.field]! });
       }
-      if (!out.phone) out.phone = phones[0]?.value;
+      if (!out.phone && phones[0]) out.phone = phones[0].value;
       return;
     }
     if (EMAIL_COLUMNS[m.field]) {
       for (const part of value.split(/[;,|\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"))) {
         emails.push({ value: normalizeEmail(part), method_type: EMAIL_COLUMNS[m.field]! });
       }
-      if (!out.email) out.email = emails[0]?.value;
+      if (!out.email && emails[0]) out.email = emails[0].value;
       return;
     }
     if (m.field === "child_name") {
