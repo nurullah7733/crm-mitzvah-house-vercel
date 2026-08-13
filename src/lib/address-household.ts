@@ -31,8 +31,8 @@ export async function createFindOutWhoTask(address: string, owner?: string | nul
     text: `Find out who lives at ${nameFromAddress(address)}`,
     due_date: due.toISOString().slice(0, 10),
     owner: owner?.trim() || null,
-    priority: "normal",
-    status: "open",
+    priority: "Normal",
+    status: "upcoming",
     notes: address,
   });
 }
