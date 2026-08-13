@@ -1032,6 +1032,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      log_import_review_merge: {
+        Args: {
+          _choices?: Json
+          _existing_before: Json
+          _incoming: Json
+          _item_id: string
+          _person_id: string
+          _surviving_after: Json
+        }
+        Returns: undefined
+      }
       log_review_decision: {
         Args: {
           _decision: string
