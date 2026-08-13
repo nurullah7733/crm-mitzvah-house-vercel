@@ -1014,6 +1014,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      daitch_mokotoff: { Args: { "": string }; Returns: string[] }
+      dmetaphone: { Args: { "": string }; Returns: string }
+      dmetaphone_alt: { Args: { "": string }; Returns: string }
       find_duplicate_people: {
         Args: never
         Returns: {
@@ -1049,6 +1052,26 @@ export type Database = {
       purge_old_audit_log: { Args: never; Returns: number }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
+      search_people: {
+        Args: { _limit?: number; _q: string }
+        Returns: {
+          person_id: string
+          reason: string
+          score: number
+        }[]
+      }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
+      soundex: { Args: { "": string }; Returns: string }
+      tag_program_counts: {
+        Args: never
+        Returns: {
+          contacts: number
+          kind: string
+          label: string
+        }[]
+      }
+      text_soundex: { Args: { "": string }; Returns: string }
       undo_import: { Args: { _batch_id: string }; Returns: Json }
     }
     Enums: {
