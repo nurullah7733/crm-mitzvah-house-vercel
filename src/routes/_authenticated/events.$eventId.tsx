@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { AppShell, EmptyState, formatDate, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { fetchAll } from "@/lib/fetch-all";
 
 export const Route = createFileRoute("/_authenticated/events/$eventId")({
@@ -28,6 +29,7 @@ export const Route = createFileRoute("/_authenticated/events/$eventId")({
 const STATUSES = ["registered", "attended", "no_show"] as const;
 
 function EventPage() {
+  const selection = useSelection();
   const { eventId } = Route.useParams();
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
@@ -167,6 +169,11 @@ function EventPage() {
                 className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="flex min-w-0 items-center gap-3">
+                  <SelectBox
+                    checked={selection.has(r.people.id)}
+                    onChange={() => selection.toggle(r.people!.id)}
+                    label={personName(r.people)}
+                  />
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-xs font-semibold text-primary">
                     {personInitials(r.people)}
                   </span>
@@ -201,6 +208,25 @@ function EventPage() {
           )}
           {registered.length === 0 && <EmptyState label="Nobody is registered yet." />}
         </div>
+        <BulkPeopleBar
+          selectedIds={selection.ids}
+          onClear={selection.clear}
+          visibleIds={registered.map((r) => r.people?.id).filter(Boolean) as string[]}
+          onSelectAll={() =>
+            selection.selectAll(registered.map((r) => r.people?.id).filter(Boolean) as string[])
+          }
+          extraAction={{
+            label: "Remove from event",
+            run: async (ids) => {
+              const { error } = await supabase
+                .from("registrations")
+                .delete()
+                .eq("event_id", eventId)
+                .in("person_id", ids);
+              if (error) throw error;
+            },
+          }}
+        />
       </section>
 
       <section className="mt-5 rounded-2xl border border-suggestion/40 bg-card p-5 shadow-sm">
