@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, CheckCircle2, AlertCircle, Save } from "lucide-react";
+import { Download, CheckCircle2, AlertCircle, Save, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAll } from "@/lib/fetch-all";
@@ -51,6 +51,11 @@ export function BackupExportPanel() {
   const [current, setCurrent] = useState<string | null>(null);
   const [results, setResults] = useState<Result[] | null>(null);
   const [readyDownload, setReadyDownload] = useState<ReadyDownload | null>(null);
+  const [embedded, setEmbedded] = useState(false);
+
+  useEffect(() => {
+    setEmbedded(window.top !== window.self);
+  }, []);
 
   useEffect(
     () => () => {
@@ -136,26 +141,6 @@ export function BackupExportPanel() {
 
   const failedCount = results?.filter((r) => r.error).length ?? 0;
 
-  // The preview runs inside an embedded frame, and browsers block file saves
-  // started there. Handing the file to a normal browser tab lets the save go
-  // through with the right filename.
-  function saveFile(e: React.MouseEvent) {
-    if (!readyDownload) return;
-    if (window.top === window.self) return; // normal tab: let the link work
-    e.preventDefault();
-    const w = window.open("", "_blank");
-    if (!w) {
-      toast.error("Please allow pop-ups for this page, then click Save again");
-      return;
-    }
-    const a = w.document.createElement("a");
-    a.href = readyDownload.url;
-    a.download = readyDownload.filename;
-    w.document.body.appendChild(a);
-    a.click();
-    setTimeout(() => w.close(), 2000);
-  }
-
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
@@ -165,6 +150,22 @@ export function BackupExportPanel() {
         <span className="font-medium"> .zip</span> file in your Downloads folder — double-click it to
         see the spreadsheets. Keep a copy somewhere safe before any big import.
       </p>
+
+      {embedded && (
+        <div className="rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm text-foreground">
+          <p className="font-medium">Downloads can be blocked inside the preview window.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Open Settings in a normal browser tab, then run the backup there. Published staff pages
+            open normally and do not need this step.
+          </p>
+          <Button asChild variant="outline" className="mt-3 h-10 rounded-xl">
+            <a href="/settings" target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Open Settings in a new tab
+            </a>
+          </Button>
+        </div>
+      )}
 
       <Button onClick={runExport} disabled={busy} className="h-11 rounded-xl">
         <Download className="mr-2 h-4 w-4" />
@@ -182,7 +183,7 @@ export function BackupExportPanel() {
         <div className="rounded-xl border border-money/30 bg-money/10 p-4">
           <p className="mb-3 text-sm font-medium text-foreground">Your backup is ready to save.</p>
           <Button asChild className="h-11 rounded-xl">
-            <a href={readyDownload.url} download={readyDownload.filename} onClick={saveFile}>
+            <a href={readyDownload.url} download={readyDownload.filename}>
               <Save className="mr-2 h-4 w-4" />
               Save backup file
             </a>
