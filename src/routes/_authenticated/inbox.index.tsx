@@ -952,19 +952,19 @@ function ImportCenter() {
               kind: "phone" as const,
               value: m.value,
               method_type: m.method_type,
-              is_primary: mi === 0 && item.match.status === "new",
+              is_primary: mi === 0 && match.status === "new",
             })),
             ...(v.emails ?? []).map((m, mi) => ({
               kind: "email" as const,
               value: m.value,
               method_type: m.method_type,
-              is_primary: mi === 0 && item.match.status === "new",
+              is_primary: mi === 0 && match.status === "new",
             })),
           ];
           if (methodDrafts.length > 0) {
             await addContactMethods(personId, methodDrafts, {
               importBatchId: batchId,
-              ...(item.match.status === "new" ? { existing: [] } : {}),
+              ...(match.status === "new" ? { existing: [] } : {}),
             });
           }
 
