@@ -11,6 +11,7 @@ import { EditableList } from "@/components/EditableList";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
 import { BackupExportPanel } from "@/components/settings/BackupExportPanel";
 import { RenewalSettingsPanel } from "@/components/settings/RenewalSettingsPanel";
+import { LifecycleSettingsPanel } from "@/components/settings/LifecycleSettingsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
