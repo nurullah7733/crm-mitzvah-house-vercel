@@ -367,6 +367,55 @@ function TasksPage() {
           </section>
         )}
 
+        {growingUp.length > 0 && (
+          <section>
+            <h2 className="font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Growing up — for you to decide
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Nothing has been changed automatically.
+              {adultReviews > 0
+                ? ` ${adultReviews} ${adultReviews === 1 ? "child is" : "children are"} past age ${
+                    (lifecycleSettings ?? LIFECYCLE_DEFAULTS).adult_age
+                  } and waiting for your review.`
+                : ""}
+            </p>
+            <div className="mt-3 space-y-3">
+              {growingUp.map((r) => (
+                <div
+                  key={r.key}
+                  className="flex gap-3 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 shadow-sm"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-suggestion/25 text-suggestion-foreground">
+                    <GraduationCap className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground">{r.label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{r.detail}</p>
+                    <div className="mt-2 flex flex-wrap gap-4">
+                      <Link
+                        to="/people/$personId"
+                        params={{ personId: r.personId }}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Open {r.name}
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={addLifecycleTask.isPending}
+                        className="text-xs text-primary hover:underline disabled:opacity-50"
+                        onClick={() => addLifecycleTask.mutate(r)}
+                      >
+                        Add as task
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {[
           { label: "Overdue", items: overdue },
           { label: "Upcoming", items: upcoming },
