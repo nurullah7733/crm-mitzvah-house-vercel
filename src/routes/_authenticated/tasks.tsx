@@ -65,9 +65,8 @@ function TasksPage() {
         fetchAll((f, t) =>
           supabase
             .from("people")
-            .select("id, display_name, first_name, last_name, birth_date")
+            .select("id, display_name, first_name, last_name, birth_date, anniversary_date")
             .is("deleted_at", null)
-            .not("birth_date", "is", null)
             .order("id")
             .range(f, t),
         ),
@@ -172,14 +171,28 @@ function TasksPage() {
 
   const reminders = [
     ...(dates?.people ?? []).flatMap((p) => {
-      const next = nextBirthday(p.birth_date);
+      const next = nextHebrewAnniversary(p.birth_date);
       if (!next || next.days > 31) return [];
       return [
         {
           key: `b-${p.id}`,
           personId: p.id,
           name: personName(p),
-          label: `Birthday in ${next.days} day${next.days === 1 ? "" : "s"}`,
+          label: `Hebrew birthday ${next.hebrewLabel} — in ${next.days} day${next.days === 1 ? "" : "s"}`,
+          date: next.date.toISOString(),
+          days: next.days,
+        },
+      ];
+    }),
+    ...(dates?.people ?? []).flatMap((p) => {
+      const next = nextHebrewAnniversary(p.anniversary_date);
+      if (!next || next.days > 31) return [];
+      return [
+        {
+          key: `a-${p.id}`,
+          personId: p.id,
+          name: personName(p),
+          label: `Hebrew anniversary ${next.hebrewLabel} — in ${next.days} day${next.days === 1 ? "" : "s"}`,
           date: next.date.toISOString(),
           days: next.days,
         },
