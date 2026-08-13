@@ -427,8 +427,79 @@ CREATE INDEX yahrzeits_person_id_idx ON public.yahrzeits USING btree (person_id)
 
 -- ======================================================================
 -- DATA API GRANTS
+-- NOTE: `anon` currently holds table-level grants on every table. Nothing is
+-- actually readable by anon because every policy is scoped `TO authenticated`,
+-- but the grants are wider than they need to be (see known-issues.md).
 -- ======================================================================
--- (none)
+GRANT SELECT, DELETE, UPDATE, INSERT ON public.audit_log TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE ON public.audit_log TO authenticated;
+GRANT UPDATE, DELETE, SELECT, INSERT ON public.audit_log TO service_role;
+GRANT SELECT, INSERT, DELETE, UPDATE ON public.campaigns TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.campaigns TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.campaigns TO service_role;
+GRANT DELETE, SELECT, UPDATE, INSERT ON public.donations TO anon;
+GRANT DELETE, INSERT, UPDATE, SELECT ON public.donations TO authenticated;
+GRANT INSERT, DELETE, UPDATE, SELECT ON public.donations TO service_role;
+GRANT UPDATE, SELECT, DELETE, INSERT ON public.events TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.events TO authenticated;
+GRANT UPDATE, DELETE, SELECT, INSERT ON public.events TO service_role;
+GRANT DELETE, SELECT, INSERT, UPDATE ON public.field_sources TO anon;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.field_sources TO authenticated;
+GRANT INSERT, UPDATE, SELECT, DELETE ON public.field_sources TO service_role;
+GRANT INSERT, UPDATE, SELECT, DELETE ON public.grants TO anon;
+GRANT UPDATE, SELECT, INSERT, DELETE ON public.grants TO authenticated;
+GRANT UPDATE, SELECT, DELETE, INSERT ON public.grants TO service_role;
+GRANT UPDATE, INSERT, SELECT, DELETE ON public.households TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.households TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.households TO service_role;
+GRANT DELETE, INSERT, SELECT, UPDATE ON public.import_batches TO anon;
+GRANT INSERT, SELECT, UPDATE, DELETE ON public.import_batches TO authenticated;
+GRANT DELETE, SELECT, INSERT, UPDATE ON public.import_batches TO service_role;
+GRANT UPDATE, SELECT, INSERT, DELETE ON public.integration_credentials TO anon;
+GRANT UPDATE, DELETE, SELECT, INSERT ON public.integration_credentials TO authenticated;
+GRANT SELECT, INSERT, DELETE, UPDATE ON public.integration_credentials TO service_role;
+GRANT UPDATE, DELETE, INSERT, SELECT ON public.integration_events TO anon;
+GRANT INSERT, UPDATE, SELECT, DELETE ON public.integration_events TO authenticated;
+GRANT SELECT, UPDATE, INSERT, DELETE ON public.integration_events TO service_role;
+GRANT SELECT, DELETE, INSERT, UPDATE ON public.integrations TO anon;
+GRANT INSERT, DELETE, SELECT, UPDATE ON public.integrations TO authenticated;
+GRANT UPDATE, DELETE, INSERT, SELECT ON public.integrations TO service_role;
+GRANT UPDATE, DELETE, SELECT, INSERT ON public.interactions TO anon;
+GRANT SELECT, DELETE, UPDATE, INSERT ON public.interactions TO authenticated;
+GRANT DELETE, INSERT, SELECT, UPDATE ON public.interactions TO service_role;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.merge_log TO anon;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.merge_log TO authenticated;
+GRANT UPDATE, SELECT, INSERT, DELETE ON public.merge_log TO service_role;
+GRANT DELETE, SELECT, UPDATE, INSERT ON public.met_source_options TO anon;
+GRANT UPDATE, DELETE, SELECT, INSERT ON public.met_source_options TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.met_source_options TO service_role;
+GRANT INSERT, UPDATE, SELECT, DELETE ON public.people TO anon;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.people TO authenticated;
+GRANT DELETE, SELECT, INSERT, UPDATE ON public.people TO service_role;
+GRANT SELECT, DELETE, UPDATE, INSERT ON public.program_options TO anon;
+GRANT UPDATE, DELETE, SELECT, INSERT ON public.program_options TO authenticated;
+GRANT UPDATE, SELECT, INSERT, DELETE ON public.program_options TO service_role;
+GRANT SELECT, DELETE, UPDATE, INSERT ON public.registrations TO anon;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.registrations TO authenticated;
+GRANT SELECT, INSERT, DELETE, UPDATE ON public.registrations TO service_role;
+GRANT SELECT, UPDATE, INSERT, DELETE ON public.review_queue TO anon;
+GRANT INSERT, SELECT, DELETE, UPDATE ON public.review_queue TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.review_queue TO service_role;
+GRANT INSERT, SELECT, DELETE, UPDATE ON public.staff_members TO anon;
+GRANT SELECT, DELETE, INSERT, UPDATE ON public.staff_members TO authenticated;
+GRANT UPDATE, INSERT, DELETE, SELECT ON public.staff_members TO service_role;
+GRANT UPDATE, INSERT, SELECT, DELETE ON public.tag_options TO anon;
+GRANT INSERT, UPDATE, DELETE, SELECT ON public.tag_options TO authenticated;
+GRANT DELETE, SELECT, UPDATE, INSERT ON public.tag_options TO service_role;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.tasks TO anon;
+GRANT SELECT, UPDATE, DELETE, INSERT ON public.tasks TO authenticated;
+GRANT UPDATE, SELECT, INSERT, DELETE ON public.tasks TO service_role;
+GRANT DELETE, SELECT, INSERT, UPDATE ON public.user_roles TO anon;
+GRANT SELECT, DELETE, UPDATE, INSERT ON public.user_roles TO authenticated;
+GRANT UPDATE, INSERT, SELECT, DELETE ON public.user_roles TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.yahrzeits TO anon;
+GRANT SELECT, DELETE, UPDATE, INSERT ON public.yahrzeits TO authenticated;
+GRANT INSERT, UPDATE, SELECT, DELETE ON public.yahrzeits TO service_role;
 
 -- ======================================================================
 -- ROW LEVEL SECURITY — enable
