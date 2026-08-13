@@ -590,6 +590,29 @@ function ImportCenter() {
 
           if (!personId) continue;
 
+          // Every phone and email on the row is stored, with anything already on
+          // file skipped so a re-import never duplicates a number.
+          const methodDrafts: MethodDraft[] = [
+            ...(v.phones ?? []).map((m, mi) => ({
+              kind: "phone" as const,
+              value: m.value,
+              method_type: m.method_type,
+              is_primary: mi === 0 && item.match.status === "new",
+            })),
+            ...(v.emails ?? []).map((m, mi) => ({
+              kind: "email" as const,
+              value: m.value,
+              method_type: m.method_type,
+              is_primary: mi === 0 && item.match.status === "new",
+            })),
+          ];
+          if (methodDrafts.length > 0) {
+            await addContactMethods(personId, methodDrafts, {
+              importBatchId: batchId,
+              ...(item.match.status === "new" ? { existing: [] } : {}),
+            });
+          }
+
           // A partner on the same row becomes their own contact in the same household.
           const spouseName = v.spouse_first_name
             ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
@@ -610,7 +633,9 @@ function ImportCenter() {
           if (spouseName && (spouseName.first || spouseName.last)) {
             const spouseLast = spouseName.last || last;
             if (!inHousehold(spouseName.first, spouseLast)) {
-              await supabase.from("people").insert({
+              const { data: spouse } = await supabase
+                .from("people")
+                .insert({
                 first_name: spouseName.first || null,
                 last_name: spouseLast || null,
                 display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
@@ -620,7 +645,18 @@ function ImportCenter() {
                 role: "Adult",
                 met_source: v.met_source ?? null,
                 import_batch_id: batchId,
-              });
+                })
+                .select("id")
+                .single();
+              if (spouse?.id) {
+                const spouseMethods: MethodDraft[] = [];
+                if (v.spouse_phone)
+                  spouseMethods.push({ kind: "phone", value: v.spouse_phone, method_type: "Mobile", is_primary: true });
+                if (v.spouse_email)
+                  spouseMethods.push({ kind: "email", value: v.spouse_email, method_type: "Personal", is_primary: true });
+                if (spouseMethods.length)
+                  await addContactMethods(spouse.id, spouseMethods, { importBatchId: batchId, existing: [] });
+              }
               houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
             }
           }
