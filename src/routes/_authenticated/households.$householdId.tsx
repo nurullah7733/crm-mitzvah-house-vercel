@@ -9,6 +9,9 @@ import { EditableCard } from "@/components/EditableCard";
 import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { LogHouseholdActivityDialog } from "@/components/forms/QuickAddHouseholdDialog";
 
 export const Route = createFileRoute("/_authenticated/households/$householdId")({
   head: () => ({
@@ -35,6 +38,7 @@ function HouseholdPage() {
   const { householdId } = Route.useParams();
   const queryClient = useQueryClient();
   const selection = useSelection();
+  const [logOpen, setLogOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["household", householdId],
@@ -46,7 +50,14 @@ function HouseholdPage() {
         .maybeSingle();
       if (error) throw error;
       const ids = (household?.people ?? []).map((p) => p.id);
-      if (ids.length === 0) return { household, interactions: [], donations: [], tasks: [] };
+      const houseLog = await supabase
+        .from("interactions")
+        .select("*")
+        .eq("household_id", householdId)
+        .order("date", { ascending: false });
+      if (ids.length === 0) {
+        return { household, interactions: houseLog.data ?? [], donations: [], tasks: [] };
+      }
       const [interactions, donations, tasks] = await Promise.all([
         supabase.from("interactions").select("*").in("person_id", ids).order("date", { ascending: false }),
         supabase.from("donations").select("*").is("deleted_at", null).in("person_id", ids).order("date", { ascending: false }),
@@ -54,7 +65,7 @@ function HouseholdPage() {
       ]);
       return {
         household,
-        interactions: interactions.data ?? [],
+        interactions: [...(houseLog.data ?? []), ...(interactions.data ?? [])],
         donations: donations.data ?? [],
         tasks: tasks.data ?? [],
       };
@@ -79,7 +90,9 @@ function HouseholdPage() {
   }
 
   const members = h.people ?? [];
-  const nameOf = (id: string) => {
+  const addressOnly = h.status === "address_only";
+  const nameOf = (id: string | null) => {
+    if (!id) return "This address";
     const m = members.find((p) => p.id === id);
     return m ? `${m.first_name} ${m.last_name}` : "Someone";
   };
@@ -93,6 +106,16 @@ function HouseholdPage() {
     logChange("Edited a household");
     await queryClient.invalidateQueries({ queryKey: ["household", householdId] });
     await queryClient.invalidateQueries({ queryKey: ["households"] });
+  }
+
+  async function markEstablished() {
+    const { error } = await supabase.from("households").update({ status: "active" }).eq("id", householdId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Marked as an established household");
+    await queryClient.invalidateQueries();
   }
 
   const feed = [
@@ -117,6 +140,23 @@ function HouseholdPage() {
       <Link to="/households" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
         <ArrowLeft className="size-4" /> All households
       </Link>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {addressOnly && (
+          <span className="rounded-full bg-suggestion/20 px-3 py-1 text-xs font-semibold text-foreground">
+            Address only — no contact yet
+          </span>
+        )}
+        <Button variant="outline" className="rounded-xl" onClick={() => setLogOpen(true)}>
+          Log a visit or delivery
+        </Button>
+        {addressOnly && (
+          <Button variant="outline" className="rounded-xl" onClick={markEstablished}>
+            Mark as established
+          </Button>
+        )}
+      </div>
+      <LogHouseholdActivityDialog open={logOpen} onOpenChange={setLogOpen} householdId={householdId} />
 
       <section className="mt-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div className="grid gap-4 sm:grid-cols-2">

@@ -2,11 +2,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { formatPhone } from "@/lib/phone";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Users, Download } from "lucide-react";
+import { Plus, Users, Download, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
+import { QuickAddHouseholdDialog } from "@/components/forms/QuickAddHouseholdDialog";
 import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
@@ -19,6 +20,7 @@ type HouseholdRow = {
   address: string | null;
   phone: string | null;
   notes?: string | null;
+  status?: string | null;
   people: {
     id: string;
     first_name: string;
@@ -86,6 +88,7 @@ function ExportHouseholdsDialog({
   households: HouseholdRow[];
 }) {
   const [style, setStyle] = useState<NameStyle>("household");
+  const [includeAddressOnly, setIncludeAddressOnly] = useState(false);
   const [columns, setColumns] = useState<ColumnKey[]>([
     "address",
     "phone",
@@ -97,8 +100,11 @@ function ExportHouseholdsDialog({
   const toggle = (key: ColumnKey) =>
     setColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
+  // Address-only households stay out of mailing exports unless deliberately included.
+  const exportable = includeAddressOnly ? households : households.filter((h) => h.status !== "address_only");
+
   function run() {
-    const rows = households.map((h) => {
+    const rows = exportable.map((h) => {
       const row: Record<string, unknown> = { Name: nameFor(h, style) };
       if (columns.includes("address")) row["Address"] = h.address ?? "";
       if (columns.includes("phone")) row["Phone"] = formatPhone(h.phone);
@@ -118,7 +124,7 @@ function ExportHouseholdsDialog({
     onOpenChange(false);
   }
 
-  const preview = households[0] ? nameFor(households[0], style) : "";
+  const preview = exportable[0] ? nameFor(exportable[0], style) : "";
 
   return (
     <ResponsiveModal
@@ -174,8 +180,18 @@ function ExportHouseholdsDialog({
           </div>
         </div>
 
-        <Button className="w-full rounded-xl" onClick={run} disabled={households.length === 0}>
-          <Download className="size-4" /> Download {households.length} households
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border p-3 text-sm">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={includeAddressOnly}
+            onChange={() => setIncludeAddressOnly((v) => !v)}
+          />
+          Include address-only households (no contact yet)
+        </label>
+
+        <Button className="w-full rounded-xl" onClick={run} disabled={exportable.length === 0}>
+          <Download className="size-4" /> Download {exportable.length} households
         </Button>
       </div>
     </ResponsiveModal>
@@ -196,6 +212,8 @@ export const Route = createFileRoute("/_authenticated/households/")({
 
 function HouseholdsPage() {
   const [addOpen, setAddOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [filter, setFilter] = useState<"all" | "address_only" | "established">("all");
   const selection = useSelection();
   const [exportOpen, setExportOpen] = useState(false);
   const { data, isLoading } = useQuery({
@@ -211,6 +229,11 @@ function HouseholdsPage() {
       ),
   });
 
+  const all = (data ?? []) as HouseholdRow[];
+  const rows = all.filter((h) =>
+    filter === "all" ? true : filter === "address_only" ? h.status === "address_only" : h.status !== "address_only",
+  );
+
   return (
     <AppShell
       title="Households"
@@ -220,15 +243,39 @@ function HouseholdsPage() {
           <Button variant="outline" className="rounded-xl" onClick={() => setExportOpen(true)}>
             <Download className="size-4" /> Export to CSV
           </Button>
+          <Button variant="outline" className="rounded-xl" onClick={() => setQuickOpen(true)}>
+            <MapPin className="size-4" /> Quick add address
+          </Button>
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add household
           </Button>
         </div>
       }
     >
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            ["all", `All (${all.length})`],
+            ["established", `Established (${all.filter((h) => h.status !== "address_only").length})`],
+            ["address_only", `Address only (${all.filter((h) => h.status === "address_only").length})`],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setFilter(value)}
+            className={`rounded-full border px-3 py-1.5 text-sm ${
+              filter === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {isLoading && <EmptyState label="Loading households…" />}
       <div className="grid gap-4 sm:grid-cols-2">
-        {data?.map((h) => {
+        {rows.map((h) => {
           const lifetime = (h.people ?? []).reduce((sum, p) => sum + Number(p.lifetime_giving ?? 0), 0);
           const thisYear = (h.people ?? []).reduce((sum, p) => sum + Number(p.this_year_giving ?? 0), 0);
           return (
@@ -250,6 +297,11 @@ function HouseholdsPage() {
                   {h.name}
                 </Link>
               </div>
+              {h.status === "address_only" && (
+                <span className="mt-2 inline-block rounded-full bg-suggestion/20 px-2.5 py-1 text-xs font-semibold text-foreground">
+                  Address only — no contact yet
+                </span>
+              )}
               <p className="mt-0.5 text-sm text-muted-foreground">{h.address ?? "No address"}</p>
               <p className="text-sm text-muted-foreground">{formatPhone(h.phone) || "No phone"}</p>
               <div className="mt-4 flex items-end justify-between gap-3">
@@ -265,21 +317,22 @@ function HouseholdsPage() {
           );
         })}
       </div>
-      {!isLoading && (data ?? []).length === 0 && <EmptyState label="No households yet." />}
+      {!isLoading && rows.length === 0 && <EmptyState label="Nothing here yet." />}
       <AddHouseholdDialog open={addOpen} onOpenChange={setAddOpen} />
+      <QuickAddHouseholdDialog open={quickOpen} onOpenChange={setQuickOpen} />
       <BulkRecordBar
         table="households"
         noun="household"
         nounPlural="households"
         selectedIds={selection.ids}
         onClear={selection.clear}
-        visibleIds={(data ?? []).map((h) => h.id)}
-        onSelectAll={() => selection.selectAll((data ?? []).map((h) => h.id))}
+        visibleIds={rows.map((h) => h.id)}
+        onSelectAll={() => selection.selectAll(rows.map((h) => h.id))}
       />
       <ExportHouseholdsDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
-        households={(data ?? []) as HouseholdRow[]}
+        households={rows}
       />
     </AppShell>
   );

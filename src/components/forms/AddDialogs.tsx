@@ -18,6 +18,7 @@ import { MethodDraftList } from "@/components/ContactMethodsEditor";
 import { addContactMethods, emptyDraft, phoneKey, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case";
 import { attributeGiftToEvent, findEventsNearDate, type NearbyEvent } from "@/lib/gift-events";
+import { createFindOutWhoTask, findHouseholdAtAddress, nameFromAddress } from "@/lib/address-household";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -109,6 +110,14 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const { data: metSources } = useMetSourceOptions();
   const hebrew = hebrewDateFromEnglish(form.birth_date);
   const isOrg = form.contact_type !== "individual";
+
+  // If we already have this address on file, offer to join that household instead of making a second one.
+  const { data: addressMatch } = useQuery({
+    queryKey: ["household-at-address", form.address.trim()],
+    enabled: form.address.trim().length > 5,
+    queryFn: () => findHouseholdAtAddress(form.address.trim()),
+  });
+  const suggestHousehold = addressMatch && !form.household_id && !form.new_household.trim() ? addressMatch : null;
 
   const enteredPhones = phones.map((p) => p.value.trim()).filter(Boolean);
   const enteredEmails = emails.map((e) => normalizeEmail(e.value)).filter(Boolean);
@@ -246,6 +255,10 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       if (error) throw error;
 
       // Every phone number and email address entered is saved to the contact.
+      // A household that was address-only now has someone in it.
+      if (householdId) {
+        await supabase.from("households").update({ status: "active" }).eq("id", householdId).eq("status", "address_only");
+      }
       const drafts: MethodDraft[] = [
         ...phones.filter((p) => p.value.trim()).map((p, i) => ({ ...p, is_primary: i === 0 })),
         ...emails.filter((e) => e.value.trim()).map((e, i) => ({ ...e, is_primary: i === 0 })),
@@ -444,6 +457,23 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
 
         <Field label="Address" className="sm:col-span-2">
           <Input className="text-base" value={form.address} onChange={(e) => set("address", e.target.value)} />
+          {suggestHousehold && (
+            <div className="mt-2 rounded-xl border border-primary/40 bg-primary/5 p-3 text-sm">
+              <p className="text-foreground">
+                There's already a household at this address:{" "}
+                <span className="font-semibold">{suggestHousehold.name}</span>
+                {suggestHousehold.status === "address_only" ? " (address only — no contact yet)" : ""}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-2 rounded-xl"
+                onClick={() => set("household_id", suggestHousehold.id)}
+              >
+                Add this person to it
+              </Button>
+            </div>
+          )}
         </Field>
 
         <Field label="Birthday" hint={hebrew ? `Hebrew date: ${hebrew}` : null} className="sm:col-span-2">
@@ -476,14 +506,26 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.name.trim()) throw new Error("A household name is required");
+      const address = form.address.trim();
+      const name = form.name.trim();
+      if (!name && !address) throw new Error("Enter a household name or an address");
+
+      if (address) {
+        const existing = await findHouseholdAtAddress(address);
+        if (existing) throw new Error(`There's already a household at this address: ${existing.name}`);
+      }
+
+      // No family name yet? It becomes an address-only household with a follow-up task.
+      const addressOnly = !name;
       const { error } = await supabase.from("households").insert({
-        name: form.name.trim(),
-        address: form.address.trim() || null,
+        name: name || nameFromAddress(address),
+        address: address || null,
         phone: form.phone.trim() || null,
         notes: form.notes.trim() || null,
+        status: addressOnly ? "address_only" : "active",
       });
       if (error) throw error;
+      if (addressOnly) await createFindOutWhoTask(address);
     },
     onSuccess: () => {
       toast.success("Household added");
@@ -500,7 +542,7 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Add household"
-      description="Households are only for mailings and spotting duplicates."
+      description="An address on its own is enough — the family name can come later."
       footer={
         <>
           <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
@@ -513,7 +555,7 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
       }
     >
       <div className="grid gap-3">
-        <Field label="Household name">
+        <Field label="Household name (optional)">
           <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
         <Field label="Address">

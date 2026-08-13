@@ -126,6 +126,7 @@ function SearchPage() {
       ]);
       const notes = new Map<string, string[]>();
       for (const i of interactions) {
+        if (!i.person_id) continue;
         const list = notes.get(i.person_id) ?? [];
         list.push(`${i.type ?? ""} ${i.text ?? ""}`);
         notes.set(i.person_id, list);

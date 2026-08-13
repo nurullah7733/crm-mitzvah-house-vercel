@@ -444,6 +444,7 @@ export type Database = {
           phone: string | null
           postal_code: string | null
           state: string | null
+          status: string
         }
         Insert: {
           address?: string | null
@@ -460,6 +461,7 @@ export type Database = {
           phone?: string | null
           postal_code?: string | null
           state?: string | null
+          status?: string
         }
         Update: {
           address?: string | null
@@ -476,6 +478,7 @@ export type Database = {
           phone?: string | null
           postal_code?: string | null
           state?: string | null
+          status?: string
         }
         Relationships: [
           {
@@ -624,9 +627,10 @@ export type Database = {
           author: string | null
           created_at: string
           date: string
+          household_id: string | null
           id: string
           import_batch_id: string | null
-          person_id: string
+          person_id: string | null
           source_id: string | null
           source_kind: string | null
           text: string | null
@@ -636,9 +640,10 @@ export type Database = {
           author?: string | null
           created_at?: string
           date?: string
+          household_id?: string | null
           id?: string
           import_batch_id?: string | null
-          person_id: string
+          person_id?: string | null
           source_id?: string | null
           source_kind?: string | null
           text?: string | null
@@ -648,15 +653,23 @@ export type Database = {
           author?: string | null
           created_at?: string
           date?: string
+          household_id?: string | null
           id?: string
           import_batch_id?: string | null
-          person_id?: string
+          person_id?: string | null
           source_id?: string | null
           source_kind?: string | null
           text?: string | null
           type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "interactions_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "interactions_import_batch_id_fkey"
             columns: ["import_batch_id"]

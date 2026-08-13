@@ -709,7 +709,11 @@ function ImportCenter() {
           if (parts.postal_code) patch.postal_code = parts.postal_code;
           if (parts.county) patch.county = parts.county;
           if (billing) patch.billing_address = billing;
-          if (Object.keys(patch).length > 0) await supabase.from("households").update(patch).eq("id", found);
+          // People are joining this address, so an address-only record becomes a real household.
+          await supabase
+            .from("households")
+            .update({ ...patch, status: "active" } as never)
+            .eq("id", found);
           return found;
         }
         const { data: household } = await supabase
