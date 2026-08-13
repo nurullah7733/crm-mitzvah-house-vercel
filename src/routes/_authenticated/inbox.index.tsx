@@ -251,7 +251,9 @@ function ImportCenter() {
       (await fetchAll((f, t) =>
         supabase
           .from("people")
-          .select("id, first_name, last_name, email, phone, household_id, households(name, address)")
+          .select(
+            "id, first_name, last_name, email, phone, household_id, households(name, address), contact_methods(kind, value)",
+          )
           .is("deleted_at", null)
           .order("id")
           .range(f, t),
