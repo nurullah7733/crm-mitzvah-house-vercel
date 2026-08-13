@@ -263,5 +263,5 @@ any provider.
 | Google Sheets | two-way | not built; CSV/Excel import and CSV export cover this today |
 | Salesforce | one-time historical import | not built; use the CSV Import Center |
 
-Working today: CSV/Excel import, CSV export on People, Households, Events,
-Donations, Grants, and Tasks.
+Working today: CSV/Excel import, and CSV export on People, Households, Events
+and Donations (Grants, Tasks and Campaigns have no export yet).
