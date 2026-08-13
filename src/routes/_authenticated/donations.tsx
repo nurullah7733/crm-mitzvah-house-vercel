@@ -8,6 +8,8 @@ import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShel
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddDonationDialog } from "@/components/forms/AddDialogs";
+import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
@@ -28,6 +30,7 @@ export const Route = createFileRoute("/_authenticated/donations")({
 
 function DonationsPage() {
   const queryClient = useQueryClient();
+  const selection = useSelection();
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [from, setFrom] = useState("");
@@ -188,6 +191,11 @@ function DonationsPage() {
         {gifts.map((d) => (
           <div key={d.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-start justify-between gap-4">
+              <SelectBox
+                checked={selection.has(d.id)}
+                onChange={() => selection.toggle(d.id)}
+                label="this gift"
+              />
               <div className="min-w-0">
                 {d.people ? (
                   <Link
