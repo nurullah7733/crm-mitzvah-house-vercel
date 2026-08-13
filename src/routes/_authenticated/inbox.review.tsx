@@ -467,6 +467,17 @@ function DataInbox() {
                           })}
                         </div>
                       )}
+
+                      {r.status !== "skipped" && (
+                        <button
+                          type="button"
+                          className="mt-3 text-sm text-muted-foreground underline"
+                          disabled={skip.isPending}
+                          onClick={() => skip.mutate(r.id)}
+                        >
+                          Skip for now
+                        </button>
+                      )}
                     </div>
                   );
                 })}
