@@ -7,7 +7,7 @@ import { ArrowLeft, Sparkles, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
-import { AppShell, EmptyState, formatDate, initials } from "@/components/AppShell";
+import { AppShell, EmptyState, currency, formatDate, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { fetchAll } from "@/lib/fetch-all";
