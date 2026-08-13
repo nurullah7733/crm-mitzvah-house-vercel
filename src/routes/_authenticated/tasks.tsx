@@ -226,6 +226,13 @@ function TasksPage() {
     .filter((r) => !alreadyTracked.has(r.key))
     .sort((a, b) => a.sort - b.sort);
 
+  const growingUp = lifecycleItems(
+    children ?? [],
+    (p) => personName(p),
+    lifecycleSettings ?? LIFECYCLE_DEFAULTS,
+  ).filter((r) => !alreadyTracked.has(r.key));
+  const adultReviews = growingUp.filter((r) => r.kind === "adult").length;
+
   const overdue = tasks.filter((t) => t.group === "overdue");
   const upcoming = tasks.filter((t) => t.group === "upcoming");
   const weekStart = (() => {
