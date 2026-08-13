@@ -10,6 +10,12 @@ export type FieldKey =
   | "full_name"
   | "email"
   | "phone"
+  | "phone_mobile"
+  | "phone_home"
+  | "phone_work"
+  | "phone_other"
+  | "email_work"
+  | "email_other"
   | "address"
   | "address_line2"
   | "address_line3"
@@ -54,6 +60,12 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   full_name: "Full name",
   email: "Email",
   phone: "Phone",
+  phone_mobile: "Phone — mobile (repeatable)",
+  phone_home: "Phone — home (repeatable)",
+  phone_work: "Phone — work (repeatable)",
+  phone_other: "Phone — other (repeatable)",
+  email_work: "Email — work (repeatable)",
+  email_other: "Email — other (repeatable)",
   address: "Home address",
   address_line2: "Address line 2 (apt, unit)",
   address_line3: "Extra address line",
@@ -92,6 +104,12 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
 
 /** These may be mapped to more than one column (child 1, child 2, …). */
 export const REPEATABLE_FIELDS: FieldKey[] = [
+  "phone_mobile",
+  "phone_home",
+  "phone_work",
+  "phone_other",
+  "email_work",
+  "email_other",
   "child_name",
   "child_first_name",
   "child_last_name",
@@ -149,8 +167,35 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "primary contact",
     "primary contact name",
   ],
-  email: ["email", "e-mail", "email address", "primary email", "contact email", "mail"],
-  phone: ["phone", "phone number", "cell", "cell phone", "mobile", "mobile phone", "telephone", "home phone", "primary phone"],
+  email: ["email", "e-mail", "email address", "primary email", "contact email", "mail", "main email"],
+  phone: ["phone", "phone number", "telephone", "primary phone", "main phone", "best phone"],
+  phone_mobile: ["cell", "cell phone", "mobile", "mobile phone", "cell number", "mobile number", "text number"],
+  phone_home: ["home phone", "house phone", "landline", "home number", "home telephone"],
+  phone_work: ["work phone", "office phone", "business phone", "work number", "office number"],
+  phone_other: [
+    "phone 2",
+    "phone2",
+    "second phone",
+    "secondary phone",
+    "alternate phone",
+    "alternative phone",
+    "other phone",
+    "additional phone",
+    "emergency phone",
+    "phone 3",
+  ],
+  email_work: ["work email", "office email", "business email", "school email"],
+  email_other: [
+    "email 2",
+    "email2",
+    "second email",
+    "secondary email",
+    "alternate email",
+    "alternative email",
+    "other email",
+    "additional email",
+    "email 3",
+  ],
   address: ["address", "street", "street address", "address line 1", "mailing address", "home address", "city state zip", "shipping address"],
   address_line2: ["address line 2", "address 2", "apt", "apartment", "unit", "suite", "street 2", "address line two", "apt suite"],
   address_line3: ["address line 3", "address 3", "extra address line", "additional address", "care of", "c/o"],
@@ -248,6 +293,9 @@ export function guessMapping(headers: string[]): ColumnGuess[] {
     const guess = guessColumn(h);
     const repeatable = REPEATABLE_FIELDS.includes(guess.field);
     if (guess.field !== "ignore" && !repeatable && used.has(guess.field)) {
+      // A second phone or email column becomes an extra one rather than being dropped.
+      if (guess.field === "phone") return { header: h, field: "phone_other" as FieldKey, confidence: "medium" as Confidence };
+      if (guess.field === "email") return { header: h, field: "email_other" as FieldKey, confidence: "medium" as Confidence };
       return { header: h, field: "ignore" as FieldKey, confidence: "low" as Confidence };
     }
     if (guess.field !== "ignore" && !repeatable) used.add(guess.field);
