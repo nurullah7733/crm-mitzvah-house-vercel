@@ -204,6 +204,7 @@ function TasksPage() {
           t.group === "overdue" ? "border-urgent/40" : "border-border"
         }`}
       >
+        <SelectBox checked={selection.has(t.id)} onChange={() => selection.toggle(t.id)} label="this task" />
         <TaskCheckbox
           done={isDone}
           onClick={() => {
