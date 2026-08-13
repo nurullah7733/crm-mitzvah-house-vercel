@@ -1210,6 +1210,52 @@ function ImportCenter() {
             </section>
           )}
 
+          {giftEventGroups.length > 0 && (
+            <section className="rounded-2xl border border-money/40 bg-money/5 p-5 shadow-sm">
+              <h2 className="font-heading font-semibold text-foreground">Gifts made on an event date</h2>
+              <p className="text-sm text-muted-foreground">
+                One answer covers the whole file — we won't ask row by row.
+              </p>
+              <div className="mt-3 space-y-3">
+                {giftEventGroups.map((g) => {
+                  const decision = giftEventDecisions[g.event.id];
+                  return (
+                    <div key={g.event.id} className="rounded-xl border border-border bg-card p-3">
+                      <p className="text-sm text-foreground">
+                        These {g.rows} {g.rows === 1 ? "gift" : "gifts"} were made on the date of “{g.event.name}” (
+                        {g.event.date}) — link them to that event?
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["attended", "Yes — link gifts and mark them as attended"],
+                            ["gift_only", "Link the gifts only (they may not have come)"],
+                            ["skip", "No, keep them unlinked"],
+                          ] as const
+                        ).map(([action, label]) => (
+                          <button
+                            key={action}
+                            type="button"
+                            className={`rounded-xl border px-3 py-2 text-sm ${
+                              decision === action
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-card text-foreground"
+                            }`}
+                            onClick={() =>
+                              setGiftEventDecisions((d) => ({ ...d, [g.event.id]: action }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <h2 className="font-heading font-semibold text-foreground">Add everyone in this file to…</h2>
             <p className="text-sm text-muted-foreground">
