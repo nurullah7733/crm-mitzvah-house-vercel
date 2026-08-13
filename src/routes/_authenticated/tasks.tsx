@@ -21,6 +21,7 @@ import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/en
 import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type LifecycleItem } from "@/lib/lifecycle";
 import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyDbError } from "@/lib/db-errors";
 import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 
@@ -259,6 +260,20 @@ function TasksPage() {
 
   function Row({ t }: { t: (typeof tasks)[number] }) {
     const isDone = t.group === "done";
+    async function reopen() {
+      // The database reverses everything completing it wrote: the activity entry
+      // goes away, and a thank-you task also un-marks the gift's letter.
+      const { error } = await supabase
+        .from("tasks")
+        .update({ status: "upcoming", completed_at: null, completion_note: null })
+        .eq("id", t.id);
+      if (error) {
+        toast.error(await friendlyDbError(error, "Could not reopen this task."));
+        return;
+      }
+      toast.success("Task reopened — the activity entry it added was removed");
+      await queryClient.invalidateQueries();
+    }
     return (
       <div
         className={`flex gap-3 rounded-2xl border bg-card p-4 shadow-sm ${
@@ -270,6 +285,7 @@ function TasksPage() {
           done={isDone}
           onClick={() => {
             if (!isDone) setCompleting({ id: t.id, text: t.text, person_id: t.person_id, owner: t.owner });
+            else void reopen();
           }}
         />
         <div className="min-w-0">
@@ -287,6 +303,11 @@ function TasksPage() {
             </Link>
           )}
           {t.completion_note && <p className="mt-1 text-xs text-muted-foreground">{t.completion_note}</p>}
+          {isDone && (
+            <button type="button" className="mt-2 block text-xs text-primary hover:underline" onClick={() => void reopen()}>
+              Reopen this task
+            </button>
+          )}
           <button
             type="button"
             className="mt-2 block text-xs text-primary hover:underline"

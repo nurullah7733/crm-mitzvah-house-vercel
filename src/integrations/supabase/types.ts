@@ -627,6 +627,8 @@ export type Database = {
           id: string
           import_batch_id: string | null
           person_id: string
+          source_id: string | null
+          source_kind: string | null
           text: string | null
           type: string
         }
@@ -637,6 +639,8 @@ export type Database = {
           id?: string
           import_batch_id?: string | null
           person_id: string
+          source_id?: string | null
+          source_kind?: string | null
           text?: string | null
           type: string
         }
@@ -647,6 +651,8 @@ export type Database = {
           id?: string
           import_batch_id?: string | null
           person_id?: string
+          source_id?: string | null
+          source_kind?: string | null
           text?: string | null
           type?: string
         }
@@ -1213,6 +1219,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      mark_receipt_sent: {
+        Args: { _donation_id: string; _sent?: boolean }
+        Returns: undefined
+      }
       mark_thank_you_sent: {
         Args: { _donation_id: string; _sent?: boolean }
         Returns: undefined
@@ -1233,6 +1243,7 @@ export type Database = {
         }
         Returns: string
       }
+      money_text: { Args: { _amount: number }; Returns: string }
       purge_audit_log_internal: { Args: never; Returns: number }
       purge_old_audit_log: { Args: never; Returns: number }
       recalc_all_totals_internal: { Args: never; Returns: number }

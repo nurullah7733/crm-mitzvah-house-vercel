@@ -630,15 +630,8 @@ export function AddDonationDialog({
 
       // Giving totals and last-activity are maintained by database triggers on
       // donations and interactions, so they stay correct for form, import and API writes.
-      await supabase.from("interactions").insert({
-        person_id: pid,
-        type: "donation",
-        date: form.date || todayISO(),
-        text: `Gift of $${amount.toLocaleString()}${campaignName ? ` — ${campaignName}` : ""}${
-          form.notes ? ` · ${form.notes}` : ""
-        }`,
-        author: null,
-      });
+      // The gift's timeline entry is written by the database and tied to the gift,
+      // so archiving or deleting the gift takes the entry away with it.
 
       // No thank-you yet? Put a dated reminder on the task list so it can't slip.
       if (!thankYouSent && gift?.id) {
@@ -1158,6 +1151,9 @@ export function CompleteTaskDialog({
           date: todayISO(),
           text: note.trim() ? `${task.text} — ${note.trim()}` : `Completed: ${task.text}`,
           author: task.owner ?? null,
+          // Tied to the task, so reopening it removes this entry again.
+          source_kind: "task_completion",
+          source_id: task.id,
         });
       }
     },
