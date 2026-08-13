@@ -19,6 +19,8 @@ import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
 import { toast } from "sonner";
+import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { BulkRecordBar } from "@/components/BulkRecordActions";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
@@ -35,6 +37,7 @@ export const Route = createFileRoute("/_authenticated/tasks")({
 function TasksPage() {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
+  const selection = useSelection();
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
@@ -204,6 +207,7 @@ function TasksPage() {
           t.group === "overdue" ? "border-urgent/40" : "border-border"
         }`}
       >
+        <SelectBox checked={selection.has(t.id)} onChange={() => selection.toggle(t.id)} label="this task" />
         <TaskCheckbox
           done={isDone}
           onClick={() => {
@@ -361,6 +365,15 @@ function TasksPage() {
       </div>
 
       <AddTaskDialog open={addOpen} onOpenChange={setAddOpen} />
+      <BulkRecordBar
+        table="tasks"
+        noun="task"
+        nounPlural="tasks"
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={tasks.map((t) => t.id)}
+        onSelectAll={() => selection.selectAll(tasks.map((t) => t.id))}
+      />
       <CompleteTaskDialog task={completing} onOpenChange={(v) => !v && setCompleting(null)} />
       {editing && (
         <EditRecordDialog

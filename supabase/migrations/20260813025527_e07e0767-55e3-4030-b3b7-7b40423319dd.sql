@@ -1,0 +1,32 @@
+alter table public.people disable trigger people_admin_archive;
+alter table public.donations disable trigger donations_admin_archive;
+alter table public.events disable trigger events_admin_archive;
+alter table public.tasks disable trigger tasks_admin_archive;
+alter table public.households disable trigger households_admin_delete;
+alter table public.campaigns disable trigger campaigns_admin_delete;
+alter table public.grants disable trigger grants_admin_delete;
+
+delete from public.registrations;
+delete from public.yahrzeits;
+delete from public.contact_methods;
+delete from public.field_sources;
+delete from public.interactions;
+delete from public.tasks;
+delete from public.donations;
+delete from public.grants;
+delete from public.campaigns;
+delete from public.events;
+delete from public.review_queue;
+delete from public.people;
+delete from public.households;
+delete from public.import_batches;
+delete from public.merge_log;
+delete from public.audit_log;
+
+alter table public.people enable trigger people_admin_archive;
+alter table public.donations enable trigger donations_admin_archive;
+alter table public.events enable trigger events_admin_archive;
+alter table public.tasks enable trigger tasks_admin_archive;
+alter table public.households enable trigger households_admin_delete;
+alter table public.campaigns enable trigger campaigns_admin_delete;
+alter table public.grants enable trigger grants_admin_delete;
