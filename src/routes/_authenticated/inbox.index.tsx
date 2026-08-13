@@ -6,6 +6,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { selectClass } from "@/components/forms/fields";
@@ -999,6 +1000,7 @@ function ImportCenter() {
 function ImportHistory() {
   const queryClient = useQueryClient();
   const [undoing, setUndoing] = useState<string | null>(null);
+  const isAdmin = useIsAdmin();
 
   const { data: batches } = useQuery({
     queryKey: ["import-batches"],
@@ -1056,10 +1058,10 @@ function ImportHistory() {
               <Button
                 variant="outline"
                 className="justify-self-start rounded-xl text-urgent"
-                disabled={undoing === b.id}
+                disabled={undoing === b.id || !isAdmin}
                 onClick={() => void undo(b.id)}
               >
-                {undoing === b.id ? "Undoing…" : "Undo this import"}
+                {undoing === b.id ? "Undoing…" : isAdmin ? "Undo this import" : "Undo (admins only)"}
               </Button>
             )}
           </div>
