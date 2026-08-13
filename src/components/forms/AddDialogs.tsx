@@ -255,6 +255,10 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       if (error) throw error;
 
       // Every phone number and email address entered is saved to the contact.
+      // A household that was address-only now has someone in it.
+      if (householdId) {
+        await supabase.from("households").update({ status: "active" }).eq("id", householdId).eq("status", "address_only");
+      }
       const drafts: MethodDraft[] = [
         ...phones.filter((p) => p.value.trim()).map((p, i) => ({ ...p, is_primary: i === 0 })),
         ...emails.filter((e) => e.value.trim()).map((e, i) => ({ ...e, is_primary: i === 0 })),
