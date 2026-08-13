@@ -726,6 +726,7 @@ export type Database = {
           display_name: string | null
           email: string | null
           first_name: string | null
+          gender: string | null
           household_id: string | null
           household_relationship: string | null
           id: string
@@ -735,6 +736,7 @@ export type Database = {
           last_gift_date: string | null
           last_name: string | null
           lifetime_giving: number
+          mailing_preference: string | null
           met_date: string | null
           met_source: string | null
           notes: string | null
@@ -756,6 +758,7 @@ export type Database = {
           display_name?: string | null
           email?: string | null
           first_name?: string | null
+          gender?: string | null
           household_id?: string | null
           household_relationship?: string | null
           id?: string
@@ -765,6 +768,7 @@ export type Database = {
           last_gift_date?: string | null
           last_name?: string | null
           lifetime_giving?: number
+          mailing_preference?: string | null
           met_date?: string | null
           met_source?: string | null
           notes?: string | null
@@ -786,6 +790,7 @@ export type Database = {
           display_name?: string | null
           email?: string | null
           first_name?: string | null
+          gender?: string | null
           household_id?: string | null
           household_relationship?: string | null
           id?: string
@@ -795,6 +800,7 @@ export type Database = {
           last_gift_date?: string | null
           last_name?: string | null
           lifetime_giving?: number
+          mailing_preference?: string | null
           met_date?: string | null
           met_source?: string | null
           notes?: string | null
