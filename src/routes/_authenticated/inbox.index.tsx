@@ -14,6 +14,7 @@ import { fetchAll } from "@/lib/fetch-all";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
+import { attributeGiftToEvent } from "@/lib/gift-events";
 import {
   EMPTY_BULK_TARGET,
   RELATIONSHIP_OPTIONS,
@@ -263,6 +264,8 @@ function ImportCenter() {
   const [bulkTarget, setBulkTarget] = useState<BulkTarget>(EMPTY_BULK_TARGET);
   /** One answer per group of people sharing an address. */
   const [addressDecisions, setAddressDecisions] = useState<Record<string, AddressDecision>>({});
+  /** One answer per event whose date matches gifts in this file. */
+  const [giftEventDecisions, setGiftEventDecisions] = useState<Record<string, "attended" | "gift_only" | "skip">>({});
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
