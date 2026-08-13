@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatPhone } from "@/lib/phone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
@@ -307,7 +308,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
             <ul className="mt-1 space-y-1 text-muted-foreground">
               {(duplicates ?? []).map((d) => (
                 <li key={d.id}>
-                  {personName(d)} · {d.email ?? d.phone ?? "no contact info"}
+                  {personName(d)} · {d.email ?? formatPhone(d.phone) ?? "no contact info"}
                 </li>
               ))}
             </ul>

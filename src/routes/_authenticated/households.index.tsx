@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatPhone } from "@/lib/phone";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Plus, Users, Download } from "lucide-react";
@@ -98,7 +99,7 @@ function ExportHouseholdsDialog({
     const rows = households.map((h) => {
       const row: Record<string, unknown> = { Name: nameFor(h, style) };
       if (columns.includes("address")) row["Address"] = h.address ?? "";
-      if (columns.includes("phone")) row["Phone"] = h.phone ?? "";
+      if (columns.includes("phone")) row["Phone"] = formatPhone(h.phone);
       if (columns.includes("members")) row["Members"] = h.people.length;
       if (columns.includes("member_names"))
         row["Member names"] = h.people.map((p) => `${p.first_name} ${p.last_name}`).join("; ");
@@ -236,7 +237,7 @@ function HouseholdsPage() {
             >
               <h2 className="font-heading font-semibold text-foreground">{h.name}</h2>
               <p className="mt-0.5 text-sm text-muted-foreground">{h.address ?? "No address"}</p>
-              <p className="text-sm text-muted-foreground">{h.phone ?? "No phone"}</p>
+              <p className="text-sm text-muted-foreground">{formatPhone(h.phone) || "No phone"}</p>
               <div className="mt-4 flex items-end justify-between gap-3">
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Users className="size-4" /> {(h.people ?? []).length} members
