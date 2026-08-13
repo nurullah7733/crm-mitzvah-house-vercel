@@ -145,7 +145,7 @@ export function BackupExportPanel() {
         <div className="overflow-hidden rounded-xl border border-border">
           <div
             className={`flex items-center gap-2 px-4 py-3 text-sm ${
-              failedCount === 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+              failedCount === 0 ? "bg-money/10 text-money" : "bg-urgent/10 text-urgent"
             }`}
           >
             {failedCount === 0 ? (
@@ -165,7 +165,7 @@ export function BackupExportPanel() {
             {results.map((r) => (
               <li key={r.table} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
                 <span className="truncate text-foreground">{r.label}</span>
-                <span className={r.error ? "text-destructive" : "text-muted-foreground"}>
+                <span className={r.error ? "text-urgent" : "text-muted-foreground"}>
                   {r.error ? r.error : `${r.rows.toLocaleString()} rows`}
                 </span>
               </li>
