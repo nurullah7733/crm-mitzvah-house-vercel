@@ -37,6 +37,7 @@ export const Route = createFileRoute("/_authenticated/tasks")({
 function TasksPage() {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
+  const selection = useSelection();
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
@@ -364,6 +365,15 @@ function TasksPage() {
       </div>
 
       <AddTaskDialog open={addOpen} onOpenChange={setAddOpen} />
+      <BulkRecordBar
+        table="tasks"
+        noun="task"
+        nounPlural="tasks"
+        selectedIds={selection.ids}
+        onClear={selection.clear}
+        visibleIds={tasks.map((t) => t.id)}
+        onSelectAll={() => selection.selectAll(tasks.map((t) => t.id))}
+      />
       <CompleteTaskDialog task={completing} onOpenChange={(v) => !v && setCompleting(null)} />
       {editing && (
         <EditRecordDialog
