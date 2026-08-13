@@ -111,8 +111,6 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
   const enteredEmails = emails.map((e) => normalizeEmail(e.value)).filter(Boolean);
 
   // Duplicate guard: every number and address entered is checked, not just the first.
-  const dupEmail = enteredEmails[0] ?? "";
-  const dupPhone = phoneKey(enteredPhones[0] ?? "");
   const dupName = isOrg ? form.org_name.trim() : `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
   const { data: duplicates } = useQuery({
     queryKey: ["duplicate-check", enteredEmails.join(","), enteredPhones.join(","), dupName],
@@ -126,7 +124,15 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       }
       if (dupName.length > 2) filters.push(`display_name.ilike.${dupName}`);
 
-      const found = new Map<string, { id: string; display_name: string | null; first_name: string | null; last_name: string | null; email: string | null; phone: string | null }>();
+      type Hit = {
+        id: string;
+        display_name: string | null;
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+        phone: string | null;
+      };
+      const found = new Map<string, Hit>();
 
       if (filters.length) {
         const { data, error } = await supabase
@@ -153,7 +159,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
           .or(methodFilters.join(","))
           .limit(10);
         for (const row of data ?? []) {
-          const person = row.people as typeof found extends Map<string, infer V> ? V | null : never;
+          const person = row.people as Hit | null;
           if (person && !found.has(person.id)) found.set(person.id, person);
         }
       }
