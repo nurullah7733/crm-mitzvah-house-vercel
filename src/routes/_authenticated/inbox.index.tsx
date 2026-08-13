@@ -443,9 +443,37 @@ function ImportCenter() {
     return { perRow, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
   }, [analysed, fileEvents, eventDecisions, events, bulkTarget.eventId]);
 
+  /**
+   * Gifts in this file whose date lands on an event (or a day either side).
+   * One decision covers the whole batch, not row by row.
+   */
+  const giftEventGroups = useMemo(() => {
+    const dayOffset = (iso: string, days: number) => {
+      const d = new Date(`${iso}T12:00:00`);
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const groups = new Map<string, { event: EventOption; rows: number; total: number }>();
+    analysed.forEach((a) => {
+      if (a.match.status === "ambiguous") return;
+      const amount = Number(String(a.values.amount ?? "").replace(/[^0-9.-]/g, ""));
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      const giftDate = isoDate(a.values.date);
+      if (!giftDate) return;
+      const match = (events ?? []).find(
+        (ev) => ev.date >= dayOffset(giftDate, -1) && ev.date <= dayOffset(giftDate, 1),
+      );
+      if (!match) return;
+      const entry = groups.get(match.id) ?? { event: match, rows: 0, total: 0 };
+      entry.rows += 1;
+      entry.total += amount;
+      groups.set(match.id, entry);
+    });
+    return [...groups.values()];
+  }, [analysed, events]);
+
   /** People at the same address with different surnames — a question, never an assumption. */
   const addressGroups = useMemo(
-
     () =>
       groupSharedAddresses(
         analysed.map((a, index) => {
