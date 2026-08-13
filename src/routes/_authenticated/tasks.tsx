@@ -21,6 +21,7 @@ import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/en
 import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type LifecycleItem } from "@/lib/lifecycle";
 import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyDbError } from "@/lib/db-errors";
 import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 
