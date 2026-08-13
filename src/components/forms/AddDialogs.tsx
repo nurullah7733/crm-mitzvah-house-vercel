@@ -533,6 +533,9 @@ export function AddDonationDialog({
     source: "",
     notes: "",
   });
+  // Both start unchecked: a gift is not thanked until someone says so.
+  const [thankYouSent, setThankYouSent] = useState(false);
+  const [receiptSent, setReceiptSent] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const { data: campaigns } = useQuery({
@@ -560,7 +563,9 @@ export function AddDonationDialog({
       if (!pid) throw new Error("Pick a donor");
       if (!amount || amount <= 0) throw new Error("Enter an amount");
 
-      const { error } = await supabase.from("donations").insert({
+      const { data: gift, error } = await supabase
+        .from("donations")
+        .insert({
         person_id: pid,
         amount,
         date: form.date || todayISO(),
@@ -570,7 +575,13 @@ export function AddDonationDialog({
         method: form.method.trim() || null,
         source: form.source.trim() || null,
         notes: form.notes.trim() || null,
-      });
+          thank_you_sent: thankYouSent,
+          thank_you_sent_date: thankYouSent ? todayISO() : null,
+          receipt_sent: receiptSent,
+          receipt_sent_date: receiptSent ? todayISO() : null,
+        })
+        .select("id, people(display_name, first_name, last_name)")
+        .single();
       if (error) throw error;
 
       // Giving totals and last-activity are maintained by database triggers on
@@ -584,12 +595,28 @@ export function AddDonationDialog({
         }`,
         author: null,
       });
+
+      // No thank-you yet? Put a dated reminder on the task list so it can't slip.
+      if (!thankYouSent && gift?.id) {
+        const due = new Date();
+        due.setDate(due.getDate() + 7);
+        await supabase.from("tasks").insert({
+          person_id: pid,
+          donation_id: gift.id,
+          text: `Send thank-you letter for ${personName(gift.people)}'s $${amount.toLocaleString()} gift`,
+          due_date: due.toISOString().slice(0, 10),
+          priority: "Normal",
+          status: "upcoming",
+        });
+      }
     },
     onSuccess: () => {
       toast.success("Donation logged");
       logChange("Logged a donation");
       refresh();
       setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", method: "", source: "", notes: "" });
+      setThankYouSent(false);
+      setReceiptSent(false);
       onOpenChange(false);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -668,6 +695,32 @@ export function AddDonationDialog({
         <Field label="Notes" className="sm:col-span-2">
           <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
         </Field>
+        <div className="rounded-xl border border-border p-3 sm:col-span-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Follow-up</p>
+          <label className="mt-2 flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={thankYouSent}
+              onChange={(e) => setThankYouSent(e.target.checked)}
+            />
+            Thank-you letter already sent
+          </label>
+          <label className="mt-2 flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={receiptSent}
+              onChange={(e) => setReceiptSent(e.target.checked)}
+            />
+            Tax receipt already sent
+          </label>
+          {!thankYouSent && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              A task to send the thank-you letter will be added, due in 7 days.
+            </p>
+          )}
+        </div>
       </div>
     </ResponsiveModal>
   );
