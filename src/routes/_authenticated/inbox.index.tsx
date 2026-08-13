@@ -10,6 +10,8 @@ import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { selectClass } from "@/components/forms/fields";
 import { fetchAll } from "@/lib/fetch-all";
+import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
+import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import {
   FIELD_LABELS,
   addressKey,
@@ -85,10 +87,39 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
   const childDobs: string[] = [];
   const childAges: string[] = [];
   const childSchools: string[] = [];
+  const phones: { value: string; method_type: string }[] = [];
+  const emails: { value: string; method_type: string }[] = [];
+  const PHONE_COLUMNS: Partial<Record<FieldKey, string>> = {
+    phone: "Mobile",
+    phone_mobile: "Mobile",
+    phone_home: "Home",
+    phone_work: "Work",
+    phone_other: "Other",
+  };
+  const EMAIL_COLUMNS: Partial<Record<FieldKey, string>> = {
+    email: "Personal",
+    email_work: "Work",
+    email_other: "Other",
+  };
 
   mapping.forEach((m, i) => {
     const value = row[i]?.trim();
     if (!value || m.field === "ignore") return;
+    if (PHONE_COLUMNS[m.field]) {
+      // One column can hold several numbers ("404-555-0100 / 404-555-0101").
+      for (const part of value.split(/[;,|]|\s\/\s/).map((s) => s.trim()).filter(Boolean)) {
+        phones.push({ value: part, method_type: PHONE_COLUMNS[m.field]! });
+      }
+      if (!out.phone && phones[0]) out.phone = phones[0].value;
+      return;
+    }
+    if (EMAIL_COLUMNS[m.field]) {
+      for (const part of value.split(/[;,|\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"))) {
+        emails.push({ value: normalizeEmail(part), method_type: EMAIL_COLUMNS[m.field]! });
+      }
+      if (!out.email && emails[0]) out.email = emails[0].value;
+      return;
+    }
     if (m.field === "child_name") {
       childNames.push(...splitPeopleList(value));
       return;
@@ -143,7 +174,44 @@ function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
     });
   });
   if (children.length > 0) out.children = children;
-  return out;
+  if (phones.length > 0) out.phones = phones;
+  if (emails.length > 0) out.emails = emails;
+  return tidyCase(out);
+}
+
+/**
+ * Tidy capitalisation on the text that people read: names, addresses, cities.
+ * Spelling is never touched, and anything already typed with deliberate internal
+ * capitals is left exactly as it is.
+ */
+function tidyCase(v: RowValues): RowValues {
+  const nameKeys: FieldKey[] = [
+    "first_name",
+    "middle_name",
+    "last_name",
+    "full_name",
+    "household_name",
+    "spouse_full_name",
+    "spouse_first_name",
+    "spouse_last_name",
+    "school",
+    "city",
+    "county",
+  ];
+  for (const k of nameKeys) if (v[k]) v[k] = properCase(v[k]!);
+  for (const k of ["address", "address_line2", "address_line3", "billing_address"] as FieldKey[]) {
+    if (v[k]) v[k] = properCaseAddress(v[k]!);
+  }
+  if (v.state) v.state = normalizeState(v.state);
+  if (v.children) {
+    v.children = v.children.map((c) => ({
+      ...c,
+      first: properCase(c.first),
+      ...(c.last ? { last: properCase(c.last) } : {}),
+      ...(c.school ? { school: properCase(c.school) } : {}),
+    }));
+  }
+  return v;
 }
 
 /** Join the first / middle / last / suffix columns a file happens to have. */
@@ -218,7 +286,9 @@ function ImportCenter() {
       (await fetchAll((f, t) =>
         supabase
           .from("people")
-          .select("id, first_name, last_name, email, phone, household_id, households(name, address)")
+          .select(
+            "id, first_name, last_name, email, phone, household_id, households(name, address), contact_methods(kind, value)",
+          )
           .is("deleted_at", null)
           .order("id")
           .range(f, t),
@@ -520,6 +590,29 @@ function ImportCenter() {
 
           if (!personId) continue;
 
+          // Every phone and email on the row is stored, with anything already on
+          // file skipped so a re-import never duplicates a number.
+          const methodDrafts: MethodDraft[] = [
+            ...(v.phones ?? []).map((m, mi) => ({
+              kind: "phone" as const,
+              value: m.value,
+              method_type: m.method_type,
+              is_primary: mi === 0 && item.match.status === "new",
+            })),
+            ...(v.emails ?? []).map((m, mi) => ({
+              kind: "email" as const,
+              value: m.value,
+              method_type: m.method_type,
+              is_primary: mi === 0 && item.match.status === "new",
+            })),
+          ];
+          if (methodDrafts.length > 0) {
+            await addContactMethods(personId, methodDrafts, {
+              importBatchId: batchId,
+              ...(item.match.status === "new" ? { existing: [] } : {}),
+            });
+          }
+
           // A partner on the same row becomes their own contact in the same household.
           const spouseName = v.spouse_first_name
             ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
@@ -540,7 +633,9 @@ function ImportCenter() {
           if (spouseName && (spouseName.first || spouseName.last)) {
             const spouseLast = spouseName.last || last;
             if (!inHousehold(spouseName.first, spouseLast)) {
-              await supabase.from("people").insert({
+              const { data: spouse } = await supabase
+                .from("people")
+                .insert({
                 first_name: spouseName.first || null,
                 last_name: spouseLast || null,
                 display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
@@ -550,7 +645,18 @@ function ImportCenter() {
                 role: "Adult",
                 met_source: v.met_source ?? null,
                 import_batch_id: batchId,
-              });
+                })
+                .select("id")
+                .single();
+              if (spouse?.id) {
+                const spouseMethods: MethodDraft[] = [];
+                if (v.spouse_phone)
+                  spouseMethods.push({ kind: "phone", value: v.spouse_phone, method_type: "Mobile", is_primary: true });
+                if (v.spouse_email)
+                  spouseMethods.push({ kind: "email", value: v.spouse_email, method_type: "Personal", is_primary: true });
+                if (spouseMethods.length)
+                  await addContactMethods(spouse.id, spouseMethods, { importBatchId: batchId, existing: [] });
+              }
               houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
             }
           }

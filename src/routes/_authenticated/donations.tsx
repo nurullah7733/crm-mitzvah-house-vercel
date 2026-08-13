@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Download, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -26,12 +27,14 @@ export const Route = createFileRoute("/_authenticated/donations")({
 });
 
 function DonationsPage() {
+  const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
+  const [followUp, setFollowUp] = useState<"all" | "needs_thanks" | "thanked" | "needs_receipt">("all");
 
   const { data, isLoading } = useQuery({
     queryKey: ["donations-list"],
@@ -54,9 +57,36 @@ function DonationsPage() {
     const amount = Number(d.amount ?? 0);
     if (min && amount < Number(min)) return false;
     if (max && amount > Number(max)) return false;
+    if (followUp === "needs_thanks" && d.thank_you_sent) return false;
+    if (followUp === "thanked" && !d.thank_you_sent) return false;
+    if (followUp === "needs_receipt" && d.receipt_sent) return false;
     return true;
   });
   const total = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  const awaitingThanks = (data ?? []).filter((d) => !d.thank_you_sent).length;
+
+  /** Tick or untick the thank-you box; the linked reminder task is kept in step. */
+  async function toggleThankYou(id: string, sent: boolean) {
+    const { error } = await supabase.rpc("mark_thank_you_sent", { _donation_id: id, _sent: sent });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(sent ? "Marked as thanked" : "Thank-you unmarked");
+    await queryClient.invalidateQueries();
+  }
+
+  async function toggleReceipt(id: string, sent: boolean) {
+    const { error } = await supabase
+      .from("donations")
+      .update({ receipt_sent: sent, receipt_sent_date: sent ? new Date().toISOString().slice(0, 10) : null })
+      .eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await queryClient.invalidateQueries({ queryKey: ["donations-list"] });
+  }
 
   return (
     <AppShell
@@ -79,6 +109,10 @@ function DonationsPage() {
                   method: d.method ?? "",
                   source: d.source ?? "",
                   notes: d.notes ?? "",
+                  thank_you_sent: d.thank_you_sent ? "yes" : "no",
+                  thank_you_sent_date: d.thank_you_sent_date ?? "",
+                  receipt_sent: d.receipt_sent ? "yes" : "no",
+                  receipt_sent_date: d.receipt_sent_date ?? "",
                 })),
               )
             }
@@ -104,6 +138,29 @@ function DonationsPage() {
         <Field label="Max amount">
           <Input className="text-base" type="number" inputMode="numeric" value={max} onChange={(e) => setMax(e.target.value)} />
         </Field>
+        <Field label="Follow-up" className="sm:col-span-2">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["all", "All gifts"],
+                ["needs_thanks", `Thank-you pending${awaitingThanks ? ` (${awaitingThanks})` : ""}`],
+                ["thanked", "Thank-you sent"],
+                ["needs_receipt", "Receipt pending"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`rounded-full px-3 py-1.5 text-sm ${
+                  followUp === key ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
+                }`}
+                onClick={() => setFollowUp(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Field>
         {(from || to || min || max) && (
           <button
             type="button"
@@ -113,6 +170,7 @@ function DonationsPage() {
               setTo("");
               setMin("");
               setMax("");
+              setFollowUp("all");
             }}
           >
             Clear filters
@@ -158,6 +216,34 @@ function DonationsPage() {
                 {d.source && <p className="mt-1 text-xs text-muted-foreground">Source: {d.source}</p>}
               </div>
               <p className="shrink-0 font-heading text-lg font-semibold text-money">{currency(d.amount)}</p>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border pt-3">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={Boolean(d.thank_you_sent)}
+                  onChange={(e) => void toggleThankYou(d.id, e.target.checked)}
+                />
+                Thank-you letter
+                {d.thank_you_sent_date ? (
+                  <span className="text-xs text-muted-foreground">sent {formatDate(d.thank_you_sent_date)}</span>
+                ) : (
+                  <span className="text-xs text-urgent">not sent</span>
+                )}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={Boolean(d.receipt_sent)}
+                  onChange={(e) => void toggleReceipt(d.id, e.target.checked)}
+                />
+                Tax receipt
+                {d.receipt_sent_date ? (
+                  <span className="text-xs text-muted-foreground">sent {formatDate(d.receipt_sent_date)}</span>
+                ) : null}
+              </label>
             </div>
             <button
               type="button"

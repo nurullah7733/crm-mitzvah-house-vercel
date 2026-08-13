@@ -10,6 +10,12 @@ export type FieldKey =
   | "full_name"
   | "email"
   | "phone"
+  | "phone_mobile"
+  | "phone_home"
+  | "phone_work"
+  | "phone_other"
+  | "email_work"
+  | "email_other"
   | "address"
   | "address_line2"
   | "address_line3"
@@ -54,6 +60,12 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   full_name: "Full name",
   email: "Email",
   phone: "Phone",
+  phone_mobile: "Phone — mobile (repeatable)",
+  phone_home: "Phone — home (repeatable)",
+  phone_work: "Phone — work (repeatable)",
+  phone_other: "Phone — other (repeatable)",
+  email_work: "Email — work (repeatable)",
+  email_other: "Email — other (repeatable)",
   address: "Home address",
   address_line2: "Address line 2 (apt, unit)",
   address_line3: "Extra address line",
@@ -92,6 +104,12 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
 
 /** These may be mapped to more than one column (child 1, child 2, …). */
 export const REPEATABLE_FIELDS: FieldKey[] = [
+  "phone_mobile",
+  "phone_home",
+  "phone_work",
+  "phone_other",
+  "email_work",
+  "email_other",
   "child_name",
   "child_first_name",
   "child_last_name",
@@ -149,8 +167,35 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "primary contact",
     "primary contact name",
   ],
-  email: ["email", "e-mail", "email address", "primary email", "contact email", "mail"],
-  phone: ["phone", "phone number", "cell", "cell phone", "mobile", "mobile phone", "telephone", "home phone", "primary phone"],
+  email: ["email", "e-mail", "email address", "primary email", "contact email", "mail", "main email"],
+  phone: ["phone", "phone number", "telephone", "primary phone", "main phone", "best phone"],
+  phone_mobile: ["cell", "cell phone", "mobile", "mobile phone", "cell number", "mobile number", "text number"],
+  phone_home: ["home phone", "house phone", "landline", "home number", "home telephone"],
+  phone_work: ["work phone", "office phone", "business phone", "work number", "office number"],
+  phone_other: [
+    "phone 2",
+    "phone2",
+    "second phone",
+    "secondary phone",
+    "alternate phone",
+    "alternative phone",
+    "other phone",
+    "additional phone",
+    "emergency phone",
+    "phone 3",
+  ],
+  email_work: ["work email", "office email", "business email", "school email"],
+  email_other: [
+    "email 2",
+    "email2",
+    "second email",
+    "secondary email",
+    "alternate email",
+    "alternative email",
+    "other email",
+    "additional email",
+    "email 3",
+  ],
   address: ["address", "street", "street address", "address line 1", "mailing address", "home address", "city state zip", "shipping address"],
   address_line2: ["address line 2", "address 2", "apt", "apartment", "unit", "suite", "street 2", "address line two", "apt suite"],
   address_line3: ["address line 3", "address 3", "extra address line", "additional address", "care of", "c/o"],
@@ -248,6 +293,9 @@ export function guessMapping(headers: string[]): ColumnGuess[] {
     const guess = guessColumn(h);
     const repeatable = REPEATABLE_FIELDS.includes(guess.field);
     if (guess.field !== "ignore" && !repeatable && used.has(guess.field)) {
+      // A second phone or email column becomes an extra one rather than being dropped.
+      if (guess.field === "phone") return { header: h, field: "phone_other" as FieldKey, confidence: "medium" as Confidence };
+      if (guess.field === "email") return { header: h, field: "email_other" as FieldKey, confidence: "medium" as Confidence };
       return { header: h, field: "ignore" as FieldKey, confidence: "low" as Confidence };
     }
     if (guess.field !== "ignore" && !repeatable) used.add(guess.field);
@@ -279,9 +327,9 @@ export function composeAddress(v: Partial<Record<FieldKey, string>>): string | n
  * Email wins, then phone, then name.
  */
 export function rowDedupeKey(v: RowValues): string | null {
-  const email = (v.email ?? "").trim().toLowerCase();
+  const email = (v.emails?.[0]?.value ?? v.email ?? "").trim().toLowerCase();
   if (email) return `email:${email}`;
-  const phone = digits(v.phone);
+  const phone = digits(v.phones?.[0]?.value ?? v.phone);
   if (phone.length >= 7) return `phone:${phone.slice(-10)}`;
   const { first, last } = splitName(v);
   const name = `${first} ${last}`.trim().toLowerCase();
@@ -327,6 +375,8 @@ export type ExistingPerson = {
   phone: string | null;
   household_id: string | null;
   households?: { name: string; address: string | null } | null;
+  /** Every phone and email on file, so a match is never missed. */
+  contact_methods?: { kind: string; value: string }[] | null;
 };
 
 export type MatchResult = {
@@ -338,20 +388,43 @@ export type MatchResult = {
 /** A single spreadsheet row, unpacked into one main contact plus the people attached to it. */
 export type RowValues = Partial<Record<FieldKey, string>> & {
   children?: { first: string; last?: string; birth_date?: string; school?: string; age?: string }[];
+  /** All phone numbers on the row, primary first. */
+  phones?: { value: string; method_type: string }[];
+  /** All email addresses on the row, primary first. */
+  emails?: { value: string; method_type: string }[];
 };
+
+/** Every email a stored contact has, lower-cased. */
+export function personEmails(p: ExistingPerson): string[] {
+  const list = [(p.email ?? "").trim().toLowerCase()];
+  for (const m of p.contact_methods ?? []) if (m.kind === "email") list.push(m.value.trim().toLowerCase());
+  return list.filter(Boolean);
+}
+
+/** Every phone a stored contact has, as comparable digits. */
+export function personPhones(p: ExistingPerson): string[] {
+  const list = [digits(p.phone)];
+  for (const m of p.contact_methods ?? []) if (m.kind === "phone") list.push(digits(m.value));
+  return list.filter((d) => d.length >= 7).map((d) => d.slice(-10));
+}
 
 /** Match a spreadsheet row to existing people: email, then phone, then name + address. */
 export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResult {
-  const email = (values.email ?? "").trim().toLowerCase();
-  if (email) {
-    const hits = people.filter((p) => (p.email ?? "").trim().toLowerCase() === email);
+  const rowEmails = (values.emails ?? []).map((e) => e.value.trim().toLowerCase()).filter(Boolean);
+  if ((values.email ?? "").trim()) rowEmails.unshift(values.email!.trim().toLowerCase());
+  if (rowEmails.length > 0) {
+    const hits = people.filter((p) => personEmails(p).some((e) => rowEmails.includes(e)));
     if (hits.length === 1) return { status: "matched", reason: "Matched on email", candidates: hits };
     if (hits.length > 1) return { status: "ambiguous", reason: "Several people share that email", candidates: hits };
   }
 
-  const phone = digits(values.phone);
-  if (phone.length >= 7) {
-    const hits = people.filter((p) => digits(p.phone).endsWith(phone.slice(-10)));
+  const rowPhones = (values.phones ?? [])
+    .map((p) => digits(p.value))
+    .concat(digits(values.phone))
+    .filter((d) => d.length >= 7)
+    .map((d) => d.slice(-10));
+  if (rowPhones.length > 0) {
+    const hits = people.filter((p) => personPhones(p).some((d) => rowPhones.includes(d)));
     if (hits.length === 1) return { status: "matched", reason: "Matched on phone", candidates: hits };
     if (hits.length > 1) return { status: "ambiguous", reason: "Several people share that phone", candidates: hits };
   }

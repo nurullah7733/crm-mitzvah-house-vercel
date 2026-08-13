@@ -46,7 +46,7 @@ function Dashboard() {
   const { data } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
-      const [overdue, recentGifts, upcoming, lapsed, grantDeadlines] = await Promise.all([
+      const [overdue, recentGifts, upcoming, lapsed, grantDeadlines, pendingThanks] = await Promise.all([
         supabase
           .from("tasks")
           .select("*, people(id, display_name, first_name, last_name)")
@@ -72,6 +72,13 @@ function Dashboard() {
         supabase
           .from("grants")
           .select("id, name, stage, amount_awarded, application_deadline, report_deadline, renewal_deadline, funder:funder_id(id, display_name, first_name, last_name)"),
+        supabase
+          .from("donations")
+          .select("id, amount, date, campaign, people(id, display_name, first_name, last_name)")
+          .is("deleted_at", null)
+          .eq("thank_you_sent", false)
+          .order("date", { ascending: false })
+          .limit(6),
       ]);
       return {
         overdue: overdue.data ?? [],
@@ -79,6 +86,7 @@ function Dashboard() {
         upcoming: upcoming.data ?? [],
         lapsed: lapsed.data ?? [],
         grants: grantDeadlines.data ?? [],
+        pendingThanks: pendingThanks.data ?? [],
       };
     },
   });
@@ -144,7 +152,33 @@ function Dashboard() {
         </Panel>
 
         <Panel title="Recent gifts" to="/donations" linkLabel="All donations">
+          {data?.recentGifts.length === 0 && <p className="text-sm text-muted-foreground">No gifts logged yet.</p>}
           {data?.recentGifts.map((d) => (
+            <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
+              <div className="min-w-0">
+                {d.people && (
+                  <Link
+                    to="/people/$personId"
+                    params={{ personId: d.people.id }}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    {personName(d.people)}
+                  </Link>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(d.date)} · {d.campaign ?? "General"}
+                </p>
+              </div>
+              <p className="shrink-0 font-semibold text-money">{currency(d.amount)}</p>
+            </div>
+          ))}
+        </Panel>
+
+        <Panel title="Thank-you letters to send" to="/donations" linkLabel="All donations">
+          {data?.pendingThanks.length === 0 && (
+            <p className="text-sm text-muted-foreground">Every gift has been thanked. Lovely.</p>
+          )}
+          {data?.pendingThanks.map((d) => (
             <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
               <div className="min-w-0">
                 {d.people && (
