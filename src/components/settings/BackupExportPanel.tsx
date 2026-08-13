@@ -136,37 +136,6 @@ export function BackupExportPanel() {
 
   const failedCount = results?.filter((r) => r.error).length ?? 0;
 
-  // Prefer the browser's native Save As dialog. This keeps the save attached
-  // to the staff member's click and works in the embedded preview without
-  // opening a blank tab. Older browsers fall back to a normal download link.
-  async function saveFile(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (!readyDownload) return;
-    const savePicker = (window as Window & {
-      showSaveFilePicker?: (options: {
-        suggestedName: string;
-        types: Array<{ description: string; accept: Record<string, string[]> }>;
-      }) => Promise<{ createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }>;
-    }).showSaveFilePicker;
-
-    if (!savePicker) return;
-
-    e.preventDefault();
-    try {
-      const handle = await savePicker({
-        suggestedName: readyDownload.filename,
-        types: [{ description: "ZIP backup", accept: { "application/zip": [".zip"] } }],
-      });
-      const writable = await handle.createWritable();
-      const response = await fetch(readyDownload.url);
-      await writable.write(await response.blob());
-      await writable.close();
-      toast.success("Backup saved to your computer");
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      toast.error("The backup could not be saved. Please try again.");
-    }
-  }
-
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
@@ -193,7 +162,7 @@ export function BackupExportPanel() {
         <div className="rounded-xl border border-money/30 bg-money/10 p-4">
           <p className="mb-3 text-sm font-medium text-foreground">Your backup is ready to save.</p>
           <Button asChild className="h-11 rounded-xl">
-            <a href={readyDownload.url} download={readyDownload.filename} onClick={saveFile}>
+            <a href={readyDownload.url} download={readyDownload.filename}>
               <Save className="mr-2 h-4 w-4" />
               Save backup file
             </a>
