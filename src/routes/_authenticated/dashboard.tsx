@@ -8,6 +8,7 @@ import { greeting, useCurrentStaff } from "@/lib/current-staff";
 import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/session-log";
 import { CompleteTaskDialog, TaskCheckbox, type CompletableTask } from "@/components/forms/AddDialogs";
 import { personName } from "@/lib/names";
+import { fetchRenewalDonors } from "@/lib/renewal";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -46,7 +47,7 @@ function Dashboard() {
   const { data } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
-      const [overdue, recentGifts, upcoming, lapsed, grantDeadlines, pendingThanks] = await Promise.all([
+      const [overdue, recentGifts, upcoming, grantDeadlines, pendingThanks] = await Promise.all([
         supabase
           .from("tasks")
           .select("*, people(id, display_name, first_name, last_name)")
@@ -62,14 +63,6 @@ function Dashboard() {
           .limit(5),
         supabase.from("events").select("*").is("deleted_at", null).gte("date", new Date().toISOString().slice(0, 10)).order("date").limit(4),
         supabase
-          .from("people")
-          .select("id, display_name, first_name, last_name, lifetime_giving, this_year_giving, last_gift_date")
-          .is("deleted_at", null)
-          .eq("this_year_giving", 0)
-          .gt("lifetime_giving", 1000)
-          .order("lifetime_giving", { ascending: false })
-          .limit(5),
-        supabase
           .from("grants")
           .select("id, name, stage, amount_awarded, application_deadline, report_deadline, renewal_deadline, funder:funder_id(id, display_name, first_name, last_name)"),
         supabase
@@ -84,11 +77,17 @@ function Dashboard() {
         overdue: overdue.data ?? [],
         recentGifts: recentGifts.data ?? [],
         upcoming: upcoming.data ?? [],
-        lapsed: lapsed.data ?? [],
         grants: grantDeadlines.data ?? [],
         pendingThanks: pendingThanks.data ?? [],
       };
     },
+  });
+
+  // Lapsed donors are computed live from the gift ledger, so this card is right
+  // on January 1 too. Ranked by consistency plus total giving.
+  const { data: lapsed } = useQuery({
+    queryKey: ["dashboard-renewals"],
+    queryFn: () => fetchRenewalDonors("lapsed", 5),
   });
 
   const today = new Date().toISOString().slice(0, 10);
@@ -211,22 +210,24 @@ function Dashboard() {
           ))}
         </Panel>
 
-        <Panel title="Lapsed donors" to="/people" linkLabel="All people">
-          {data?.lapsed.length === 0 && <p className="text-sm text-muted-foreground">Everyone has given this year.</p>}
-          {data?.lapsed.map((p) => (
+        <Panel title="Renewal outreach — lapsed donors" to="/renewals" linkLabel="Full renewal list">
+          {lapsed?.length === 0 && (
+            <p className="text-sm text-muted-foreground">Everyone who gave before has given again this year.</p>
+          )}
+          {lapsed?.map((d) => (
             <Link
-              key={p.id}
-              to="/people/$personId"
-              params={{ personId: p.id }}
+              key={d.person_id}
+              to="/renewals"
               className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0 hover:text-primary"
             >
               <div>
-                <p className="text-sm text-primary">
-                  {personName(p)}
+                <p className="text-sm text-primary">{d.name ?? "Unnamed contact"}</p>
+                <p className="text-xs text-muted-foreground">
+                  Last gift {d.last_gift_amount === null ? "" : `${currency(d.last_gift_amount)} · `}
+                  {formatDate(d.last_gift_date)} · gave in {d.prior_years} {d.prior_years === 1 ? "year" : "years"}
                 </p>
-                <p className="text-xs text-muted-foreground">Last gift {formatDate(p.last_gift_date)}</p>
               </div>
-              <p className="shrink-0 text-sm text-muted-foreground">{currency(p.lifetime_giving)} lifetime</p>
+              <p className="shrink-0 text-sm text-muted-foreground">{currency(d.lifetime_total)} lifetime</p>
             </Link>
           ))}
         </Panel>
@@ -300,7 +301,7 @@ function Panel({
   children,
 }: {
   title: string;
-  to: "/tasks" | "/donations" | "/events" | "/people" | "/grants";
+  to: "/tasks" | "/donations" | "/events" | "/people" | "/grants" | "/renewals";
   linkLabel: string;
   children: React.ReactNode;
 }) {
