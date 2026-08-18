@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
+import { recordAttendance } from "@/lib/gift-events";
 import {
   applyIncoming,
   compareRecords,
@@ -48,21 +49,34 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
     const { data: events } = await supabase.from("events").select("id, name, date").is("deleted_at", null);
     const match = matchEventByName(row.event_name!, (events ?? []) as EventOption[]);
     if (match) {
-      const { data: already } = await supabase
+      const { data: before } = await supabase
         .from("registrations")
-        .select("id")
+        .select("id, status")
         .eq("event_id", match.id)
         .eq("person_id", personId)
         .limit(1);
-      if (!already?.length) {
+      const existing = before?.[0];
+      // One shared attendance function: an existing Invited/Registered row is
+      // upgraded to Attended rather than skipped.
+      await recordAttendance({
+        personId,
+        eventId: match.id,
+        eventName: match.name,
+        eventDate: (match as { date?: string | null }).date ?? null,
+        importBatchId: batchId,
+      });
+      if (!existing) {
         const { data: reg } = await supabase
           .from("registrations")
-          .insert({ event_id: match.id, person_id: personId, status: "Attended", import_batch_id: batchId } as never)
           .select("id")
-          .single();
-        created.registrationId = reg?.id ?? null;
-        // The attendance entry on the timeline comes from the registration itself,
-        // so undoing this (removing the registration) removes the entry too.
+          .eq("event_id", match.id)
+          .eq("person_id", personId)
+          .limit(1);
+        // Only a registration this step created may be removed on undo.
+        created.registrationId = reg?.[0]?.id ?? null;
+        created.addedActivity.push(`attendance at ${match.name}`);
+      } else if ((existing.status ?? "").trim().toLowerCase() !== "attended") {
+        created.upgradedRegistration = { id: existing.id, status: existing.status ?? null };
         created.addedActivity.push(`attendance at ${match.name}`);
       }
     }
