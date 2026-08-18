@@ -300,12 +300,9 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
   ],
   address: ["address", "street", "street address", "address line 1", "mailing address", "home address", "city state zip", "shipping address"],
   address_line2: ["address line 2", "address 2", "apt", "apartment", "unit", "suite", "street 2", "address line two", "apt suite"],
-  address_line3: ["address line 3", "address 3", "extra address line", "additional address", "care of", "c/o"],
   city: ["city", "town", "city name", "billing city", "shipping city"],
   state: ["state", "province", "region", "st", "billing state", "shipping state"],
   postal_code: ["zip", "zip code", "zipcode", "postal code", "postcode", "billing zip", "shipping zip"],
-  county: ["county", "county name", "district"],
-  billing_address: ["billing address", "billing street", "bill to address", "billing address line 1", "card address"],
   household_name: ["household", "household name", "family", "family name"],
   birth_date: ["birthday", "birth date", "birthdate", "dob", "date of birth"],
   anniversary_date: ["anniversary", "wedding anniversary", "anniversary date", "wedding date"],
@@ -429,7 +426,7 @@ export function composeAddress(v: Partial<Record<FieldKey, string>>): string | n
     .filter(Boolean)
     .join(" ")
     .trim();
-  const lines = [v.address, v.address_line2, v.address_line3, cityLine, v.county ? `${v.county} County` : ""]
+  const lines = [v.address, v.address_line2, cityLine]
     .map((l) => (l ?? "").trim())
     .filter(Boolean);
   return lines.length ? lines.join("\n") : null;
