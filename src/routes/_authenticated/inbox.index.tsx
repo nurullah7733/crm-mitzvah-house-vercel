@@ -768,15 +768,19 @@ function ImportCenter() {
         return null;
       }
 
+      // The same in-file identity registry the preview used, applied again here
+      // against the contacts this import has created as it goes.
+      const loopSeen = newRowIdentityRegistry();
+
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
 
         try {
-          // Match again, now against the contacts this import has already created.
-          const flaggedByPreview =
-            item.match.status === "ambiguous" && !item.match.reason.startsWith("Appears more than once");
-          const live = matchRow(v, livePeople);
+          // Exactly the same check the preview ran, now against the contacts this
+          // import has already created.
+          const live = matchRowOnce(v, livePeople, loopSeen, index);
+          const flaggedByPreview = item.match.status === "ambiguous";
           const match = live;
           const shared = addressReviewRows.get(index);
           const rowAddress = composeAddress(v);
@@ -792,8 +796,21 @@ function ImportCenter() {
           const giftFingerprint = donationImportFingerprint(v, rowAmount, rowGiftDate);
           const giftAlreadyImported = Boolean(giftFingerprint && existingGiftFingerprints.has(giftFingerprint));
 
+          // The gift itself, not the person: the same amount on the same day sitting
+          // on a contact we did NOT match to usually means a second record for one donor.
+          const giftsElsewhere =
+            Number.isFinite(rowAmount) && rowAmount > 0
+              ? await findGiftsOnOtherContacts(rowAmount, rowGiftDate, live.candidates.map((c) => c.id))
+              : [];
+
           // A flagged row is never written. It waits in the Data Inbox for a person.
-          if (flaggedByPreview || live.status === "ambiguous" || shared || giftAlreadyImported) {
+          if (
+            flaggedByPreview ||
+            live.status === "ambiguous" ||
+            shared ||
+            giftAlreadyImported ||
+            giftsElsewhere.length > 0
+          ) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
             await queueForReview(
               v,
@@ -801,10 +818,15 @@ function ImportCenter() {
                 ? "This gift appears to have already been imported"
                 : flaggedByPreview || live.status === "ambiguous"
                 ? reason
+                : giftsElsewhere.length > 0
+                ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
                 : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
                     (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
                   } in this file`,
-              (live.candidates.length ? live.candidates : item.match.candidates).map((c) => c.id),
+              (live.candidates.length
+                ? live.candidates.map((c) => c.id)
+                : item.match.candidates.map((c) => c.id)
+              ).concat(giftsElsewhere.map((g) => g.personId)),
               groupInfo,
             );
             continue;
