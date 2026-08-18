@@ -570,7 +570,7 @@ function DataInbox() {
             selectedIds={selection.ids}
             onSelectAll={() => selection.selectAll(pending.map((r) => r.id))}
             onClear={selection.clear}
-            noun="rows matching this filter"
+            noun="rows"
           />
           {selection.count > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-3">
