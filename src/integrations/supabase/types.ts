@@ -1178,6 +1178,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      archive_records: {
+        Args: { _ids: string[]; _table: string }
+        Returns: number
+      }
       daitch_mokotoff: { Args: { "": string }; Returns: string[] }
       delete_integration_credentials: {
         Args: { _provider: string }
