@@ -281,11 +281,20 @@ function Dashboard() {
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
-          {data?.overdue.length === 0 && (
-            <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>
+        <Panel
+          title="Needs attention"
+          to="/tasks"
+          linkLabel="All tasks"
+          count={
+            urgentTasks.length > 0
+              ? `${urgentTasks.length} of ${data?.overdueTotal ?? urgentTasks.length}`
+              : undefined
+          }
+        >
+          {data && urgentTasks.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nothing waiting. Nice.</p>
           )}
-          {data?.overdue.map((t) => (
+          {urgentTasks.map((t) => (
             <div key={t.id} className="flex gap-3 border-b border-border py-2.5 last:border-0">
               <TaskCheckbox
                 done={false}
@@ -295,8 +304,13 @@ function Dashboard() {
               />
               <div className="min-w-0">
                 <p className="text-sm text-foreground">{t.text}</p>
-                <p className="text-xs text-urgent">
-                  Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"}
+                <p
+                  className={`text-xs ${
+                    t.due_date && t.due_date < todayStr ? "text-urgent" : "text-muted-foreground"
+                  }`}
+                >
+                  {t.due_date ? `Due ${formatDate(t.due_date)}` : "No due date"} ·{" "}
+                  {t.owner ?? "Unassigned"}
                 </p>
                 {t.people && (
                   <Link
