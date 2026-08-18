@@ -32,6 +32,7 @@ import {
   FIELD_LABELS,
   addressKey,
   composeAddress,
+  donationImportFingerprint,
   guessMapping,
   matchRow,
   roleFromRow,
@@ -612,6 +613,20 @@ function ImportCenter() {
       let failures = 0;
       let queued = 0;
 
+      const existingGiftFingerprints = new Set(
+        (await fetchAll<{ import_fingerprint: string | null }>((f, t) =>
+          supabase
+            .from("donations")
+            .select("import_fingerprint")
+            .not("import_fingerprint", "is", null)
+            .is("deleted_at", null)
+            .order("id")
+            .range(f, t),
+        ))
+          .map((gift) => gift.import_fingerprint)
+          .filter((value): value is string => Boolean(value)),
+      );
+
       /** Park a row in the Data Inbox, with the address it shares so it can be grouped there. */
       async function queueForReview(
         values: RowValues,
@@ -785,12 +800,19 @@ function ImportCenter() {
                 return k ? { key: k, address: rowAddress ?? "" } : null;
               })();
 
+          const rowAmount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
+          const rowGiftDate = isoDate(v.date) ?? importDate;
+          const giftFingerprint = donationImportFingerprint(v, rowAmount, rowGiftDate);
+          const giftAlreadyImported = Boolean(giftFingerprint && existingGiftFingerprints.has(giftFingerprint));
+
           // A flagged row is never written. It waits in the Data Inbox for a person.
-          if (flaggedByPreview || live.status === "ambiguous" || shared) {
+          if (flaggedByPreview || live.status === "ambiguous" || shared || giftAlreadyImported) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
             await queueForReview(
               v,
-              flaggedByPreview || live.status === "ambiguous"
+              giftAlreadyImported
+                ? "This gift appears to have already been imported"
+                : flaggedByPreview || live.status === "ambiguous"
                 ? reason
                 : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
                     (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
@@ -964,6 +986,7 @@ function ImportCenter() {
               await supabase
                 .from("registrations")
                 .insert({ event_id: targetEventId, person_id: personId, status: "Attended" });
+                .insert({ event_id: targetEventId, person_id: personId, status: "Attended", import_batch_id: batchId });
               // The attendance timeline entry is written by the database from the
               // registration, so removing the registration removes the entry too.
             }
@@ -1124,6 +1147,7 @@ function ImportCenter() {
             const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
             if (Number.isFinite(amount) && amount > 0) {
               const giftDate = isoDate(v.date) ?? importDate;
+              const fingerprint = donationImportFingerprint(v, amount, giftDate);
               // Re-importing the same file must not add the same gift twice, and a
               // gift only ever gets one timeline entry — the donation itself.
               const dupeCheck = supabase
@@ -1148,6 +1172,7 @@ function ImportCenter() {
                   source,
                   notes: v.notes ?? null,
                   import_batch_id: batch.id,
+                  import_fingerprint: fingerprint,
                   })
                   .select("id")
                   .single();
@@ -1163,8 +1188,10 @@ function ImportCenter() {
                     personId,
                     eventId: giftEvent.event.id,
                     attended: decision === "attended",
+                    importBatchId: batchId,
                   });
                 }
+                if (fingerprint) existingGiftFingerprints.add(fingerprint);
               }
             }
           }

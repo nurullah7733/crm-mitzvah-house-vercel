@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { RowValues } from "@/lib/import-mapping";
+import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import {
   applyIncoming,
@@ -72,6 +72,7 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
     const amount = Number(String(row.amount).replace(/[^0-9.-]/g, ""));
     if (Number.isFinite(amount) && amount > 0) {
       const giftDate = isoDate(row.date) ?? today();
+      const fingerprint = donationImportFingerprint(row, amount, giftDate);
       const check = supabase
         .from("donations")
         .select("id")
@@ -83,7 +84,10 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
         ? check.eq("campaign", row.campaign)
         : check.is("campaign", null)
       ).limit(1);
-      if (!existingGift?.length) {
+      const { data: fingerprintGift } = fingerprint
+        ? await supabase.from("donations").select("id").eq("import_fingerprint", fingerprint).is("deleted_at", null).limit(1)
+        : { data: [] };
+      if (!existingGift?.length && !fingerprintGift?.length) {
         const { data: gift } = await supabase
           .from("donations")
           .insert({
@@ -94,6 +98,7 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
             source,
             notes: row.notes ?? null,
             import_batch_id: batchId,
+            import_fingerprint: fingerprint,
           } as never)
           .select("id")
           .single();
@@ -144,7 +149,7 @@ export async function quickMerge(
   for (const f of fields) if (f.state === "fill") before[f.key] = f.existing ?? null;
 
   const source = `${item.filename ?? "Import"} quick update`;
-  const filledFields = await applyIncoming(existing.id, fields, {}, source);
+  const filledFields = await applyIncoming(existing.id, fields, {}, source, item.batch_id ?? null);
   const activity = await addRowActivity(existing.id, item.row_data, source, item.batch_id ?? null);
 
   const { error } = await supabase.rpc("log_review_decision", {

@@ -4,6 +4,7 @@ import {
   addressKey,
   composeAddress,
   roleFromRow,
+  donationImportFingerprint,
   splitName,
   type RowValues,
 } from "@/lib/import-mapping";
@@ -136,14 +137,16 @@ export async function createPersonFromRow(
 
   const amount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
   if (Number.isFinite(amount) && amount > 0) {
+    const giftDate = isoDate(row.date) ?? today();
     await supabase.from("donations").insert({
       person_id: personId,
       amount,
-      date: isoDate(row.date) ?? today(),
+      date: giftDate,
       campaign: row.campaign ?? null,
       source,
       notes: row.notes ?? null,
       import_batch_id: batchId,
+      import_fingerprint: donationImportFingerprint(row, amount, giftDate),
     } as never);
   } else {
     const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""].filter(Boolean).join(" · ");
