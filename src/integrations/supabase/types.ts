@@ -1178,6 +1178,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      archive_records: {
+        Args: { _ids: string[]; _table: string }
+        Returns: number
+      }
       daitch_mokotoff: { Args: { "": string }; Returns: string[] }
       delete_integration_credentials: {
         Args: { _provider: string }
@@ -1286,6 +1290,10 @@ export type Database = {
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
       registration_status_rank: { Args: { _status: string }; Returns: number }
+      restore_records: {
+        Args: { _ids: string[]; _table: string }
+        Returns: number
+      }
       save_integration_credentials: {
         Args: { _credentials: Json; _primary_field: string; _provider: string }
         Returns: undefined

@@ -63,7 +63,7 @@ function RenewalsPage() {
           owner: d.owner,
           due_date: due.toISOString().slice(0, 10),
           priority: d.prior_years >= 3 ? "High" : "Normal",
-          status: "open",
+          status: "upcoming",
           notes: `Renewal outreach · ${d.prior_years} prior ${d.prior_years === 1 ? "year" : "years"} of giving · ${currency(
             d.lifetime_total,
           )} lifetime`,

@@ -32,6 +32,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { restoreRecords, type ArchivableTable } from "@/lib/archive";
 
 const ROLES = [
   { value: "admin", label: "Admin" },
@@ -221,8 +222,8 @@ function ChangeHistoryPanel() {
 
   const restore = useMutation({
     mutationFn: async ({ table, id }: { table: RestorableTable; id: string }) => {
-      const { error } = await supabase.from(table).update({ deleted_at: null } as never).eq("id", id);
-      if (error) throw error;
+      const n = await restoreRecords(table as ArchivableTable, [id]);
+      if (n === 0) throw new Error("That record is not in the removed list any more");
     },
     onSuccess: () => {
       queryClient.invalidateQueries();

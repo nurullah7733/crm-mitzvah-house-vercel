@@ -89,6 +89,7 @@ export function MergeContactsDialog({
   const [rightId, setRightId] = useState(suggestedIds[0] ?? "");
   const [keepLeft, setKeepLeft] = useState(true);
   const [picks, setPicks] = useState<Record<string, Side>>({});
+  const [mergeHouses, setMergeHouses] = useState(true);
 
   const { data: people } = useQuery({
     queryKey: ["merge-people"],
@@ -113,6 +114,7 @@ export function MergeContactsDialog({
       setRightId(suggestedIds[0] ?? "");
       setKeepLeft(true);
       setPicks({});
+      setMergeHouses(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, primaryId, suggestedIds.join(",")]);
@@ -139,6 +141,10 @@ export function MergeContactsDialog({
         : [],
     [left, right, houseNames],
   );
+
+  /** Two different households behind the two contacts means a leftover near-duplicate household. */
+  const twoHouseholds =
+    !!left?.household_id && !!right?.household_id && left.household_id !== right.household_id;
 
   const merge = useMutation({
     mutationFn: async () => {
@@ -167,14 +173,35 @@ export function MergeContactsDialog({
         _field_values: fieldValues as never,
       });
       if (error) throw error;
-      return survivor.id;
+
+      // Consolidate the two households too, so we don't leave a near-identical
+      // household behind with nobody in it.
+      let housesMerged = false;
+      if (twoHouseholds && mergeHouses) {
+        const survivingHouse = String(fieldValues["household_id"] ?? survivor.household_id ?? "");
+        const otherHouse = [survivor.household_id, loser.household_id].find((id) => id && id !== survivingHouse);
+        if (survivingHouse && otherHouse) {
+          const { error: hErr } = await supabase.rpc("merge_households", {
+            _surviving_id: survivingHouse,
+            _merged_id: otherHouse,
+            _field_values: {} as never,
+          });
+          if (hErr) throw hErr;
+          housesMerged = true;
+        }
+      }
+      return { id: survivor.id, housesMerged };
     },
-    onSuccess: (survivingId) => {
+    onSuccess: ({ id, housesMerged }) => {
       queryClient.invalidateQueries();
-      toast.success("Contacts merged — all history kept on the surviving record");
-      logChange("Merged two duplicate contacts");
+      toast.success(
+        housesMerged
+          ? "Contacts merged, and their two households combined into one"
+          : "Contacts merged — all history kept on the surviving record",
+      );
+      logChange(housesMerged ? "Merged two duplicate contacts and their households" : "Merged two duplicate contacts");
       onOpenChange(false);
-      onMerged?.(survivingId);
+      onMerged?.(id);
     },
     onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
@@ -267,6 +294,23 @@ export function MergeContactsDialog({
               cannot be undone automatically, but each merge is recorded with a full copy of the record that was
               merged away.
             </p>
+
+            {twoHouseholds && (
+              <label className="flex items-start gap-2 rounded-xl border border-border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4"
+                  checked={mergeHouses}
+                  onChange={(e) => setMergeHouses(e.target.checked)}
+                />
+                <span>
+                  These two contacts are in different households (
+                  {houseNames.get(left.household_id!) ?? "one household"} and{" "}
+                  {houseNames.get(right.household_id!) ?? "another household"}). Combine those two households into
+                  one as well, so we don't leave a near-identical household behind.
+                </span>
+              </label>
+            )}
           </>
         )}
       </div>

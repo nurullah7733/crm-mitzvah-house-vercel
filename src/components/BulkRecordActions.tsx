@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { MergeHouseholdsDialog } from "@/components/MergeHouseholdsDialog";
+import { archiveRecords, type ArchivableTable } from "@/lib/archive";
 
 type BulkTable = "donations" | "events" | "households" | "grants" | "tasks" | "campaigns";
 
@@ -41,11 +42,7 @@ export function BulkRecordBar({
   const remove = useMutation({
     mutationFn: async () => {
       if (soft) {
-        const { error } = await supabase
-          .from(table)
-          .update({ deleted_at: new Date().toISOString() } as never)
-          .in("id", selectedIds);
-        if (error) throw error;
+        await archiveRecords(table as ArchivableTable, selectedIds);
         return;
       }
       if (table === "households") {

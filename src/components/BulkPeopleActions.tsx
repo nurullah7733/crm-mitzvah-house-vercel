@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
+import { archiveRecords, type ArchivableTable } from "@/lib/archive";
 
 /** Shared multi-select state for any list of people. */
 export function useSelection() {
@@ -180,11 +181,7 @@ export function BulkPeopleBar({
 
   const removePeople = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from("people")
-        .update({ deleted_at: new Date().toISOString() } as never)
-        .in("id", selectedIds);
-      if (error) throw error;
+      await archiveRecords("people", selectedIds);
     },
     onSuccess: () => finish("Removed — hidden now, and recoverable from the change history"),
     onError: (e: Error) => toast.error(e.message),
