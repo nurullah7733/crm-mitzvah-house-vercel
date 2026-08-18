@@ -567,17 +567,22 @@ function Panel({
   title,
   to,
   linkLabel,
+  count,
   children,
 }: {
   title: string;
   to: "/tasks" | "/donations" | "/events" | "/people" | "/grants" | "/renewals";
   linkLabel: string;
+  count?: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center justify-between">
-        <h2 className="font-heading font-semibold text-foreground">{title}</h2>
+        <h2 className="font-heading font-semibold text-foreground">
+          {title}
+          {count && <span className="ml-2 text-xs font-normal text-muted-foreground">{count}</span>}
+        </h2>
         <Link to={to} className="text-xs text-primary hover:underline">
           {linkLabel}
         </Link>
