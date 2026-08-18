@@ -221,3 +221,10 @@ see what changed rather than wondering whether it was quietly dropped.
 - Thank-you and receipt flags are fully reversible: unchecking clears flag and
   date, reopens the task and removes the timeline entry (database triggers, not
   client-side steps).
+
+## Automated tests
+
+Run `npm test`. 119 unit tests cover Hebrew dates, import column mapping and row
+building, duplicate-gift fingerprints, and event attendance. 7 backend tests in
+`tests/db/` cover merging, giving totals, the duplicate guard and thank-you
+reversal; they only run when a test backend is configured (see tests/db/README.md).
