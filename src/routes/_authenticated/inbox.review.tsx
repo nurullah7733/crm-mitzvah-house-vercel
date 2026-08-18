@@ -324,6 +324,88 @@ function DataInbox() {
     onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
 
+  /** Bring a set-aside row back into the active list. */
+  const reopen = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("review_queue")
+        .update({ status: "pending", resolution_note: "Brought back from past imports" })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+      toast.success("Back on the list");
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Merge every selected row that has no disagreement with the contact on file. */
+  const bulkMerge = useMutation({
+    mutationFn: async () => {
+      let done = 0;
+      let skipped = 0;
+      for (const r of pending.filter((row) => selection.has(row.id))) {
+        const existing = personById((r.candidate_person_ids ?? [])[0]);
+        const fields = existing ? compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues)) : [];
+        if (!existing || (r.candidate_person_ids ?? []).length !== 1 || hasConflict(fields)) {
+          skipped += 1;
+          continue;
+        }
+        await quickMerge(
+          { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: (r.row_data ?? {}) as RowValues },
+          existing,
+          personName(existing),
+        );
+        done += 1;
+      }
+      return { done, skipped };
+    },
+    onSuccess: ({ done, skipped }) => {
+      queryClient.invalidateQueries();
+      selection.clear();
+      toast.success(`${done} merged${skipped ? ` · ${skipped} still need a decision` : ""}`);
+      logChange(`Merged ${done} imported rows with no conflicts`);
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Throw away every selected row, with one shared reason. */
+  const bulkDiscard = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) await discardRow(id, bulkReason.trim() || "Cleared out from the Data Inbox");
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries();
+      selection.clear();
+      setBulkDiscardOpen(false);
+      setClearOpen(false);
+      setBulkReason("");
+      toast.success(`${count} row${count === 1 ? "" : "s"} thrown away`);
+      logChange(`Discarded ${count} imported rows from the Data Inbox`);
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Set selected rows aside — they move to Past imports and can come back. */
+  const bulkDismiss = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase
+        .from("review_queue")
+        .update({ status: "skipped", resolution_note: "Dismissed from the Data Inbox" })
+        .in("id", ids);
+      if (error) throw error;
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries();
+      selection.clear();
+      toast.success(`${count} row${count === 1 ? "" : "s"} set aside — find them under Past imports`);
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
   /**
    * Save every answer on one address card: the people who live together join one
    * household, the rest become their own contacts, and anything the reviewer
