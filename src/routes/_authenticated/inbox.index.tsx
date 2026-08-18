@@ -391,25 +391,11 @@ function ImportCenter() {
 
   const analysed = useMemo<{ row: string[]; values: RowValues; match: MatchResult }[]>(() => {
     if (!sheet || !people) return [];
-    const seen = new Map<string, number>();
+    // One shared duplicate check, so the preview and the import loop agree.
+    const seen = newRowIdentityRegistry();
     return sheet.rows.map((row, index) => {
       const values = buildRowValues(row, mapping);
-      const key = rowDedupeKey(values);
-      // The same person listed twice in one file goes to review instead of being created twice.
-      if (key && seen.has(key)) {
-        const first = (seen.get(key) ?? 0) + 1;
-        return {
-          row,
-          values,
-          match: {
-            status: "ambiguous" as const,
-            reason: `Appears more than once in this file (also row ${first})`,
-            candidates: matchRow(values, people).candidates,
-          },
-        };
-      }
-      if (key) seen.set(key, index);
-      return { row, values, match: matchRow(values, people) };
+      return { row, values, match: matchRowOnce(values, people, seen, index) };
     });
   }, [sheet, people, mapping]);
 
