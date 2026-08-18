@@ -195,7 +195,7 @@ function DataInbox() {
   }, [pending]);
 
   const groupedIds = new Set(addressCards.flatMap((c) => c.rows.map((r) => r.id)));
-  const reviewedCount = handled.length;
+  const reviewedCount = past.length;
   const totalCount = pending.length + reviewedCount;
 
   const candidateIds = Array.from(
