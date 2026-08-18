@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddGrantDialog } from "@/components/forms/CampaignGrantDialogs";
-import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { GRANT_STAGES, personName } from "@/lib/names";
 
@@ -53,6 +53,14 @@ function GrantsPage() {
     >
       {isLoading && <EmptyState label="Loading grants…" />}
       {!isLoading && grants.length === 0 && <EmptyState label="No grants yet." />}
+
+      <SelectAllToggle
+        visibleIds={grants.map((g) => g.id)}
+        selectedIds={selection.ids}
+        onSelectAll={() => selection.selectAll(grants.map((g) => g.id))}
+        onClear={selection.clear}
+        noun="grants"
+      />
 
       <div className="space-y-6">
         {GRANT_STAGES.map((stage) => {

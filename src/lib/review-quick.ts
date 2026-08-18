@@ -36,7 +36,7 @@ export type QuickMergeResult = {
  * a gift, or a written note — to a contact we already have. Anything already
  * on file is skipped, so the same row can never add the same thing twice.
  */
-async function addRowActivity(personId: string, row: RowValues, source: string) {
+async function addRowActivity(personId: string, row: RowValues, source: string, batchId: string | null) {
   const created: Pick<QuickMergeResult, "donationId" | "registrationId" | "interactionIds" | "addedActivity"> = {
     donationId: null,
     registrationId: null,
@@ -57,7 +57,7 @@ async function addRowActivity(personId: string, row: RowValues, source: string) 
       if (!already?.length) {
         const { data: reg } = await supabase
           .from("registrations")
-          .insert({ event_id: match.id, person_id: personId, status: "Attended" } as never)
+          .insert({ event_id: match.id, person_id: personId, status: "Attended", import_batch_id: batchId } as never)
           .select("id")
           .single();
         created.registrationId = reg?.id ?? null;
@@ -93,6 +93,7 @@ async function addRowActivity(personId: string, row: RowValues, source: string) 
             campaign: row.campaign ?? null,
             source,
             notes: row.notes ?? null,
+            import_batch_id: batchId,
           } as never)
           .select("id")
           .single();
@@ -106,7 +107,14 @@ async function addRowActivity(personId: string, row: RowValues, source: string) 
   if (noteText && !created.donationId && !(row.amount ?? "").toString().trim()) {
     const { data: note } = await supabase
       .from("interactions")
-      .insert({ person_id: personId, type: "form", date: today(), text: noteText, author: "Import review" } as never)
+      .insert({
+        person_id: personId,
+        type: "form",
+        date: today(),
+        text: noteText,
+        author: "Import review",
+        import_batch_id: batchId,
+      } as never)
       .select("id")
       .single();
     if (note?.id) {
@@ -124,7 +132,7 @@ async function addRowActivity(personId: string, row: RowValues, source: string) 
  * exactly as it was. Refuses to run when the two records disagree.
  */
 export async function quickMerge(
-  item: { id: string; filename: string | null; row_data: RowValues },
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
   existing: ReviewPerson,
   existingName: string,
 ): Promise<QuickMergeResult> {
@@ -137,7 +145,7 @@ export async function quickMerge(
 
   const source = `${item.filename ?? "Import"} quick update`;
   const filledFields = await applyIncoming(existing.id, fields, {}, source);
-  const activity = await addRowActivity(existing.id, item.row_data, source);
+  const activity = await addRowActivity(existing.id, item.row_data, source, item.batch_id ?? null);
 
   const { error } = await supabase.rpc("log_review_decision", {
     _item_id: item.id,

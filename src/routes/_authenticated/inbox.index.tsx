@@ -17,6 +17,8 @@ import { friendlyDbError } from "@/lib/db-errors";
 import { attributeGiftToEvent } from "@/lib/gift-events";
 import {
   EMPTY_BULK_TARGET,
+  GROUP_ADDRESS_FIELD,
+  GROUP_KEY_FIELD,
   RELATIONSHIP_OPTIONS,
   groupSharedAddresses,
   matchEventByName,
@@ -440,7 +442,7 @@ function ImportCenter() {
     return [...map.entries()].map(([key, v]) => ({ key, ...v }));
   }, [analysed, events]);
 
-  const unresolvedEvents = fileEvents.filter(
+  const unansweredEvents = fileEvents.filter(
     (e) => !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
   );
 
@@ -512,6 +514,27 @@ function ImportCenter() {
 
   const undecidedAddressGroups = addressGroups.filter((g) => !addressDecisions[g.key]);
 
+  /** Rows whose shared-address question hasn't been answered — they go to review, not into the database. */
+  const addressReviewRows = useMemo(() => {
+    const map = new Map<number, { key: string; address: string; names: string[] }>();
+    for (const g of undecidedAddressGroups) {
+      for (const r of g.rows) {
+        map.set(r.index, { key: g.key, address: g.address, names: g.rows.map((x) => x.name) });
+      }
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressGroups, addressDecisions]);
+
+  /** How many rows go straight in, and how many wait in the Data Inbox. */
+  const plan = useMemo(() => {
+    const review = analysed.reduce(
+      (n, a, i) => n + (a.match.status === "ambiguous" || addressReviewRows.has(i) ? 1 : 0),
+      0,
+    );
+    return { review, importNow: Math.max(analysed.length - review, 0) };
+  }, [analysed, addressReviewRows]);
+
   async function handleFile(file: File) {
     setError(null);
     try {
@@ -548,14 +571,6 @@ function ImportCenter() {
   async function approve() {
     if (!sheet) return;
     if (runningRef.current || busy) return;
-    if (unresolvedEvents.length > 0) {
-      toast.error("Tell us what to do with the event names in this file first.");
-      return;
-    }
-    if (undecidedAddressGroups.length > 0) {
-      toast.error("Answer the shared-address questions first.");
-      return;
-    }
     if ((priorImports ?? []).length > 0 && !reimportConfirmed) {
       toast.error("This file was imported before. Tick the box to confirm you want to import it again.");
       return;
@@ -595,6 +610,28 @@ function ImportCenter() {
         import_batch_id: string;
       }[] = [];
       let failures = 0;
+      let queued = 0;
+
+      /** Park a row in the Data Inbox, with the address it shares so it can be grouped there. */
+      async function queueForReview(
+        values: RowValues,
+        reason: string,
+        candidateIds: string[],
+        group: { key: string; address: string } | null,
+      ) {
+        queued += 1;
+        await supabase.from("review_queue").insert({
+          batch_id: batchId,
+          filename: sheet!.name,
+          reason,
+          row_data: {
+            ...(values as unknown as Record<string, unknown>),
+            ...(group ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address } : {}),
+          } as unknown as Record<string, string>,
+          candidate_person_ids: candidateIds,
+          status: "pending",
+        });
+      }
 
       // Existing households, so people at the same address join one household
       // instead of each row creating a fresh duplicate.
@@ -739,18 +776,28 @@ function ImportCenter() {
             item.match.status === "ambiguous" && !item.match.reason.startsWith("Appears more than once");
           const live = matchRow(v, livePeople);
           const match = live;
+          const shared = addressReviewRows.get(index);
+          const rowAddress = composeAddress(v);
+          const groupInfo = shared
+            ? { key: shared.key, address: shared.address }
+            : (() => {
+                const k = addressKey(rowAddress);
+                return k ? { key: k, address: rowAddress ?? "" } : null;
+              })();
 
           // A flagged row is never written. It waits in the Data Inbox for a person.
-          if (flaggedByPreview || live.status === "ambiguous") {
+          if (flaggedByPreview || live.status === "ambiguous" || shared) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
-            await supabase.from("review_queue").insert({
-              batch_id: batch.id,
-              filename: sheet.name,
-              reason,
-              row_data: v as unknown as Record<string, string>,
-              candidate_person_ids: (live.candidates.length ? live.candidates : item.match.candidates).map((c) => c.id),
-              status: "pending",
-            });
+            await queueForReview(
+              v,
+              flaggedByPreview || live.status === "ambiguous"
+                ? reason
+                : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
+                    (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
+                  } in this file`,
+              (live.candidates.length ? live.candidates : item.match.candidates).map((c) => c.id),
+              groupInfo,
+            );
             continue;
           }
 
@@ -1139,14 +1186,8 @@ function ImportCenter() {
           failures += 1;
           console.error("Import row failed", rowError);
           const why = await friendlyDbError(rowError, "We couldn't save this row.");
-          await supabase.from("review_queue").insert({
-            batch_id: batch.id,
-            filename: sheet.name,
-            reason: why,
-            row_data: v as unknown as Record<string, string>,
-            candidate_person_ids: [],
-            status: "pending",
-          });
+          const k = addressKey(composeAddress(v));
+          await queueForReview(v, why, [], k ? { key: k, address: composeAddress(v) ?? "" } : null);
         }
 
         // Let the browser breathe so a long import never freezes the page.
@@ -1162,10 +1203,17 @@ function ImportCenter() {
         }
       }
 
+      const importedRows = Math.max(analysed.length - queued, 0);
       toast.success(
-        `Imported ${counts.matched + counts.new - failures} rows${
-          counts.extraPeople ? `, plus ${counts.extraPeople} family members` : ""
-        }. ${counts.ambiguous + failures} sent to the Data Inbox for review.`,
+        `${importedRows} imported · ${queued} need review${
+          counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
+        }`,
+        {
+          duration: 12000,
+          ...(queued > 0
+            ? { description: "The rows that need a person to look at them are waiting in the Data Inbox." }
+            : {}),
+        },
       );
       await queryClient.invalidateQueries();
       reset();
@@ -1226,7 +1274,7 @@ function ImportCenter() {
               <Stat icon={Users} label="Rows found" value={counts.total} tone="text-foreground" />
               <Stat icon={CheckCircle2} label="Match existing people" value={counts.matched} tone="text-money" />
               <Stat icon={UserPlus} label="Look new" value={counts.new} tone="text-primary" />
-              <Stat icon={AlertTriangle} label="Need review" value={counts.ambiguous} tone="text-suggestion" />
+              <Stat icon={AlertTriangle} label="Need review" value={plan.review} tone="text-suggestion" />
             </div>
             {counts.extraPeople > 0 && (
               <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm text-foreground">
@@ -1234,12 +1282,16 @@ function ImportCenter() {
                 children) will each get their own contact, linked to the same household.
               </p>
             )}
-            {counts.ambiguous > 0 && (
-              <p className="mt-3 rounded-xl bg-suggestion/10 p-3 text-sm text-foreground">
-                {counts.ambiguous} row{counts.ambiguous === 1 ? "" : "s"} will go to the Data Inbox instead of being
-                imported.
-              </p>
-            )}
+            <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm text-foreground">
+              <strong>{plan.importNow}</strong> row{plan.importNow === 1 ? "" : "s"} will be imported straight away.
+              {plan.review > 0 ? (
+                <>
+                  {" "}
+                  <strong>{plan.review}</strong> row{plan.review === 1 ? "" : "s"} that need a person to look at them go
+                  to the Data Inbox — you don't have to sort them out now, and they'll wait there until you do.
+                </>
+              ) : null}
+            </p>
             {progress && (
               <div className="mt-3">
                 <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -1259,8 +1311,11 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                This file has an event column. Tell us what each event name means and we'll mark those people as
-                attending.
+                This file has an event column. Answering here is optional — anything you leave blank simply isn't linked
+                to an event, and the import still runs.
+                {unansweredEvents.length > 0
+                  ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
+                  : ""}
               </p>
               <div className="mt-3 space-y-2">
                 {fileEvents.map((fe) => {
@@ -1439,8 +1494,8 @@ function ImportCenter() {
             <section className="rounded-2xl border border-suggestion/40 bg-suggestion/5 p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Same address, different last names</h2>
               <p className="text-sm text-muted-foreground">
-                We won't guess. Tell us whether these people live together as one household, or just happen to share an
-                address.
+                We won't guess. Answer here if you know, or leave it — anyone you don't answer for goes to the Data
+                Inbox as one card per address, so you can decide later without holding up the import.
               </p>
               <div className="mt-3 space-y-3">
                 {addressGroups.map((group) => {

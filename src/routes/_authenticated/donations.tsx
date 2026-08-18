@@ -8,7 +8,7 @@ import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShel
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddDonationDialog } from "@/components/forms/AddDialogs";
-import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { Field } from "@/components/forms/fields";
@@ -197,6 +197,14 @@ function DonationsPage() {
       <div className="mt-4 rounded-2xl border border-money/30 bg-money/5 px-4 py-3 text-sm">
         Running total of what's shown: <span className="font-heading font-semibold text-money">{currency(total)}</span>
       </div>
+
+      <SelectAllToggle
+        visibleIds={gifts.map((d) => d.id)}
+        selectedIds={selection.ids}
+        onSelectAll={() => selection.selectAll(gifts.map((d) => d.id))}
+        onClear={selection.clear}
+        noun="gifts"
+      />
 
       <div className="mt-4 space-y-3">
         {isLoading && <EmptyState label="Loading donations…" />}

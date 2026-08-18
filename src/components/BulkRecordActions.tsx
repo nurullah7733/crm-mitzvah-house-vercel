@@ -80,7 +80,7 @@ export function BulkRecordBar({
           <span className="text-sm font-medium text-foreground">{selectedIds.length} selected</span>
           {!allSelected && (
             <Button variant="ghost" size="sm" className="rounded-xl text-xs" onClick={onSelectAll}>
-              Select all {visibleIds.length}
+              Select all {visibleIds.length} matching these filters
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">

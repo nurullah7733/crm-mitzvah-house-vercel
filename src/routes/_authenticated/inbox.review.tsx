@@ -18,11 +18,24 @@ import {
 import type { RowValues } from "@/lib/import-mapping";
 import { friendlyDbError } from "@/lib/db-errors";
 import { discardRow, quickMerge, undoQuickMerge, type QuickMergeResult } from "@/lib/review-quick";
+import { createPersonFromRow, ensureHouseholdAtAddress, rowDisplayName } from "@/lib/review-create";
+import { RELATIONSHIP_OPTIONS, rowGroup } from "@/lib/import-links";
 import { logChange } from "@/lib/session-log";
 import { Input } from "@/components/ui/input";
+import { selectClass } from "@/components/forms/fields";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
+
+/** What the reviewer decided about one person on a shared-address card. */
+type GroupAction = "same" | "related" | "separate" | "later";
+
+const GROUP_ACTIONS: { value: GroupAction; label: string }[] = [
+  { value: "same", label: "Same person we already have" },
+  { value: "related", label: "Related — lives here" },
+  { value: "separate", label: "Not related — own contact" },
+  { value: "later", label: "Not sure — leave for later" },
+];
 
 const BUCKETS: Bucket[] = [
   {
@@ -92,6 +105,8 @@ function DataInbox() {
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [deleteFor, setDeleteFor] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  /** One answer per row inside an address card. */
+  const [choices, setChoices] = useState<Record<string, { action: GroupAction; relationship: string }>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ["review-queue"],
@@ -107,6 +122,25 @@ function DataInbox() {
 
   const pending = (data ?? []).filter((r) => r.status === "pending" || r.status === "skipped");
   const handled = (data ?? []).filter((r) => r.status !== "pending" && r.status !== "skipped");
+
+  /**
+   * Everyone in an upload who shares one address, gathered onto a single card —
+   * so the same question is asked once per address, not once per person.
+   */
+  const addressCards = useMemo(() => {
+    const byKey = new Map<string, { key: string; address: string; rows: typeof pending }>();
+    for (const r of pending) {
+      const g = rowGroup(r.row_data as Record<string, unknown> | null);
+      if (!g) continue;
+      const bucket = byKey.get(g.key) ?? { key: g.key, address: g.address, rows: [] as typeof pending };
+      bucket.rows.push(r);
+      byKey.set(g.key, bucket);
+    }
+    return [...byKey.values()].filter((c) => c.rows.length > 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending]);
+
+  const groupedIds = new Set(addressCards.flatMap((c) => c.rows.map((r) => r.id)));
   const reviewedCount = handled.length;
   const totalCount = pending.length + reviewedCount;
 
@@ -133,6 +167,7 @@ function DataInbox() {
   /** Rows that only fill blanks in an existing contact — safe to approve together. */
   const safeRows = useMemo(() => {
     return pending.filter((r) => {
+      if (groupedIds.has(r.id)) return false;
       const existing = personById((r.candidate_person_ids ?? [])[0]);
       if (!existing) return false;
       if ((r.candidate_person_ids ?? []).length !== 1) return false;
@@ -149,7 +184,7 @@ function DataInbox() {
         const existing = personById((r.candidate_person_ids ?? [])[0]);
         if (!existing) continue;
         await quickMerge(
-          { id: r.id, filename: r.filename, row_data: (r.row_data ?? {}) as RowValues },
+          { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: (r.row_data ?? {}) as RowValues },
           existing,
           personName(existing),
         );
@@ -167,8 +202,18 @@ function DataInbox() {
 
   /** One tap: fill blanks and add new activity, never overwrite. */
   const quick = useMutation({
-    mutationFn: async (r: { id: string; filename: string | null; row_data: RowValues; existing: ReviewPerson }) =>
-      quickMerge({ id: r.id, filename: r.filename, row_data: r.row_data }, r.existing, personName(r.existing)),
+    mutationFn: async (r: {
+      id: string;
+      filename: string | null;
+      batch_id: string | null;
+      row_data: RowValues;
+      existing: ReviewPerson;
+    }) =>
+      quickMerge(
+        { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: r.row_data },
+        r.existing,
+        personName(r.existing),
+      ),
     onSuccess: (result: QuickMergeResult) => {
       queryClient.invalidateQueries();
       logChange(`Updated ${result.personName} from an imported row`);
@@ -221,6 +266,66 @@ function DataInbox() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Skipped — it will come back next time you open this list");
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /**
+   * Save every answer on one address card: the people who live together join one
+   * household, the rest become their own contacts, and anything the reviewer
+   * wasn't sure about stays on the list.
+   */
+  const applyCard = useMutation({
+    mutationFn: async (card: { key: string; address: string; rows: typeof pending }) => {
+      let householdId: string | null = null;
+      let saved = 0;
+      let left = 0;
+      for (const r of card.rows) {
+        const choice = choices[r.id];
+        const action = choice?.action ?? "later";
+        const row = (r.row_data ?? {}) as RowValues;
+        const item = { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: row };
+        if (action === "later") {
+          left += 1;
+          await supabase
+            .from("review_queue")
+            .update({ status: "skipped", resolution_note: "Left for later from the address card" })
+            .eq("id", r.id);
+          continue;
+        }
+        if (action === "same") {
+          const existing = personById((r.candidate_person_ids ?? [])[0]);
+          if (!existing) throw new Error("We don't have a matching contact for that person — open and decide instead.");
+          await quickMerge(item, existing, personName(existing));
+          saved += 1;
+          continue;
+        }
+        if (action === "related") {
+          if (!householdId) {
+            const surname = rowDisplayName(row).surname;
+            householdId = await ensureHouseholdAtAddress(
+              card.address || null,
+              surname ? `${surname} household` : "Household",
+              r.batch_id,
+            );
+          }
+          await createPersonFromRow(item, {
+            householdId,
+            relationship: choice?.relationship || null,
+            note: "Related — added to the household at this address",
+          });
+          saved += 1;
+          continue;
+        }
+        await createPersonFromRow(item, { note: "Not related — saved as their own contact" });
+        saved += 1;
+      }
+      return { saved, left };
+    },
+    onSuccess: ({ saved, left }) => {
+      queryClient.invalidateQueries();
+      toast.success(`${saved} saved${left ? ` · ${left} left for later` : ""}`);
+      logChange(`Reviewed an address with ${saved + left} people from an import`);
     },
     onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
@@ -298,8 +403,134 @@ function DataInbox() {
       )}
 
       <div className="space-y-6">
+        {addressCards.length > 0 && (
+          <section>
+            <h2 className="font-heading font-semibold text-foreground">
+              People at the same address ({addressCards.length})
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Everyone the file lists at one address is on one card. Say who lives together and who doesn't — we never
+              guess from an address on its own.
+            </p>
+            <div className="mt-2 space-y-3">
+              {addressCards.map((card) => {
+                const setAll = (action: GroupAction) =>
+                  setChoices((c) => {
+                    const next = { ...c };
+                    for (const r of card.rows)
+                      next[r.id] = { action, relationship: c[r.id]?.relationship ?? "" };
+                    return next;
+                  });
+                const answered = card.rows.filter((r) => choices[r.id]).length;
+                return (
+                  <div key={card.key} className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm">
+                    <p className="font-heading font-semibold text-foreground">
+                      {card.address || "This address"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {card.rows.length} people in the upload share this address.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button variant="outline" className="rounded-xl" onClick={() => setAll("related")}>
+                        All related — one household
+                      </Button>
+                      <Button variant="outline" className="rounded-xl" onClick={() => setAll("separate")}>
+                        None related — separate contacts
+                      </Button>
+                      <Button variant="ghost" className="rounded-xl" onClick={() => setAll("later")}>
+                        Leave all for later
+                      </Button>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {card.rows.map((r) => {
+                        const row = (r.row_data ?? {}) as RowValues;
+                        const name = rowDisplayName(row).display || "(no name)";
+                        const existing = personById((r.candidate_person_ids ?? [])[0]);
+                        const choice = choices[r.id];
+                        return (
+                          <div key={r.id} className="rounded-xl border border-border p-3">
+                            <p className="text-sm font-medium text-foreground">{name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {[row.email, row.phone].filter(Boolean).join(" · ") || "No email or phone on the row"}
+                              {existing ? ` · looks like ${personName(existing)}, already on file` : ""}
+                            </p>
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                              <select
+                                className={selectClass}
+                                aria-label={`What should we do with ${name}?`}
+                                value={choice?.action ?? ""}
+                                onChange={(e) =>
+                                  setChoices((c) => ({
+                                    ...c,
+                                    [r.id]: {
+                                      action: e.target.value as GroupAction,
+                                      relationship: c[r.id]?.relationship ?? "",
+                                    },
+                                  }))
+                                }
+                              >
+                                <option value="">What should we do?</option>
+                                {GROUP_ACTIONS.filter((a) => a.value !== "same" || existing).map((a) => (
+                                  <option key={a.value} value={a.value}>
+                                    {a.value === "same" && existing ? `Same person as ${personName(existing)}` : a.label}
+                                  </option>
+                                ))}
+                              </select>
+                              {choice?.action === "related" && (
+                                <select
+                                  className={selectClass}
+                                  aria-label={`How is ${name} related?`}
+                                  value={choice.relationship}
+                                  onChange={(e) =>
+                                    setChoices((c) => ({
+                                      ...c,
+                                      [r.id]: { action: "related", relationship: e.target.value },
+                                    }))
+                                  }
+                                >
+                                  <option value="">Relationship (optional)</option>
+                                  {RELATIONSHIP_OPTIONS.map((rel) => (
+                                    <option key={rel} value={rel}>
+                                      {rel}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className="mt-2 text-xs text-primary underline"
+                              onClick={() => setReviewId(r.id)}
+                            >
+                              Open this row on its own
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        className="rounded-xl"
+                        disabled={applyCard.isPending || answered === 0}
+                        onClick={() => applyCard.mutate(card)}
+                      >
+                        {applyCard.isPending ? "Saving…" : "Save these people"}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {answered} of {card.rows.length} answered
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {BUCKETS.map((bucket) => {
-          const rows = pending.filter((r) => bucketFor(r.reason).id === bucket.id);
+          const rows = pending.filter((r) => !groupedIds.has(r.id) && bucketFor(r.reason).id === bucket.id);
           if (rows.length === 0) return null;
           return (
             <section key={bucket.id}>
@@ -351,6 +582,7 @@ function DataInbox() {
                                 quick.mutate({
                                   id: r.id,
                                   filename: r.filename,
+                                  batch_id: r.batch_id,
                                   row_data: row,
                                   existing,
                                 })
@@ -552,6 +784,7 @@ function DataInbox() {
             id: reviewItem.id,
             reason: reviewItem.reason,
             filename: reviewItem.filename,
+            batch_id: reviewItem.batch_id,
             row_data: (reviewItem.row_data ?? {}) as RowValues,
           }}
           existing={personById((reviewItem.candidate_person_ids ?? [])[0]) ?? null}
