@@ -42,6 +42,7 @@ import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMet
 import { fetchContactMethods } from "@/lib/contact-methods";
 import { properCase, properCaseAddress } from "@/lib/proper-case";
 import { YahrzeitEditor } from "@/components/YahrzeitEditor";
+import { PledgePanel } from "@/components/pledges/PledgePanel";
 import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
 
@@ -591,6 +592,8 @@ function PersonPage() {
               )}
             </div>
           </Card>
+
+          <PledgePanel personId={p.id} />
 
           <EditableCard
             title="Special dates"
