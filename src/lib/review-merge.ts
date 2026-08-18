@@ -154,7 +154,8 @@ export async function updateExistingFields(personId: string, patch: Partial<Reco
 
 /**
  * Apply an incoming row onto a stored contact. Blanks are always filled in;
- * conflicting fields only change when the reviewer chose the incoming value.
+ * any field the reviewer explicitly assigned follows that choice, so they can
+ * pick a winner field by field even where the two records already agree.
  */
 export async function applyIncoming(
   personId: string,
@@ -166,7 +167,16 @@ export async function applyIncoming(
   const patch: Record<string, string | null> = {};
   const changedFields: string[] = [];
   for (const f of fields) {
-    if (f.state === "fill" || (f.state === "conflict" && choices[f.key] === "incoming")) {
+    const picked = choices[f.key];
+    if (picked === "existing") continue;
+    if (picked === "incoming") {
+      if (norm(f.incoming) !== norm(f.existing)) {
+        patch[f.key] = f.incoming;
+        changedFields.push(f.key);
+      }
+      continue;
+    }
+    if (f.state === "fill") {
       patch[f.key] = f.incoming;
       changedFields.push(f.key);
     }
