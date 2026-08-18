@@ -1408,40 +1408,22 @@ function ImportCenter() {
                           </button>
                         </div>
                       ) : (
-                        <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr]">
-                          <select
-                            className={selectClass}
-                            value={
-                              decision?.action === "existing"
-                                ? decision.eventId
-                                : (decision?.action ?? "")
-                            }
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setEventDecisions((d) => ({
-                                ...d,
-                                [fe.key]:
-                                  val === "create"
-                                    ? { action: "create" }
-                                    : val === "ignore"
-                                      ? { action: "ignore" }
-                                      : { action: "existing", eventId: val },
-                              }));
-                            }}
-                          >
-                            <option value="">What should we do?</option>
-                            <option value="create">Create a new event called “{fe.value}”</option>
-                            <option value="ignore">Skip this — don't link anyone</option>
-                            {(events ?? []).map((ev) => (
-                              <option key={ev.id} value={ev.id}>
-                                Add them to “{ev.name}” ({ev.date})
-                              </option>
-                            ))}
-                          </select>
-                          <p className="self-center text-xs text-muted-foreground">
-                            We didn't find an event with this name.
-                          </p>
-                        </div>
+                        <EventDecisionPicker
+                          name={fe.value}
+                          rows={fe.rows}
+                          events={events ?? []}
+                          decision={decision}
+                          onApply={(next) =>
+                            setEventDecisions((d) => ({ ...d, [fe.key]: next }))
+                          }
+                          onClear={() =>
+                            setEventDecisions((d) => {
+                              const nextState = { ...d };
+                              delete nextState[fe.key];
+                              return nextState;
+                            })
+                          }
+                        />
                       )}
                     </div>
                   );
