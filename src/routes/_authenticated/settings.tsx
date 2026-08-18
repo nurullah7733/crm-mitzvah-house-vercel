@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
 import {
+import { restoreRecords, type ArchivableTable } from "@/lib/archive";
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -221,8 +222,8 @@ function ChangeHistoryPanel() {
 
   const restore = useMutation({
     mutationFn: async ({ table, id }: { table: RestorableTable; id: string }) => {
-      const { error } = await supabase.from(table).update({ deleted_at: null } as never).eq("id", id);
-      if (error) throw error;
+      const n = await restoreRecords(table as ArchivableTable, [id]);
+      if (n === 0) throw new Error("That record is not in the removed list any more");
     },
     onSuccess: () => {
       queryClient.invalidateQueries();

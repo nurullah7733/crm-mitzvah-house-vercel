@@ -17,3 +17,11 @@ export async function archiveRecords(table: ArchivableTable, ids: string[]) {
   if (error) throw error;
   return (data as number | null) ?? ids.length;
 }
+
+/** Bring back a removed record from the change history. */
+export async function restoreRecords(table: ArchivableTable, ids: string[]) {
+  if (ids.length === 0) return 0;
+  const { data, error } = await supabase.rpc("restore_records", { _table: table, _ids: ids });
+  if (error) throw error;
+  return (data as number | null) ?? ids.length;
+}
