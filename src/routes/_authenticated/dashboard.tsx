@@ -99,13 +99,16 @@ function Dashboard() {
     queryKey: ["dashboard"],
     queryFn: async () => {
       const [overdue, recentGifts, upcoming, grantDeadlines, pendingThanks] = await Promise.all([
+        // Anything still open, not only rows already past due — the old strict
+        // "due before today" filter hid tasks due today and tasks with no date,
+        // which is why this panel could look empty with work outstanding.
         supabase
           .from("tasks")
-          .select("*, people(id, display_name, first_name, last_name)")
+          .select("*, people(id, display_name, first_name, last_name)", { count: "exact" })
           .is("deleted_at", null)
           .neq("status", "done")
-          .lt("due_date", new Date().toISOString().slice(0, 10))
-          .order("due_date"),
+          .order("due_date", { ascending: true, nullsFirst: false })
+          .limit(200),
         supabase
           .from("donations")
           .select("*, campaigns(name), people(id, display_name, first_name, last_name)")
@@ -141,6 +144,7 @@ function Dashboard() {
       }
       return {
         overdue: overdue.data ?? [],
+        overdueTotal: overdue.count ?? (overdue.data ?? []).length,
         recentGifts: recentGifts.data ?? [],
         upcoming: upcoming.data ?? [],
         grants: grantDeadlines.data ?? [],
