@@ -54,7 +54,19 @@ export async function friendlyDbError(e: unknown, fallback = "That didn't save."
     return "You don't have permission to do that. Ask an administrator.";
 
   if (/duplicate key/i.test(raw)) return "One of these details is already used by another record.";
-  if (raw) return raw.replace(/\s*\(.*?constraint.*?\)\s*/gi, "").trim();
+
+  // No internet, the backend is unreachable, or the request was cut off: the
+  // wording has to point at the connection, not at the data.
+  if (/failed to fetch|networkerror|network request failed|typeerror|load failed|err_(internet|network|connection|failed)|aborted|timeout/i.test(raw))
+    return "We couldn't reach the database. Check the internet connection and try again — nothing was changed.";
+
+  if (raw) {
+    const cleaned = raw
+      .replace(/\s*\(.*?constraint.*?\)\s*/gi, "")
+      .replace(/^(TypeError|Error|AuthApiError|PostgrestError)\s*:?\s*/i, "")
+      .trim();
+    if (cleaned) return cleaned;
+  }
   return fallback;
 }
 
