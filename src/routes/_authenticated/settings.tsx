@@ -27,12 +27,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
 import {
-import { restoreRecords, type ArchivableTable } from "@/lib/archive";
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { restoreRecords, type ArchivableTable } from "@/lib/archive";
 
 const ROLES = [
   { value: "admin", label: "Admin" },
