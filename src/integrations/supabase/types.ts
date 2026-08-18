@@ -889,6 +889,7 @@ export type Database = {
           created_at: string
           event_id: string
           id: string
+          import_batch_id: string | null
           person_id: string
           status: string
         }
@@ -896,6 +897,7 @@ export type Database = {
           created_at?: string
           event_id: string
           id?: string
+          import_batch_id?: string | null
           person_id: string
           status?: string
         }
@@ -903,6 +905,7 @@ export type Database = {
           created_at?: string
           event_id?: string
           id?: string
+          import_batch_id?: string | null
           person_id?: string
           status?: string
         }
@@ -912,6 +915,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "registrations_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
             referencedColumns: ["id"]
           },
           {
@@ -1028,6 +1038,7 @@ export type Database = {
           due_date: string | null
           grant_id: string | null
           id: string
+          import_batch_id: string | null
           notes: string | null
           owner: string | null
           person_id: string | null
@@ -1044,6 +1055,7 @@ export type Database = {
           due_date?: string | null
           grant_id?: string | null
           id?: string
+          import_batch_id?: string | null
           notes?: string | null
           owner?: string | null
           person_id?: string | null
@@ -1060,6 +1072,7 @@ export type Database = {
           due_date?: string | null
           grant_id?: string | null
           id?: string
+          import_batch_id?: string | null
           notes?: string | null
           owner?: string | null
           person_id?: string | null
@@ -1080,6 +1093,13 @@ export type Database = {
             columns: ["grant_id"]
             isOneToOne: false
             referencedRelation: "grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
             referencedColumns: ["id"]
           },
           {
