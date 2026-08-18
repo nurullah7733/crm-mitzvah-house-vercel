@@ -48,7 +48,7 @@ export function ReviewCompareDialog({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  item: { id: string; reason: string; filename: string | null; row_data: RowValues };
+  item: { id: string; reason: string; filename: string | null; row_data: RowValues; batch_id?: string | null };
   existing: ReviewPerson | null;
   onDone?: () => void;
 }) {
@@ -108,7 +108,7 @@ export function ReviewCompareDialog({
       if (!existing) throw new Error("There is no existing contact to combine this with.");
       if (undecided.length > 0) throw new Error(`Pick the right ${undecided[0]!.label.toLowerCase()} first.`);
       const before = { ...existing };
-      const changed = await applyIncoming(existing.id, fields, choices, source);
+      const changed = await applyIncoming(existing.id, fields, choices, source, item.batch_id ?? null);
       await supabase.rpc("log_import_review_merge", {
         _item_id: item.id,
         _person_id: existing.id,
@@ -136,7 +136,7 @@ export function ReviewCompareDialog({
 
   const keepBoth = useMutation({
     mutationFn: async () => {
-      const id = await createFromIncoming(incoming, existing?.household_id ?? null, source);
+      const id = await createFromIncoming(incoming, existing?.household_id ?? null, source, item.batch_id ?? null);
       await finish("kept_both", id);
     },
     onSuccess: () => {

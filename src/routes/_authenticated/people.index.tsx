@@ -17,7 +17,7 @@ import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { fuzzyScoreAny } from "@/lib/nl-search";
 import { LabelChips } from "@/components/LabelChips";
-import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
+import { BulkPeopleBar, SelectBox, SelectAllToggle, useSelection } from "@/components/BulkPeopleActions";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (
@@ -360,6 +360,14 @@ function PeoplePage() {
 
       {isLoading && <div className="mt-5"><EmptyState label="Loading people…" /></div>}
       {!isLoading && people.length === 0 && <div className="mt-5"><EmptyState label="No people match those filters." /></div>}
+
+      <SelectAllToggle
+        visibleIds={people.map((p) => p.id)}
+        selectedIds={selection.ids}
+        onSelectAll={() => selection.selectAll(people.map((p) => p.id))}
+        onClear={selection.clear}
+        noun="people"
+      />
 
       {/* Desktop table */}
       {people.length > 0 && (

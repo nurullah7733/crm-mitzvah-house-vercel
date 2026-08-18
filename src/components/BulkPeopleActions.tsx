@@ -49,6 +49,48 @@ export function SelectBox({
   );
 }
 
+/**
+ * "Select everything showing" control that sits above a list, so staff don't
+ * have to tick a box first to be offered it. It always covers exactly the rows
+ * the current search and filters produce.
+ */
+export function SelectAllToggle({
+  visibleIds,
+  selectedIds,
+  onSelectAll,
+  onClear,
+  noun,
+}: {
+  visibleIds: string[];
+  selectedIds: string[];
+  onSelectAll: () => void;
+  onClear: () => void;
+  noun: string;
+}) {
+  if (visibleIds.length === 0) return null;
+  const allSelected = selectedIds.length >= visibleIds.length;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+      <span
+        onClick={() => (allSelected ? onClear() : onSelectAll())}
+        className="inline-flex cursor-pointer items-center gap-2"
+      >
+        <Checkbox checked={allSelected} aria-label={`Select all ${noun} matching these filters`} />
+        <span className="text-sm text-foreground">
+          {allSelected
+            ? `All ${visibleIds.length} ${noun} selected`
+            : `Select all ${visibleIds.length} ${noun} matching these filters`}
+        </span>
+      </span>
+      {selectedIds.length > 0 && (
+        <button type="button" className="ml-auto text-xs text-muted-foreground underline" onClick={onClear}>
+          Clear selection
+        </button>
+      )}
+    </div>
+  );
+}
+
 type ExtraAction = { label: string; run: (ids: string[]) => Promise<void>; icon?: React.ReactNode };
 
 /**
@@ -169,7 +211,7 @@ export function BulkPeopleBar({
           </span>
           {!allSelected && (
             <Button variant="ghost" size="sm" className="rounded-xl text-xs" onClick={onSelectAll}>
-              Select all {visibleIds.length}
+              Select all {visibleIds.length} matching these filters
             </Button>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2">

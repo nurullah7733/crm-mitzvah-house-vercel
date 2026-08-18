@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddEventDialog } from "@/components/forms/AddDialogs";
-import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { downloadCsv, stamp } from "@/lib/csv";
 
@@ -93,6 +93,14 @@ function EventsPage() {
           </button>
         ))}
       </div>
+
+      <SelectAllToggle
+        visibleIds={events.map((e) => e.id)}
+        selectedIds={selection.ids}
+        onSelectAll={() => selection.selectAll(events.map((e) => e.id))}
+        onClear={selection.clear}
+        noun="events"
+      />
 
       <div className="mt-5 space-y-3">
         {isLoading && <EmptyState label="Loading events…" />}

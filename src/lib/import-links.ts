@@ -48,6 +48,21 @@ export type AddressGroup = {
 
 export const RELATIONSHIP_OPTIONS = ["Spouse", "Child", "Parent", "Sibling", "Other"] as const;
 
+/**
+ * Rows parked for review carry the address they share, so the Data Inbox can put
+ * everyone at one address on a single card instead of asking the same question
+ * over and over.
+ */
+export const GROUP_KEY_FIELD = "_group_key";
+export const GROUP_ADDRESS_FIELD = "_group_address";
+
+export function rowGroup(row: Record<string, unknown> | null | undefined): { key: string; address: string } | null {
+  const key = row?.[GROUP_KEY_FIELD];
+  if (typeof key !== "string" || !key) return null;
+  const address = row?.[GROUP_ADDRESS_FIELD];
+  return { key, address: typeof address === "string" ? address : "" };
+}
+
 /** A choice about one group of people sharing an address. */
 export type AddressDecision = {
   action: "household" | "unrelated" | "later";

@@ -161,6 +161,7 @@ export async function applyIncoming(
   fields: FieldComparison[],
   choices: Partial<Record<CompareKey, "existing" | "incoming">>,
   source: string,
+  batchId: string | null = null,
 ) {
   const patch: Record<string, string | null> = {};
   const changedFields: string[] = [];
@@ -182,6 +183,7 @@ export async function applyIncoming(
         field_name,
         source,
         recorded_date: new Date().toISOString().slice(0, 10),
+        import_batch_id: batchId,
       })),
     );
   }
@@ -193,6 +195,7 @@ export async function createFromIncoming(
   incoming: Record<CompareKey, string | null>,
   householdId: string | null,
   source: string,
+  batchId: string | null = null,
 ) {
   const { data, error } = await supabase
     .from("people")
@@ -209,6 +212,7 @@ export async function createFromIncoming(
       notes: incoming.notes,
       met_source: incoming.met_source,
       household_id: householdId,
+      import_batch_id: batchId,
     })
     .select("id")
     .single();
@@ -219,6 +223,7 @@ export async function createFromIncoming(
       field_name: "email",
       source,
       recorded_date: new Date().toISOString().slice(0, 10),
+      import_batch_id: batchId,
     });
   }
   return data?.id ?? null;

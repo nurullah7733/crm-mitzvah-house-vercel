@@ -22,7 +22,7 @@ import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type Lifecycl
 import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyDbError } from "@/lib/db-errors";
-import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
@@ -331,6 +331,14 @@ function TasksPage() {
       }
     >
       {isLoading && <EmptyState label="Loading tasks…" />}
+      <SelectAllToggle
+        visibleIds={tasks.map((t) => t.id)}
+        selectedIds={selection.ids}
+        onSelectAll={() => selection.selectAll(tasks.map((t) => t.id))}
+        onClear={selection.clear}
+        noun="tasks"
+      />
+
       <div className="space-y-6">
         {reminders.length > 0 && (
           <section>

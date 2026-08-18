@@ -8,7 +8,7 @@ import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
 import { QuickAddHouseholdDialog } from "@/components/forms/QuickAddHouseholdDialog";
-import { useSelection, SelectBox } from "@/components/BulkPeopleActions";
+import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { downloadCsv, stamp } from "@/lib/csv";
@@ -274,6 +274,14 @@ function HouseholdsPage() {
       </div>
 
       {isLoading && <EmptyState label="Loading households…" />}
+      <SelectAllToggle
+        visibleIds={rows.map((h) => h.id)}
+        selectedIds={selection.ids}
+        onSelectAll={() => selection.selectAll(rows.map((h) => h.id))}
+        onClear={selection.clear}
+        noun="households"
+      />
+
       <div className="grid gap-4 sm:grid-cols-2">
         {rows.map((h) => {
           const lifetime = (h.people ?? []).reduce((sum, p) => sum + Number(p.lifetime_giving ?? 0), 0);
