@@ -178,6 +178,7 @@ export type Database = {
           grant_id: string | null
           id: string
           import_batch_id: string | null
+          import_fingerprint: string | null
           method: string | null
           notes: string | null
           person_id: string
@@ -198,6 +199,7 @@ export type Database = {
           grant_id?: string | null
           id?: string
           import_batch_id?: string | null
+          import_fingerprint?: string | null
           method?: string | null
           notes?: string | null
           person_id: string
@@ -218,6 +220,7 @@ export type Database = {
           grant_id?: string | null
           id?: string
           import_batch_id?: string | null
+          import_fingerprint?: string | null
           method?: string | null
           notes?: string | null
           person_id?: string

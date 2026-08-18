@@ -350,6 +350,22 @@ export function rowDedupeKey(v: RowValues): string | null {
 }
 
 /**
+ * Stable identity for an imported gift. It deliberately does not use person_id:
+ * a bad import can create two contact rows for one donor, but it still must not
+ * create the same gift twice.
+ */
+export function donationImportFingerprint(
+  v: RowValues,
+  amount: number,
+  date: string,
+): string | null {
+  const donor = rowDedupeKey(v);
+  if (!donor || !Number.isFinite(amount) || amount <= 0 || !date) return null;
+  const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return [donor, date, amount.toFixed(2), campaign].join("|");
+}
+
+/**
  * A stable key for an address so two rows at the same place land in one household
  * instead of creating a duplicate household each time.
  */

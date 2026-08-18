@@ -107,6 +107,27 @@ function DataInbox() {
   const [deleteReason, setDeleteReason] = useState("");
   /** One answer per row inside an address card. */
   const [choices, setChoices] = useState<Record<string, { action: GroupAction; relationship: string }>>({});
+  const [chosenPeople, setChosenPeople] = useState<Record<string, ReviewPerson>>({});
+  const [contactSearch, setContactSearch] = useState<{ rowId: string; query: string } | null>(null);
+
+  const { data: contactSearchResults } = useQuery({
+    queryKey: ["address-card-contact-search", contactSearch?.query.trim() ?? ""],
+    enabled: Boolean(contactSearch && contactSearch.query.trim().length >= 2),
+    queryFn: async () => {
+      const query = contactSearch?.query.trim() ?? "";
+      const { data: hits, error: searchError } = await supabase.rpc("search_people", { _q: query, _limit: 8 });
+      if (searchError) throw searchError;
+      const ids = (hits ?? []).map((hit) => hit.person_id);
+      if (ids.length === 0) return [] as ReviewPerson[];
+      const { data: people, error } = await supabase.from("people").select("*").in("id", ids).is("deleted_at", null);
+      if (error) throw error;
+      const byId = new Map((people ?? []).map((person) => [person.id, person]));
+      return ids
+        .map((id) => byId.get(id))
+        .filter((person) => person !== undefined)
+        .map((person) => person as ReviewPerson);
+    },
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["review-queue"],
@@ -294,7 +315,7 @@ function DataInbox() {
           continue;
         }
         if (action === "same") {
-          const existing = personById((r.candidate_person_ids ?? [])[0]);
+          const existing = chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]);
           if (!existing) throw new Error("We don't have a matching contact for that person — open and decide instead.");
           await quickMerge(item, existing, personName(existing));
           saved += 1;
@@ -447,13 +468,14 @@ function DataInbox() {
                         const row = (r.row_data ?? {}) as RowValues;
                         const name = rowDisplayName(row).display || "(no name)";
                         const existing = personById((r.candidate_person_ids ?? [])[0]);
+                        const selectedPerson = chosenPeople[r.id] ?? existing;
                         const choice = choices[r.id];
                         return (
                           <div key={r.id} className="rounded-xl border border-border p-3">
                             <p className="text-sm font-medium text-foreground">{name}</p>
                             <p className="text-xs text-muted-foreground">
                               {[row.email, row.phone].filter(Boolean).join(" · ") || "No email or phone on the row"}
-                              {existing ? ` · looks like ${personName(existing)}, already on file` : ""}
+                              {selectedPerson ? ` · comparing with ${personName(selectedPerson)}, already on file` : ""}
                             </p>
                             <div className="mt-2 grid gap-2 sm:grid-cols-2">
                               <select
@@ -471,9 +493,9 @@ function DataInbox() {
                                 }
                               >
                                 <option value="">What should we do?</option>
-                                {GROUP_ACTIONS.filter((a) => a.value !== "same" || existing).map((a) => (
+                                {GROUP_ACTIONS.filter((a) => a.value !== "same" || selectedPerson).map((a) => (
                                   <option key={a.value} value={a.value}>
-                                    {a.value === "same" && existing ? `Same person as ${personName(existing)}` : a.label}
+                                    {a.value === "same" && selectedPerson ? `Same person as ${personName(selectedPerson)}` : a.label}
                                   </option>
                                 ))}
                               </select>
@@ -496,6 +518,42 @@ function DataInbox() {
                                     </option>
                                   ))}
                                 </select>
+                              )}
+                            </div>
+                            <div className="mt-2">
+                              <Input
+                                className="text-base"
+                                value={contactSearch?.rowId === r.id ? contactSearch.query : ""}
+                                placeholder="Search for a different existing contact"
+                                onChange={(event) => setContactSearch({ rowId: r.id, query: event.target.value })}
+                              />
+                              {contactSearch?.rowId === r.id && contactSearch.query.trim().length >= 2 && (
+                                <div className="mt-1 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
+                                  {(contactSearchResults ?? []).map((person) => (
+                                    <Button
+                                      key={person.id}
+                                      type="button"
+                                      variant="ghost"
+                                      className="w-full justify-start rounded-md"
+                                      onClick={() => {
+                                        setChosenPeople((current) => ({ ...current, [r.id]: person }));
+                                        setChoices((current) => ({
+                                          ...current,
+                                          [r.id]: { action: "same", relationship: current[r.id]?.relationship ?? "" },
+                                        }));
+                                        setContactSearch(null);
+                                      }}
+                                    >
+                                      {personName(person)}
+                                      <span className="ml-2 text-xs text-muted-foreground">
+                                        {[person.email, person.phone].filter(Boolean).join(" · ") || "No email or phone"}
+                                      </span>
+                                    </Button>
+                                  ))}
+                                  {contactSearchResults?.length === 0 && (
+                                    <p className="px-2 py-1 text-sm text-muted-foreground">No matching contacts found.</p>
+                                  )}
+                                </div>
                               )}
                             </div>
                             <button

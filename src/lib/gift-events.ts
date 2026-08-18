@@ -46,11 +46,13 @@ export async function attributeGiftToEvent({
   personId,
   eventId,
   attended,
+  importBatchId,
 }: {
   donationId: string;
   personId: string;
   eventId: string;
   attended: boolean;
+  importBatchId?: string | null;
 }) {
   const { data: event } = await supabase
     .from("events")
@@ -86,7 +88,13 @@ export async function attributeGiftToEvent({
   if (error) throw error;
 
   if (!attended) return;
-  await recordAttendance({ personId, eventId, eventName: event?.name ?? "an event", eventDate: event?.date ?? null });
+  await recordAttendance({
+    personId,
+    eventId,
+    eventName: event?.name ?? "an event",
+    eventDate: event?.date ?? null,
+    ...(importBatchId !== undefined ? { importBatchId } : {}),
+  });
 }
 
 /** Mark someone as having attended an event, without ever duplicating a record. */
@@ -95,11 +103,13 @@ export async function recordAttendance({
   eventId,
   eventName,
   eventDate,
+  importBatchId,
 }: {
   personId: string;
   eventId: string;
   eventName: string;
   eventDate: string | null;
+  importBatchId?: string | null;
 }) {
   const { data: existing } = await supabase
     .from("registrations")
@@ -111,7 +121,12 @@ export async function recordAttendance({
   if (row) {
     if (!isAttended(row.status)) await supabase.from("registrations").update({ status: "Attended" }).eq("id", row.id);
   } else {
-    await supabase.from("registrations").insert({ event_id: eventId, person_id: personId, status: "Attended" });
+    await supabase.from("registrations").insert({
+      event_id: eventId,
+      person_id: personId,
+      status: "Attended",
+      import_batch_id: importBatchId ?? null,
+    });
   }
 
   // The "Attended <event>" timeline entry is written by the database from the
