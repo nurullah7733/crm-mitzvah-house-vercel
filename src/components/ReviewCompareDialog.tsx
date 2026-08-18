@@ -590,36 +590,60 @@ export function ReviewCompareDialog({
                 </section>
               )}
 
-              {/* Full record view, side by side */}
+              {/* Pick a winner field by field, either side */}
               <section>
-                <h3 className="font-heading text-sm font-semibold text-foreground">Every field, side by side</h3>
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
-                  {(
-                    [
-                      ["existing", LEFT_LABEL],
-                      ["incoming", RIGHT_LABEL],
-                    ] as const
-                  ).map(([side, label]) => (
-                    <div key={side} className="rounded-2xl border border-border bg-card p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                      <dl className="mt-2 space-y-1">
-                        {fields.map((f: FieldComparison) => (
-                          <div key={f.key} className="flex gap-2 text-sm">
-                            <dt className="w-28 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
-                              {f.label}
-                            </dt>
-                            <dd
-                              className={`min-w-0 break-words ${
-                                f.state === "conflict" ? "font-medium text-foreground" : "text-muted-foreground"
-                              }`}
-                            >
-                              {showValue(side === "existing" ? f.existing : f.incoming)}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </div>
-                  ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-heading text-sm font-semibold text-foreground">Pick field by field</h3>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("existing")}>
+                      Use all from left
+                    </Button>
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("incoming")}>
+                      Use all from right
+                    </Button>
+                    <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => setChoices({})}>
+                      Reset
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2 space-y-2">
+                  {fields
+                    .filter((f: FieldComparison) => f.existing || f.incoming)
+                    .map((f: FieldComparison) => (
+                      <div
+                        key={f.key}
+                        className={`rounded-xl border p-2 ${
+                          f.state === "conflict" ? "border-urgent/50 bg-urgent/5" : "border-border"
+                        }`}
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{f.label}</p>
+                        <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                          {(
+                            [
+                              ["existing", f.existing],
+                              ["incoming", f.incoming],
+                            ] as const
+                          ).map(([side, value]) => {
+                            const chosen = choices[f.key] === side || (!choices[f.key] && preview[f.key] === value);
+                            return (
+                              <button
+                                key={side}
+                                type="button"
+                                onClick={() => setChoices((c) => ({ ...c, [f.key]: side }))}
+                                className={`rounded-lg border p-2 text-left text-sm ${
+                                  chosen ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground"
+                                }`}
+                              >
+                                <span className="block text-[11px] uppercase tracking-wide">
+                                  {side === "existing" ? "Left — on file" : "Right — in the file"}
+                                </span>
+                                <span className="block break-words font-medium text-foreground">{showValue(value)}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </section>
 
