@@ -1211,6 +1211,16 @@ function ImportCenter() {
                     attended: decision === "attended",
                     importBatchId: batchId,
                   });
+                } else if (newGift?.id && targetEventId) {
+                  // The row named an event or a campaign that is an event, so the
+                  // gift is credited to it and the person counts as having come.
+                  await attributeGiftToEvent({
+                    donationId: newGift.id,
+                    personId,
+                    eventId: targetEventId,
+                    attended: true,
+                    importBatchId: batchId,
+                  });
                 }
                 if (fingerprint) existingGiftFingerprints.add(fingerprint);
               }
@@ -1622,8 +1632,8 @@ function ImportCenter() {
               <div>
                 <h2 className="font-heading font-semibold text-foreground">Proposed column mapping</h2>
                 <p className="text-sm text-muted-foreground">
-                  Check anything marked medium or low. Child columns can be used more than once — map "Child 1", "Child
-                  2" and so on all to the child fields.
+                  Check anything marked medium or low. Child, phone and email fields can be used more than once — map
+                  "Child 1", "Child 2" and so on all to the same child field.
                 </p>
               </div>
               <Button variant="outline" className="rounded-xl" onClick={() => setAdjusting((a) => !a)}>
@@ -1635,28 +1645,29 @@ function ImportCenter() {
                 <div key={`${m.header}-${i}`} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
                   <p className="truncate text-sm font-medium text-foreground">{m.header || `Column ${i + 1}`}</p>
                   {adjusting ? (
-                    <select
-                      className={selectClass}
+                    <FieldPicker
                       value={m.field}
-                      aria-label={`Map ${m.header}`}
-                      onChange={(e) =>
+                      label={m.header || `Column ${i + 1}`}
+                      onChange={(field) =>
                         setMapping((prev) =>
-                          prev.map((row, ri) =>
-                            ri === i ? { ...row, field: e.target.value as FieldKey, confidence: "high" } : row,
-                          ),
+                          prev.map((row, ri) => (ri === i ? { ...row, field, confidence: "high" } : row)),
                         )
                       }
-                    >
-                      {FIELD_KEYS.map((k) => (
-                        <option key={k} value={k}>
-                          {FIELD_LABELS[k]}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {FIELD_LABELS[m.field]}
-                    </p>
+                    <div>
+                      <p className="text-sm text-foreground">
+                        {FIELD_LABELS[m.field]}
+                        {REPEATABLE_FIELDS.includes(m.field) && (
+                          <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            can be used more than once
+                          </span>
+                        )}
+                      </p>
+                      {FIELD_HINTS[m.field] && (
+                        <p className="text-xs text-muted-foreground">{FIELD_HINTS[m.field]}</p>
+                      )}
+                    </div>
                   )}
                   <span
                     className={`justify-self-start rounded-full px-2.5 py-1 text-xs ${
@@ -1672,6 +1683,33 @@ function ImportCenter() {
                 </div>
               ))}
             </div>
+            <div className="mt-5 rounded-xl border border-border bg-background p-3">
+              <p className="text-sm font-medium text-foreground">Does this file have what we need?</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {mappingReview.checklist.map((c) => (
+                  <span
+                    key={c.label}
+                    className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
+                      c.ok ? "bg-money/15 text-money" : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {c.ok ? <Check className="size-3.5" /> : <span className="text-base leading-none">–</span>}
+                    {c.label}
+                    {c.ok ? "" : " not mapped"}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                A name is all we truly need. Anything missing here just means we'll know less about these contacts.
+              </p>
+            </div>
+            {mappingReview.warnings.length > 0 && (
+              <ul className="mt-3 space-y-1 rounded-xl border border-suggestion/50 bg-suggestion/10 p-3 text-sm text-foreground">
+                {mappingReview.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
