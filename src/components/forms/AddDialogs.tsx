@@ -18,6 +18,8 @@ import { MethodDraftList } from "@/components/ContactMethodsEditor";
 import { addContactMethods, emptyDraft, phoneKey, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case";
 import { attributeGiftToEvent, findEventsNearDate, type NearbyEvent } from "@/lib/gift-events";
+import { findGiftsOnOtherContacts, type OtherContactGift } from "@/lib/donation-dupes";
+import { friendlyDbError } from "@/lib/db-errors";
 import { createFindOutWhoTask, findHouseholdAtAddress, nameFromAddress } from "@/lib/address-household";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
@@ -598,6 +600,9 @@ export function AddDonationDialog({
   const [nearby, setNearby] = useState<NearbyEvent[] | null>(null);
   const [linkEventId, setLinkEventId] = useState("");
   const [attended, setAttended] = useState<"yes" | "sponsor" | "unsure">("yes");
+  /** The same amount on the same day, already recorded against another contact. */
+  const [elsewhere, setElsewhere] = useState<OtherContactGift[] | null>(null);
+  const [elsewhereOk, setElsewhereOk] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pickOther, setPickOther] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -700,9 +705,13 @@ export function AddDonationDialog({
       setLinkEventId("");
       setAttended("yes");
       setPickOther(false);
+      setElsewhere(null);
+      setElsewhereOk(false);
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      void friendlyDbError(e, "That donation didn't save.").then((why) => toast.error(why));
+    },
   });
 
   /**
@@ -710,6 +719,24 @@ export function AddDonationDialog({
    * that happened on this date? Dismissing it saves the gift unlinked.
    */
   async function handleSave() {
+    // Duplicate protection that doesn't rely on the donor being matched right:
+    // the same amount on the same day against a different contact is usually the
+    // same gift landing on a second record.
+    if (!elsewhereOk) {
+      const amount = Number(form.amount);
+      if (Number.isFinite(amount) && amount > 0) {
+        setChecking(true);
+        const found = await findGiftsOnOtherContacts(amount, form.date || todayISO(), [
+          personId ?? form.person_id,
+        ]);
+        setChecking(false);
+        if (found.length > 0) {
+          setElsewhere(found);
+          return;
+        }
+      }
+      setElsewhereOk(true);
+    }
     if (nearby === null) {
       setChecking(true);
       const found = await findEventsNearDate(form.date || todayISO());
@@ -754,6 +781,18 @@ export function AddDonationDialog({
                 Yes, link it
               </Button>
             </>
+          ) : elsewhere && elsewhere.length > 0 ? (
+            <Button
+              className="flex-1 rounded-xl sm:flex-none"
+              disabled={save.isPending || checking}
+              onClick={() => {
+                setElsewhereOk(true);
+                setElsewhere(null);
+                void handleSave();
+              }}
+            >
+              It's a different gift — save it
+            </Button>
           ) : (
             <Button
               className="flex-1 rounded-xl sm:flex-none"
@@ -766,6 +805,18 @@ export function AddDonationDialog({
         </>
       }
     >
+      {elsewhere && elsewhere.length > 0 && (
+        <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+          <p className="text-sm font-medium text-foreground">
+            A ${Number(form.amount).toLocaleString()} gift on {form.date || todayISO()} is already recorded for{" "}
+            {elsewhere.map((g) => g.name).join(", ")}.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            If that's the same gift, this contact may be a duplicate of theirs — close this and merge the two contacts
+            instead. If it's genuinely a separate gift, save it.
+          </p>
+        </div>
+      )}
       {nearby && nearby.length > 0 && (
         <div className="mb-4 rounded-xl border border-suggestion/40 bg-suggestion/10 p-3">
           <p className="text-sm font-medium text-foreground">

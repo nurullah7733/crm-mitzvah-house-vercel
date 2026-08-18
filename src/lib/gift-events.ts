@@ -119,14 +119,19 @@ export async function recordAttendance({
     .limit(1);
   const row = existing?.[0];
   if (row) {
-    if (!isAttended(row.status)) await supabase.from("registrations").update({ status: "Attended" }).eq("id", row.id);
+    // The stored statuses are lower-case ("registered" / "attended" / "no_show").
+    if (!isAttended(row.status)) {
+      const { error } = await supabase.from("registrations").update({ status: "attended" }).eq("id", row.id);
+      if (error) throw error;
+    }
   } else {
-    await supabase.from("registrations").insert({
+    const { error } = await supabase.from("registrations").insert({
       event_id: eventId,
       person_id: personId,
-      status: "Attended",
+      status: "attended",
       import_batch_id: importBatchId ?? null,
     });
+    if (error) throw error;
   }
 
   // The "Attended <event>" timeline entry is written by the database from the

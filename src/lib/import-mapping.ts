@@ -340,13 +340,28 @@ export function composeAddress(v: Partial<Record<FieldKey, string>>): string | n
  * Email wins, then phone, then name.
  */
 export function rowDedupeKey(v: RowValues): string | null {
-  const email = (v.emails?.[0]?.value ?? v.email ?? "").trim().toLowerCase();
-  if (email) return `email:${email}`;
-  const phone = digits(v.phones?.[0]?.value ?? v.phone);
-  if (phone.length >= 7) return `phone:${phone.slice(-10)}`;
+  return rowIdentityKeys(v)[0] ?? null;
+}
+
+/**
+ * Every identity a row carries — all its emails, then all its phones, then the
+ * name. One implementation, so the preview and the import loop can never
+ * disagree about what counts as the same person.
+ */
+export function rowIdentityKeys(v: RowValues): string[] {
+  const keys: string[] = [];
+  for (const raw of [...(v.emails ?? []).map((e) => e.value), v.email ?? ""]) {
+    const email = raw.trim().toLowerCase();
+    if (email) keys.push(`email:${email}`);
+  }
+  for (const raw of [...(v.phones ?? []).map((p) => p.value), v.phone ?? ""]) {
+    const phone = digits(raw);
+    if (phone.length >= 7) keys.push(`phone:${phone.slice(-10)}`);
+  }
   const { first, last } = splitName(v);
   const name = `${first} ${last}`.trim().toLowerCase();
-  return name ? `name:${name}` : null;
+  if (name) keys.push(`name:${name}`);
+  return [...new Set(keys)];
 }
 
 /**
@@ -489,6 +504,39 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
   }
 
   return { status: "ambiguous", reason: "Not enough information to identify a person", candidates: [] };
+}
+
+/** Remembers which row first claimed each identity inside one file. */
+export type RowIdentityRegistry = Map<string, number>;
+
+export function newRowIdentityRegistry(): RowIdentityRegistry {
+  return new Map<string, number>();
+}
+
+/**
+ * The single duplicate check used by BOTH the import preview and the import
+ * loop: does this row already appear earlier in the same file, and does it match
+ * someone we already have? Previously these were two separate implementations,
+ * which is how a row could be flagged in the preview and still be created.
+ */
+export function matchRowOnce(
+  values: RowValues,
+  people: ExistingPerson[],
+  seen: RowIdentityRegistry,
+  index: number,
+): MatchResult {
+  const keys = rowIdentityKeys(values);
+  const earlier = keys.map((k) => seen.get(k)).find((n) => n !== undefined && n !== index);
+  const base = matchRow(values, people);
+  if (earlier !== undefined) {
+    return {
+      status: "ambiguous",
+      reason: `Appears more than once in this file (also row ${earlier + 1})`,
+      candidates: base.candidates,
+    };
+  }
+  for (const k of keys) if (!seen.has(k)) seen.set(k, index);
+  return base;
 }
 
 const TITLES = ["mr", "mrs", "ms", "miss", "dr", "rabbi", "rebbetzin", "rev", "cantor", "prof", "mr.", "mrs.", "ms.", "dr.", "r'"];

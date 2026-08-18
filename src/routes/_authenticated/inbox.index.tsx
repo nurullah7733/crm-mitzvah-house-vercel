@@ -14,7 +14,8 @@ import { fetchAll } from "@/lib/fetch-all";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
-import { attributeGiftToEvent } from "@/lib/gift-events";
+import { attributeGiftToEvent, recordAttendance } from "@/lib/gift-events";
+import { findGiftsOnOtherContacts, sameGiftElsewhereReason } from "@/lib/donation-dupes";
 import {
   EMPTY_BULK_TARGET,
   GROUP_ADDRESS_FIELD,
@@ -34,9 +35,9 @@ import {
   composeAddress,
   donationImportFingerprint,
   guessMapping,
-  matchRow,
+  matchRowOnce,
+  newRowIdentityRegistry,
   roleFromRow,
-  rowDedupeKey,
   splitFullName,
   splitName,
   splitPeopleList,
@@ -390,25 +391,11 @@ function ImportCenter() {
 
   const analysed = useMemo<{ row: string[]; values: RowValues; match: MatchResult }[]>(() => {
     if (!sheet || !people) return [];
-    const seen = new Map<string, number>();
+    // One shared duplicate check, so the preview and the import loop agree.
+    const seen = newRowIdentityRegistry();
     return sheet.rows.map((row, index) => {
       const values = buildRowValues(row, mapping);
-      const key = rowDedupeKey(values);
-      // The same person listed twice in one file goes to review instead of being created twice.
-      if (key && seen.has(key)) {
-        const first = (seen.get(key) ?? 0) + 1;
-        return {
-          row,
-          values,
-          match: {
-            status: "ambiguous" as const,
-            reason: `Appears more than once in this file (also row ${first})`,
-            candidates: matchRow(values, people).candidates,
-          },
-        };
-      }
-      if (key) seen.set(key, index);
-      return { row, values, match: matchRow(values, people) };
+      return { row, values, match: matchRowOnce(values, people, seen, index) };
     });
   }, [sheet, people, mapping]);
 
@@ -781,15 +768,19 @@ function ImportCenter() {
         return null;
       }
 
+      // The same in-file identity registry the preview used, applied again here
+      // against the contacts this import has created as it goes.
+      const loopSeen = newRowIdentityRegistry();
+
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
 
         try {
-          // Match again, now against the contacts this import has already created.
-          const flaggedByPreview =
-            item.match.status === "ambiguous" && !item.match.reason.startsWith("Appears more than once");
-          const live = matchRow(v, livePeople);
+          // Exactly the same check the preview ran, now against the contacts this
+          // import has already created.
+          const live = matchRowOnce(v, livePeople, loopSeen, index);
+          const flaggedByPreview = item.match.status === "ambiguous";
           const match = live;
           const shared = addressReviewRows.get(index);
           const rowAddress = composeAddress(v);
@@ -805,8 +796,21 @@ function ImportCenter() {
           const giftFingerprint = donationImportFingerprint(v, rowAmount, rowGiftDate);
           const giftAlreadyImported = Boolean(giftFingerprint && existingGiftFingerprints.has(giftFingerprint));
 
+          // The gift itself, not the person: the same amount on the same day sitting
+          // on a contact we did NOT match to usually means a second record for one donor.
+          const giftsElsewhere =
+            Number.isFinite(rowAmount) && rowAmount > 0
+              ? await findGiftsOnOtherContacts(rowAmount, rowGiftDate, live.candidates.map((c) => c.id))
+              : [];
+
           // A flagged row is never written. It waits in the Data Inbox for a person.
-          if (flaggedByPreview || live.status === "ambiguous" || shared || giftAlreadyImported) {
+          if (
+            flaggedByPreview ||
+            live.status === "ambiguous" ||
+            shared ||
+            giftAlreadyImported ||
+            giftsElsewhere.length > 0
+          ) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
             await queueForReview(
               v,
@@ -814,10 +818,19 @@ function ImportCenter() {
                 ? "This gift appears to have already been imported"
                 : flaggedByPreview || live.status === "ambiguous"
                 ? reason
+                : giftsElsewhere.length > 0
+                ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
                 : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
                     (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
                   } in this file`,
-              (live.candidates.length ? live.candidates : item.match.candidates).map((c) => c.id),
+              [
+                ...new Set(
+                  (live.candidates.length
+                    ? live.candidates.map((c) => c.id)
+                    : item.match.candidates.map((c) => c.id)
+                  ).concat(giftsElsewhere.map((g) => g.personId)),
+                ),
+              ],
               groupInfo,
             );
             continue;
@@ -972,23 +985,21 @@ function ImportCenter() {
           }
 
           // Link this contact to the event named on the row, or to the event the
-          // reviewer chose for the whole file. Nothing is linked twice.
+          // reviewer chose for the whole file. One shared attendance function, so an
+          // existing RSVP is upgraded to Attended instead of being left as-is.
           const rowEventKey = normalizeLabel(v.event_name ?? "");
           const targetEventId = (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ?? bulkTarget.eventId ?? "";
           if (targetEventId) {
-            const { data: alreadyOn } = await supabase
-              .from("registrations")
-              .select("id")
-              .eq("event_id", targetEventId)
-              .eq("person_id", personId)
-              .limit(1);
-            if (!alreadyOn?.length) {
-              await supabase
-                .from("registrations")
-                .insert({ event_id: targetEventId, person_id: personId, status: "Attended", import_batch_id: batchId });
-              // The attendance timeline entry is written by the database from the
-              // registration, so removing the registration removes the entry too.
-            }
+            const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
+            await recordAttendance({
+              personId,
+              eventId: targetEventId,
+              eventName: linkedEvent?.name ?? "an event",
+              eventDate: linkedEvent?.date ?? null,
+              importBatchId: batchId,
+            });
+            // The attendance timeline entry is written by the database from the
+            // registration, so removing the registration removes the entry too.
           }
 
           // Programs and lists chosen for the whole file, added without wiping
