@@ -506,6 +506,39 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
   return { status: "ambiguous", reason: "Not enough information to identify a person", candidates: [] };
 }
 
+/** Remembers which row first claimed each identity inside one file. */
+export type RowIdentityRegistry = Map<string, number>;
+
+export function newRowIdentityRegistry(): RowIdentityRegistry {
+  return new Map<string, number>();
+}
+
+/**
+ * The single duplicate check used by BOTH the import preview and the import
+ * loop: does this row already appear earlier in the same file, and does it match
+ * someone we already have? Previously these were two separate implementations,
+ * which is how a row could be flagged in the preview and still be created.
+ */
+export function matchRowOnce(
+  values: RowValues,
+  people: ExistingPerson[],
+  seen: RowIdentityRegistry,
+  index: number,
+): MatchResult {
+  const keys = rowIdentityKeys(values);
+  const earlier = keys.map((k) => seen.get(k)).find((n) => n !== undefined && n !== index);
+  const base = matchRow(values, people);
+  if (earlier !== undefined) {
+    return {
+      status: "ambiguous",
+      reason: `Appears more than once in this file (also row ${earlier + 1})`,
+      candidates: base.candidates,
+    };
+  }
+  for (const k of keys) if (!seen.has(k)) seen.set(k, index);
+  return base;
+}
+
 const TITLES = ["mr", "mrs", "ms", "miss", "dr", "rabbi", "rebbetzin", "rev", "cantor", "prof", "mr.", "mrs.", "ms.", "dr.", "r'"];
 const SUFFIXES = ["jr", "sr", "ii", "iii", "iv", "md", "phd", "esq", "jr.", "sr.", "m.d.", "ph.d."];
 /** Words that belong to the surname when they appear before the final word. */
