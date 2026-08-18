@@ -513,6 +513,8 @@ function ImportCenter() {
       }[] = [];
       let failures = 0;
       let queued = 0;
+      /** Gifts we refused to date ourselves, so no gift is ever silently dated today. */
+      let unreadableGiftDates = 0;
 
       const existingGiftFingerprints = new Set(
         (
@@ -843,6 +845,7 @@ function ImportCenter() {
               last,
               email: v.email ?? null,
               phone: v.phone ?? null,
+              birthDate: isoDate(v.birth_date),
               householdId,
               address: fullAddress,
               methods: [
@@ -878,6 +881,7 @@ function ImportCenter() {
               last,
               email: v.email ?? null,
               phone: v.phone ?? null,
+              birthDate: isoDate(v.birth_date),
               methods: [
                 ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
                 ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
@@ -1125,8 +1129,13 @@ function ImportCenter() {
 
           if (v.amount) {
             const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
-            if (Number.isFinite(amount) && amount > 0) {
-              const giftDate = isoDate(v.date) ?? importDate;
+            const readDate = isoDate(v.date);
+            if (v.date && !readDate) {
+              // Better no gift than a gift dated today: a wrong date corrupts
+              // giving history, so the row is reported instead of guessed at.
+              unreadableGiftDates += 1;
+            } else if (Number.isFinite(amount) && amount > 0) {
+              const giftDate = readDate ?? importDate;
               const fingerprint = donationImportFingerprint(v, amount, giftDate);
               const rowCampaignId = await resolveCampaignId(v.campaign);
               // Re-importing the same file must not add the same gift twice, and a
@@ -1244,6 +1253,13 @@ function ImportCenter() {
         }`,
         {
           duration: 12000,
+          ...(unreadableGiftDates > 0
+            ? {
+                description: `${unreadableGiftDates} gift${
+                  unreadableGiftDates === 1 ? "" : "s"
+                } were left out because the date in the file couldn't be read. Nothing was dated today by mistake.`,
+              }
+            : {}),
           ...(queued > 0
             ? {
                 description:
