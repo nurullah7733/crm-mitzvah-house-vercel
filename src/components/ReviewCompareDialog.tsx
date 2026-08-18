@@ -429,24 +429,48 @@ export function ReviewCompareDialog({
             </div>
           ) : (
             <>
-              {/* What history is attached to each record */}
+              {/* The whole contact we already have, next to the incoming row */}
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border border-border bg-muted/30 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{LEFT_LABEL}</p>
-                   <p className="font-heading font-semibold text-foreground">{personName(selectedExisting)}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {history
-                      ? `${history.donations} donation${history.donations === 1 ? "" : "s"} · ${currency(history.giving)} given · ${history.registrations} event registration${history.registrations === 1 ? "" : "s"} · ${history.notes} note${history.notes === 1 ? "" : "s"} · ${history.tasks} task${history.tasks === 1 ? "" : "s"}`
-                      : "Loading history…"}
-                  </p>
+                  <div className="mt-1">
+                    <ExistingRecordPanel record={fullRecord ?? null} />
+                  </div>
+                  {history && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {history.donations} donation{history.donations === 1 ? "" : "s"} · {currency(history.giving)} given ·{" "}
+                      {history.registrations} event registration{history.registrations === 1 ? "" : "s"} · {history.notes}{" "}
+                      note{history.notes === 1 ? "" : "s"} · {history.tasks} task{history.tasks === 1 ? "" : "s"}
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-2xl border border-border bg-muted/30 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{RIGHT_LABEL}</p>
-                  <p className="font-heading font-semibold text-foreground">
+                  <p className="font-heading text-base font-semibold text-foreground">
                     {showValue(incoming.display_name)}
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Just a row from a spreadsheet — no giving or history of its own yet.
+                  <dl className="mt-1 space-y-1">
+                    {fields
+                      .filter((f) => f.incoming)
+                      .map((f) => (
+                        <div key={f.key} className="flex gap-2 py-1 text-sm">
+                          <span className="w-24 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
+                            {f.label}
+                          </span>
+                          <span
+                            className={`min-w-0 break-words ${
+                              f.state === "conflict" ? "font-semibold text-urgent" : "text-foreground"
+                            }`}
+                          >
+                            {showValue(f.incoming)}
+                            {f.state === "conflict" && <span className="ml-2 text-xs text-urgent">differs</span>}
+                            {f.state === "fill" && <span className="ml-2 text-xs text-money">new</span>}
+                          </span>
+                        </div>
+                      ))}
+                  </dl>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    A row from {item.filename ?? "an upload"} — no giving or history of its own yet.
                   </p>
                 </div>
               </div>
