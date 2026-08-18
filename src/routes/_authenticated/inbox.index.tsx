@@ -30,7 +30,11 @@ import {
   type EventOption,
 } from "@/lib/import-links";
 import {
+  ESSENTIAL_CHECKS,
+  FIELD_HINTS,
   FIELD_LABELS,
+  FIELD_PAIRS,
+  REPEATABLE_FIELDS,
   addressKey,
   composeAddress,
   donationImportFingerprint,
@@ -47,6 +51,8 @@ import {
   type MatchResult,
   type RowValues,
 } from "@/lib/import-mapping";
+
+import { FieldPicker } from "@/components/import/FieldPicker";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -69,8 +75,6 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
 });
 
 type Sheet = { name: string; headers: string[]; rows: string[][] };
-
-const FIELD_KEYS = Object.keys(FIELD_LABELS) as FieldKey[];
 
 async function readFile(file: File): Promise<Sheet> {
   const isCsv = /\.csv$/i.test(file.name);
@@ -415,22 +419,48 @@ function ImportCenter() {
     [analysed],
   );
 
+  /** Which of the four things a usable file needs are mapped, and which pairs are half-done. */
+  const mappingReview = useMemo(() => {
+    const mapped = new Set(mapping.filter((m) => m.field !== "ignore").map((m) => m.field));
+    const checklist = ESSENTIAL_CHECKS.map((c) => ({
+      label: c.label,
+      ok: c.fields.some((f) => mapped.has(f)),
+    }));
+    const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map((p) => p.message);
+    return { checklist, warnings, mapped };
+  }, [mapping]);
+
   /** Every distinct event name the file mentions, and what it matched. */
   const fileEvents = useMemo(() => {
-    const map = new Map<string, { value: string; rows: number; matched: EventOption | null }>();
+    const map = new Map<
+      string,
+      { value: string; rows: number; matched: EventOption | null; origin: "event" | "campaign" }
+    >();
+    // The event column first, then campaign names — a gift designated
+    // "Chanukah Dinner 2026" is usually the same thing as the event.
     analysed.forEach((a) => {
-      const value = (a.values.event_name ?? "").trim();
-      if (!value) return;
-      const key = normalizeLabel(value);
-      const entry = map.get(key) ?? { value, rows: 0, matched: matchEventByName(value, events ?? []) };
-      entry.rows += 1;
-      map.set(key, entry);
+      for (const [origin, raw] of [
+        ["event", a.values.event_name],
+        ["campaign", a.values.campaign],
+      ] as const) {
+        const value = (raw ?? "").trim();
+        if (!value) continue;
+        const key = normalizeLabel(value);
+        const existing = map.get(key);
+        if (existing) {
+          existing.rows += 1;
+          if (origin === "event") existing.origin = "event";
+          continue;
+        }
+        map.set(key, { value, rows: 1, matched: matchEventByName(value, events ?? []), origin });
+      }
     });
     return [...map.entries()].map(([key, v]) => ({ key, ...v }));
   }, [analysed, events]);
 
+  // Campaign names are only a maybe, so they never hold up an import.
   const unansweredEvents = fileEvents.filter(
-    (e) => !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
+    (e) => e.origin === "event" && !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
   );
 
   /** How each row will be linked, so the preview can be exact. */
@@ -684,11 +714,13 @@ function ImportCenter() {
       // created once here, so 40 rows never make 40 copies of the same event.
       const eventIdByKey = new Map<string, string>();
       for (const fe of fileEvents) {
+        const answered = eventDecisions[fe.key];
+        if (answered?.action === "ignore") continue;
         if (fe.matched) {
           eventIdByKey.set(fe.key, fe.matched.id);
           continue;
         }
-        const decision = eventDecisions[fe.key];
+        const decision = answered;
         if (decision?.action === "existing") eventIdByKey.set(fe.key, decision.eventId);
         if (decision?.action === "create") {
           const { data: createdEvent } = await supabase
@@ -963,7 +995,12 @@ function ImportCenter() {
           // reviewer chose for the whole file. One shared attendance function, so an
           // existing RSVP is upgraded to Attended instead of being left as-is.
           const rowEventKey = normalizeLabel(v.event_name ?? "");
-          const targetEventId = (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ?? bulkTarget.eventId ?? "";
+          const rowCampaignKey = normalizeLabel(v.campaign ?? "");
+          const targetEventId =
+            (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ??
+            (rowCampaignKey ? eventIdByKey.get(rowCampaignKey) : undefined) ??
+            bulkTarget.eventId ??
+            "";
           if (targetEventId) {
             const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
             await recordAttendance({
