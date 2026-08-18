@@ -14,7 +14,8 @@ import { fetchAll } from "@/lib/fetch-all";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
-import { attributeGiftToEvent } from "@/lib/gift-events";
+import { attributeGiftToEvent, recordAttendance } from "@/lib/gift-events";
+import { findGiftsOnOtherContacts, sameGiftElsewhereReason } from "@/lib/donation-dupes";
 import {
   EMPTY_BULK_TARGET,
   GROUP_ADDRESS_FIELD,
@@ -34,9 +35,9 @@ import {
   composeAddress,
   donationImportFingerprint,
   guessMapping,
-  matchRow,
+  matchRowOnce,
+  newRowIdentityRegistry,
   roleFromRow,
-  rowDedupeKey,
   splitFullName,
   splitName,
   splitPeopleList,
