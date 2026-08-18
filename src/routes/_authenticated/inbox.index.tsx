@@ -214,10 +214,9 @@ function tidyCase(v: RowValues): RowValues {
     "spouse_last_name",
     "school",
     "city",
-    "county",
   ];
   for (const k of nameKeys) if (v[k]) v[k] = properCase(v[k]!);
-  for (const k of ["address", "address_line2", "address_line3", "billing_address"] as FieldKey[]) {
+  for (const k of ["address", "address_line2"] as FieldKey[]) {
     if (v[k]) v[k] = properCaseAddress(v[k]!);
   }
   if (v.state) v.state = normalizeState(v.state);
@@ -720,11 +719,9 @@ function ImportCenter() {
       type HouseParts = {
         address: string | null;
         address_line2: string | null;
-        address_line3: string | null;
         city: string | null;
         state: string | null;
         postal_code: string | null;
-        county: string | null;
       };
 
       /** Find the household for this row, or create it once and remember it. */
@@ -739,15 +736,12 @@ function ImportCenter() {
         const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
         if (found) {
           // Fill in any address details the stored household is missing.
-          const patch: Partial<HouseParts> & { billing_address?: string } = {};
+          const patch: Partial<HouseParts> = {};
           if (parts.address) patch.address = parts.address;
           if (parts.address_line2) patch.address_line2 = parts.address_line2;
-          if (parts.address_line3) patch.address_line3 = parts.address_line3;
           if (parts.city) patch.city = parts.city;
           if (parts.state) patch.state = parts.state;
           if (parts.postal_code) patch.postal_code = parts.postal_code;
-          if (parts.county) patch.county = parts.county;
-          if (billing) patch.billing_address = billing;
           // People are joining this address, so an address-only record becomes a real household.
           await supabase
             .from("households")
@@ -757,7 +751,7 @@ function ImportCenter() {
         }
         const { data: household } = await supabase
           .from("households")
-          .insert({ name, ...parts, billing_address: billing, import_batch_id: batchId })
+          .insert({ name, ...parts, import_batch_id: batchId })
           .select("id")
           .single();
         if (household?.id) {
@@ -849,11 +843,9 @@ function ImportCenter() {
           const addressParts = {
             address: fullAddress,
             address_line2: v.address_line2 ?? null,
-            address_line3: v.address_line3 ?? null,
             city: v.city ?? null,
             state: v.state ?? null,
             postal_code: v.postal_code ?? null,
-            county: v.county ?? null,
           };
           const hasFamily = Boolean(
             v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
@@ -865,13 +857,8 @@ function ImportCenter() {
           const relationship = addressAnswer?.relationship || null;
 
           if (match.status === "new") {
-            if (hasFamily || v.billing_address) {
-              householdId = await ensureHousehold(
-                householdName,
-                addressParts,
-                v.billing_address ?? null,
-                allowAddressLink,
-              );
+            if (hasFamily) {
+              householdId = await ensureHousehold(householdName, addressParts, null, allowAddressLink);
             }
             const { data: created, error: createError } = await supabase
               .from("people")
@@ -944,34 +931,23 @@ function ImportCenter() {
             });
 
             // Existing person, new family details on the row: attach a household if they don't have one.
-            if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
-              householdId = await ensureHousehold(
-                householdName,
-                addressParts,
-                v.billing_address ?? null,
-                allowAddressLink,
-              );
+            if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
+              householdId = await ensureHousehold(householdName, addressParts, null, allowAddressLink);
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
-            } else if (householdId && (fullAddress || v.billing_address)) {
+            } else if (householdId && fullAddress) {
               const housePatch: {
-                billing_address?: string;
                 address?: string;
                 address_line2?: string;
-                address_line3?: string;
                 city?: string;
                 state?: string;
                 postal_code?: string;
-                county?: string;
               } = {};
-              if (v.billing_address) housePatch["billing_address"] = v.billing_address;
               if (fullAddress) {
                 housePatch["address"] = fullAddress;
                 if (v.address_line2) housePatch["address_line2"] = v.address_line2;
-                if (v.address_line3) housePatch["address_line3"] = v.address_line3;
                 if (v.city) housePatch["city"] = v.city;
                 if (v.state) housePatch["state"] = v.state;
                 if (v.postal_code) housePatch["postal_code"] = v.postal_code;
-                if (v.county) housePatch["county"] = v.county;
               }
               if (Object.keys(housePatch).length > 0)
                 await supabase.from("households").update(housePatch).eq("id", householdId);
@@ -1137,7 +1113,6 @@ function ImportCenter() {
             "email",
             "phone",
             "address",
-            "billing_address",
             "birth_date",
             "anniversary_date",
             "met_source",
