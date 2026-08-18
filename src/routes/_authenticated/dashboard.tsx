@@ -11,6 +11,7 @@ import { personName } from "@/lib/names";
 import { fetchRenewalDonors } from "@/lib/renewal";
 import { fetchAll } from "@/lib/fetch-all";
 import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
+import { FREQUENCY_LABELS, monthlyEquivalent, type PledgeFrequency, type PledgeStatus } from "@/lib/pledges";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -43,6 +44,31 @@ function Dashboard() {
         .select("id", { count: "exact", head: true })
         .eq("status", "pending");
       return count ?? 0;
+    },
+  });
+
+  // Recurring giving at a glance: what is promised, and what has slipped.
+  const { data: pledgeSummary } = useQuery({
+    queryKey: ["pledge-summary"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pledges")
+        .select("id, amount, frequency, status")
+        .in("status", ["active", "paused", "lapsed"]);
+      if (error) throw error;
+      const rows = (data ?? []) as { amount: number; frequency: PledgeFrequency; status: PledgeStatus }[];
+      const active = rows.filter((r) => r.status === "active");
+      const lapsed = rows.filter((r) => r.status === "lapsed");
+      const byFrequency = new Map<PledgeFrequency, number>();
+      for (const r of active) byFrequency.set(r.frequency, (byFrequency.get(r.frequency) ?? 0) + 1);
+      return {
+        activeCount: active.length,
+        pausedCount: rows.filter((r) => r.status === "paused").length,
+        lapsedCount: lapsed.length,
+        lapsedValue: lapsed.reduce((sum, r) => sum + monthlyEquivalent(r) * 12, 0),
+        monthlyValue: active.reduce((sum, r) => sum + monthlyEquivalent(r), 0),
+        byFrequency: [...byFrequency.entries()],
+      };
     },
   });
 
@@ -307,6 +333,41 @@ function Dashboard() {
               </p>
             </Link>
           ))}
+        </Panel>
+
+        <Panel title="Recurring giving" to="/donations" linkLabel="All donations">
+          {!pledgeSummary || pledgeSummary.activeCount + pledgeSummary.lapsedCount + pledgeSummary.pausedCount === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No pledges recorded yet. Add one from a person's profile when they commit to give.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between gap-3 border-b border-border py-2.5">
+                <p className="text-sm text-foreground">
+                  {pledgeSummary.activeCount} active {pledgeSummary.activeCount === 1 ? "pledge" : "pledges"}
+                </p>
+                <p className="shrink-0 font-semibold text-money">{currency(pledgeSummary.monthlyValue)} / month</p>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 border-b border-border py-2.5">
+                <p className={`text-sm ${pledgeSummary.lapsedCount > 0 ? "text-urgent" : "text-muted-foreground"}`}>
+                  {pledgeSummary.lapsedCount} lapsed {pledgeSummary.lapsedCount === 1 ? "pledge" : "pledges"}
+                  {pledgeSummary.pausedCount > 0 ? ` · ${pledgeSummary.pausedCount} paused` : ""}
+                </p>
+                {pledgeSummary.lapsedValue > 0 && (
+                  <p className="shrink-0 text-sm text-muted-foreground">
+                    {currency(pledgeSummary.lapsedValue)} / year at risk
+                  </p>
+                )}
+              </div>
+              <p className="pt-2.5 text-xs text-muted-foreground">
+                {pledgeSummary.byFrequency.length === 0
+                  ? "Missed payments show up in Tasks as follow-ups."
+                  : `${pledgeSummary.byFrequency
+                      .map(([f, n]) => `${n} ${FREQUENCY_LABELS[f].toLowerCase()}`)
+                      .join(" · ")} — missed payments show up in Tasks.`}
+              </p>
+            </>
+          )}
         </Panel>
 
         <Panel title="Upcoming grant deadlines" to="/grants" linkLabel="All grants">

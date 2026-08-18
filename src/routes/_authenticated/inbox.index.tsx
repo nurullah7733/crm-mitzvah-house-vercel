@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, UserPlus, Users } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, UserPlus, Users, Check } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
@@ -30,7 +30,11 @@ import {
   type EventOption,
 } from "@/lib/import-links";
 import {
+  ESSENTIAL_CHECKS,
+  FIELD_HINTS,
   FIELD_LABELS,
+  FIELD_PAIRS,
+  REPEATABLE_FIELDS,
   addressKey,
   composeAddress,
   donationImportFingerprint,
@@ -47,6 +51,8 @@ import {
   type MatchResult,
   type RowValues,
 } from "@/lib/import-mapping";
+
+import { FieldPicker } from "@/components/import/FieldPicker";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -69,8 +75,6 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
 });
 
 type Sheet = { name: string; headers: string[]; rows: string[][] };
-
-const FIELD_KEYS = Object.keys(FIELD_LABELS) as FieldKey[];
 
 async function readFile(file: File): Promise<Sheet> {
   const isCsv = /\.csv$/i.test(file.name);
@@ -214,10 +218,9 @@ function tidyCase(v: RowValues): RowValues {
     "spouse_last_name",
     "school",
     "city",
-    "county",
   ];
   for (const k of nameKeys) if (v[k]) v[k] = properCase(v[k]!);
-  for (const k of ["address", "address_line2", "address_line3", "billing_address"] as FieldKey[]) {
+  for (const k of ["address", "address_line2"] as FieldKey[]) {
     if (v[k]) v[k] = properCaseAddress(v[k]!);
   }
   if (v.state) v.state = normalizeState(v.state);
@@ -416,22 +419,48 @@ function ImportCenter() {
     [analysed],
   );
 
+  /** Which of the four things a usable file needs are mapped, and which pairs are half-done. */
+  const mappingReview = useMemo(() => {
+    const mapped = new Set(mapping.filter((m) => m.field !== "ignore").map((m) => m.field));
+    const checklist = ESSENTIAL_CHECKS.map((c) => ({
+      label: c.label,
+      ok: c.fields.some((f) => mapped.has(f)),
+    }));
+    const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map((p) => p.message);
+    return { checklist, warnings, mapped };
+  }, [mapping]);
+
   /** Every distinct event name the file mentions, and what it matched. */
   const fileEvents = useMemo(() => {
-    const map = new Map<string, { value: string; rows: number; matched: EventOption | null }>();
+    const map = new Map<
+      string,
+      { value: string; rows: number; matched: EventOption | null; origin: "event" | "campaign" }
+    >();
+    // The event column first, then campaign names — a gift designated
+    // "Chanukah Dinner 2026" is usually the same thing as the event.
     analysed.forEach((a) => {
-      const value = (a.values.event_name ?? "").trim();
-      if (!value) return;
-      const key = normalizeLabel(value);
-      const entry = map.get(key) ?? { value, rows: 0, matched: matchEventByName(value, events ?? []) };
-      entry.rows += 1;
-      map.set(key, entry);
+      for (const [origin, raw] of [
+        ["event", a.values.event_name],
+        ["campaign", a.values.campaign],
+      ] as const) {
+        const value = (raw ?? "").trim();
+        if (!value) continue;
+        const key = normalizeLabel(value);
+        const existing = map.get(key);
+        if (existing) {
+          existing.rows += 1;
+          if (origin === "event") existing.origin = "event";
+          continue;
+        }
+        map.set(key, { value, rows: 1, matched: matchEventByName(value, events ?? []), origin });
+      }
     });
     return [...map.entries()].map(([key, v]) => ({ key, ...v }));
   }, [analysed, events]);
 
+  // Campaign names are only a maybe, so they never hold up an import.
   const unansweredEvents = fileEvents.filter(
-    (e) => !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
+    (e) => e.origin === "event" && !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
   );
 
   /** How each row will be linked, so the preview can be exact. */
@@ -685,11 +714,13 @@ function ImportCenter() {
       // created once here, so 40 rows never make 40 copies of the same event.
       const eventIdByKey = new Map<string, string>();
       for (const fe of fileEvents) {
+        const answered = eventDecisions[fe.key];
+        if (answered?.action === "ignore") continue;
         if (fe.matched) {
           eventIdByKey.set(fe.key, fe.matched.id);
           continue;
         }
-        const decision = eventDecisions[fe.key];
+        const decision = answered;
         if (decision?.action === "existing") eventIdByKey.set(fe.key, decision.eventId);
         if (decision?.action === "create") {
           const { data: createdEvent } = await supabase
@@ -720,18 +751,15 @@ function ImportCenter() {
       type HouseParts = {
         address: string | null;
         address_line2: string | null;
-        address_line3: string | null;
         city: string | null;
         state: string | null;
         postal_code: string | null;
-        county: string | null;
       };
 
       /** Find the household for this row, or create it once and remember it. */
       async function ensureHousehold(
         name: string,
         parts: HouseParts,
-        billing: string | null,
         allowAddressLink = true,
       ): Promise<string | null> {
         const key = allowAddressLink ? addressKey(parts.address) : null;
@@ -739,15 +767,12 @@ function ImportCenter() {
         const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
         if (found) {
           // Fill in any address details the stored household is missing.
-          const patch: Partial<HouseParts> & { billing_address?: string } = {};
+          const patch: Partial<HouseParts> = {};
           if (parts.address) patch.address = parts.address;
           if (parts.address_line2) patch.address_line2 = parts.address_line2;
-          if (parts.address_line3) patch.address_line3 = parts.address_line3;
           if (parts.city) patch.city = parts.city;
           if (parts.state) patch.state = parts.state;
           if (parts.postal_code) patch.postal_code = parts.postal_code;
-          if (parts.county) patch.county = parts.county;
-          if (billing) patch.billing_address = billing;
           // People are joining this address, so an address-only record becomes a real household.
           await supabase
             .from("households")
@@ -757,7 +782,7 @@ function ImportCenter() {
         }
         const { data: household } = await supabase
           .from("households")
-          .insert({ name, ...parts, billing_address: billing, import_batch_id: batchId })
+          .insert({ name, ...parts, import_batch_id: batchId })
           .select("id")
           .single();
         if (household?.id) {
@@ -849,11 +874,9 @@ function ImportCenter() {
           const addressParts = {
             address: fullAddress,
             address_line2: v.address_line2 ?? null,
-            address_line3: v.address_line3 ?? null,
             city: v.city ?? null,
             state: v.state ?? null,
             postal_code: v.postal_code ?? null,
-            county: v.county ?? null,
           };
           const hasFamily = Boolean(
             v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
@@ -865,13 +888,8 @@ function ImportCenter() {
           const relationship = addressAnswer?.relationship || null;
 
           if (match.status === "new") {
-            if (hasFamily || v.billing_address) {
-              householdId = await ensureHousehold(
-                householdName,
-                addressParts,
-                v.billing_address ?? null,
-                allowAddressLink,
-              );
+            if (hasFamily) {
+              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
             }
             const { data: created, error: createError } = await supabase
               .from("people")
@@ -944,34 +962,23 @@ function ImportCenter() {
             });
 
             // Existing person, new family details on the row: attach a household if they don't have one.
-            if (!householdId && (v.household_name || fullAddress || v.billing_address || v.children?.length)) {
-              householdId = await ensureHousehold(
-                householdName,
-                addressParts,
-                v.billing_address ?? null,
-                allowAddressLink,
-              );
+            if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
+              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
-            } else if (householdId && (fullAddress || v.billing_address)) {
+            } else if (householdId && fullAddress) {
               const housePatch: {
-                billing_address?: string;
                 address?: string;
                 address_line2?: string;
-                address_line3?: string;
                 city?: string;
                 state?: string;
                 postal_code?: string;
-                county?: string;
               } = {};
-              if (v.billing_address) housePatch["billing_address"] = v.billing_address;
               if (fullAddress) {
                 housePatch["address"] = fullAddress;
                 if (v.address_line2) housePatch["address_line2"] = v.address_line2;
-                if (v.address_line3) housePatch["address_line3"] = v.address_line3;
                 if (v.city) housePatch["city"] = v.city;
                 if (v.state) housePatch["state"] = v.state;
                 if (v.postal_code) housePatch["postal_code"] = v.postal_code;
-                if (v.county) housePatch["county"] = v.county;
               }
               if (Object.keys(housePatch).length > 0)
                 await supabase.from("households").update(housePatch).eq("id", householdId);
@@ -988,7 +995,12 @@ function ImportCenter() {
           // reviewer chose for the whole file. One shared attendance function, so an
           // existing RSVP is upgraded to Attended instead of being left as-is.
           const rowEventKey = normalizeLabel(v.event_name ?? "");
-          const targetEventId = (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ?? bulkTarget.eventId ?? "";
+          const rowCampaignKey = normalizeLabel(v.campaign ?? "");
+          const targetEventId =
+            (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ??
+            (rowCampaignKey ? eventIdByKey.get(rowCampaignKey) : undefined) ??
+            bulkTarget.eventId ??
+            "";
           if (targetEventId) {
             const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
             await recordAttendance({
@@ -1137,7 +1149,6 @@ function ImportCenter() {
             "email",
             "phone",
             "address",
-            "billing_address",
             "birth_date",
             "anniversary_date",
             "met_source",
@@ -1198,6 +1209,16 @@ function ImportCenter() {
                     personId,
                     eventId: giftEvent.event.id,
                     attended: decision === "attended",
+                    importBatchId: batchId,
+                  });
+                } else if (newGift?.id && targetEventId) {
+                  // The row named an event or a campaign that is an event, so the
+                  // gift is credited to it and the person counts as having come.
+                  await attributeGiftToEvent({
+                    donationId: newGift.id,
+                    personId,
+                    eventId: targetEventId,
+                    attended: true,
                     importBatchId: batchId,
                   });
                 }
@@ -1348,8 +1369,8 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                This file has an event column. Answering here is optional — anything you leave blank simply isn't linked
-                to an event, and the import still runs.
+                These are the event and campaign names in the file. Answering is optional — anything you leave blank
+                simply isn't linked to an event, and the import still runs. We never create an event without asking.
                 {unansweredEvents.length > 0
                   ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
                   : ""}
@@ -1361,11 +1382,37 @@ function ImportCenter() {
                     <div key={fe.key} className="rounded-xl border border-border p-3">
                       <p className="text-sm font-medium text-foreground">
                         “{fe.value}” — {fe.rows} row{fe.rows === 1 ? "" : "s"}
+                        {fe.origin === "campaign" && (
+                          <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                            from the campaign column
+                          </span>
+                        )}
                       </p>
                       {fe.matched ? (
-                        <p className="mt-1 text-sm text-money">
-                          Matches your event “{fe.matched.name}”. Those people will be added to it.
-                        </p>
+                        <div className="mt-1">
+                          <p className="text-sm text-money">
+                            Matches your event “{fe.matched.name}”. Those people will be marked as having attended
+                            {fe.origin === "campaign" ? ", and their gifts credited to it" : ""}.
+                          </p>
+                          <button
+                            type="button"
+                            className={`mt-2 rounded-xl border px-3 py-1.5 text-sm ${
+                              decision?.action === "ignore"
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-card text-foreground"
+                            }`}
+                            onClick={() =>
+                              setEventDecisions((d) => {
+                                const next = { ...d };
+                                if (next[fe.key]?.action === "ignore") delete next[fe.key];
+                                else next[fe.key] = { action: "ignore" };
+                                return next;
+                              })
+                            }
+                          >
+                            {decision?.action === "ignore" ? "Not linked — click to link again" : "Don't link this one"}
+                          </button>
+                        </div>
                       ) : (
                         <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr]">
                           <select
@@ -1611,8 +1658,8 @@ function ImportCenter() {
               <div>
                 <h2 className="font-heading font-semibold text-foreground">Proposed column mapping</h2>
                 <p className="text-sm text-muted-foreground">
-                  Check anything marked medium or low. Child columns can be used more than once — map "Child 1", "Child
-                  2" and so on all to the child fields.
+                  Check anything marked medium or low. Child, phone and email fields can be used more than once — map
+                  "Child 1", "Child 2" and so on all to the same child field.
                 </p>
               </div>
               <Button variant="outline" className="rounded-xl" onClick={() => setAdjusting((a) => !a)}>
@@ -1624,28 +1671,29 @@ function ImportCenter() {
                 <div key={`${m.header}-${i}`} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
                   <p className="truncate text-sm font-medium text-foreground">{m.header || `Column ${i + 1}`}</p>
                   {adjusting ? (
-                    <select
-                      className={selectClass}
+                    <FieldPicker
                       value={m.field}
-                      aria-label={`Map ${m.header}`}
-                      onChange={(e) =>
+                      label={m.header || `Column ${i + 1}`}
+                      onChange={(field) =>
                         setMapping((prev) =>
-                          prev.map((row, ri) =>
-                            ri === i ? { ...row, field: e.target.value as FieldKey, confidence: "high" } : row,
-                          ),
+                          prev.map((row, ri) => (ri === i ? { ...row, field, confidence: "high" } : row)),
                         )
                       }
-                    >
-                      {FIELD_KEYS.map((k) => (
-                        <option key={k} value={k}>
-                          {FIELD_LABELS[k]}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {FIELD_LABELS[m.field]}
-                    </p>
+                    <div>
+                      <p className="text-sm text-foreground">
+                        {FIELD_LABELS[m.field]}
+                        {REPEATABLE_FIELDS.includes(m.field) && (
+                          <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            can be used more than once
+                          </span>
+                        )}
+                      </p>
+                      {FIELD_HINTS[m.field] && (
+                        <p className="text-xs text-muted-foreground">{FIELD_HINTS[m.field]}</p>
+                      )}
+                    </div>
                   )}
                   <span
                     className={`justify-self-start rounded-full px-2.5 py-1 text-xs ${
@@ -1661,6 +1709,33 @@ function ImportCenter() {
                 </div>
               ))}
             </div>
+            <div className="mt-5 rounded-xl border border-border bg-background p-3">
+              <p className="text-sm font-medium text-foreground">Does this file have what we need?</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {mappingReview.checklist.map((c) => (
+                  <span
+                    key={c.label}
+                    className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
+                      c.ok ? "bg-money/15 text-money" : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {c.ok ? <Check className="size-3.5" /> : <span className="text-base leading-none">–</span>}
+                    {c.label}
+                    {c.ok ? "" : " not mapped"}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                A name is all we truly need. Anything missing here just means we'll know less about these contacts.
+              </p>
+            </div>
+            {mappingReview.warnings.length > 0 && (
+              <ul className="mt-3 space-y-1 rounded-xl border border-suggestion/50 bg-suggestion/10 p-3 text-sm text-foreground">
+                {mappingReview.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">

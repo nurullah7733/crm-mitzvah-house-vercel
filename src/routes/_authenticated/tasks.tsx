@@ -18,6 +18,7 @@ import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
 import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
+import { fetchMissedPledgePayments, missedPledgeReminders } from "@/lib/pledges";
 import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type LifecycleItem } from "@/lib/lifecycle";
 import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
@@ -113,6 +114,13 @@ function TasksPage() {
       ]);
       return { people, donations };
     },
+  });
+
+  // Recurring gifts that didn't arrive. Nothing is changed — it becomes a
+  // follow-up staff can turn into a task.
+  const { data: missedPledges } = useQuery({
+    queryKey: ["missed-pledge-payments"],
+    queryFn: fetchMissedPledgePayments,
   });
 
   const { data: lifecycleSettings } = useLifecycleSettings();
@@ -234,6 +242,7 @@ function TasksPage() {
   );
 
   const followUps = [
+    ...missedPledgeReminders(missedPledges ?? []),
     ...quietReminders(engagement?.people ?? [], (p) => personName(p)),
     ...giftReminders(engagement?.donations ?? [], (p) => personName(p)),
   ]
