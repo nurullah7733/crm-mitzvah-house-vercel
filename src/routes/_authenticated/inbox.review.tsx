@@ -23,6 +23,9 @@ import { RELATIONSHIP_OPTIONS, rowGroup } from "@/lib/import-links";
 import { logChange } from "@/lib/session-log";
 import { Input } from "@/components/ui/input";
 import { selectClass } from "@/components/forms/fields";
+import { ResponsiveModal } from "@/components/ResponsiveModal";
+import { SelectAllToggle, SelectBox, useSelection } from "@/components/BulkPeopleActions";
+import { ChevronDown } from "lucide-react";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -109,6 +112,12 @@ function DataInbox() {
   const [choices, setChoices] = useState<Record<string, { action: GroupAction; relationship: string }>>({});
   const [chosenPeople, setChosenPeople] = useState<Record<string, ReviewPerson>>({});
   const [contactSearch, setContactSearch] = useState<{ rowId: string; query: string } | null>(null);
+  const [batchFilter, setBatchFilter] = useState("");
+  const [clearOpen, setClearOpen] = useState(false);
+  const [bulkDiscardOpen, setBulkDiscardOpen] = useState(false);
+  const [bulkReason, setBulkReason] = useState("");
+  const [showPast, setShowPast] = useState(false);
+  const selection = useSelection();
 
   const { data: contactSearchResults } = useQuery({
     queryKey: ["address-card-contact-search", contactSearch?.query.trim() ?? ""],
