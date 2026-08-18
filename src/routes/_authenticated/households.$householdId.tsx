@@ -81,7 +81,7 @@ function HouseholdPage() {
           .order("date", { ascending: false }),
         supabase
           .from("donations")
-          .select("*")
+          .select("*, campaigns(name)")
           .is("deleted_at", null)
           .in("person_id", ids)
           .order("date", { ascending: false }),
@@ -167,7 +167,7 @@ function HouseholdPage() {
       date: d.date,
       kind: "donation",
       person_id: d.person_id,
-      text: `${currency(d.amount)} · ${d.campaign ?? "General"}`,
+      text: `${currency(d.amount)} · ${d.campaigns?.name ?? "General"}`,
     })),
   ].sort((a, b) => (a.date < b.date ? 1 : -1));
 

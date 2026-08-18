@@ -115,7 +115,7 @@ function TasksPage() {
           supabase
             .from("donations")
             .select(
-              "id, person_id, amount, date, campaign, source, people(id, display_name, first_name, last_name)",
+              "id, person_id, amount, date, campaigns(name), source, people(id, display_name, first_name, last_name)",
             )
             .is("deleted_at", null)
             .gte("date", since.toISOString().slice(0, 10))

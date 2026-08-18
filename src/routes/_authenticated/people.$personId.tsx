@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveCampaignId } from "@/lib/campaigns";
 import {
   AppShell,
   EmptyState,
@@ -292,7 +293,7 @@ function PersonPage() {
       key: `d-${d.id}`,
       date: d.date,
       kind: "donation",
-      title: `${currency(d.amount)} — ${d.campaign ?? "General"}`,
+      title: `${currency(d.amount)} — ${d.campaigns?.name ?? "General"}`,
       detail: [d.method, d.source].filter(Boolean).join(" · "),
     })),
     ...(data?.registrations ?? [])
@@ -322,7 +323,7 @@ function PersonPage() {
     .filter((d) => (d.date ?? "").slice(0, 4) === String(currentYear))
     .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
   const giftSource = (d: (typeof gifts)[number]) =>
-    [d.source, d.campaigns?.name ?? d.campaign, d.grants?.name, d.method]
+    [d.source, d.campaigns?.name, d.grants?.name, d.method]
       .filter(Boolean)
       .join(" / ") || "Manual entry";
 
@@ -952,7 +953,7 @@ function ActivityDialog({
           person_id: personId,
           amount: Number(amount),
           date,
-          campaign: campaign || null,
+          campaign_id: await resolveCampaignId(campaign),
           method: "Manual",
           source: "Manual entry",
         });

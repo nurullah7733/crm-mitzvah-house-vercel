@@ -108,7 +108,7 @@ function Dashboard() {
           .order("due_date"),
         supabase
           .from("donations")
-          .select("*, people(id, display_name, first_name, last_name)")
+          .select("*, campaigns(name), people(id, display_name, first_name, last_name)")
           .is("deleted_at", null)
           .order("date", { ascending: false })
           .limit(5),
@@ -126,7 +126,9 @@ function Dashboard() {
           ),
         supabase
           .from("donations")
-          .select("id, amount, date, campaign, people(id, display_name, first_name, last_name)")
+          .select(
+            "id, amount, date, campaigns(name), people(id, display_name, first_name, last_name)",
+          )
           .is("deleted_at", null)
           .eq("thank_you_sent", false)
           .order("date", { ascending: false })
@@ -326,7 +328,7 @@ function Dashboard() {
                   </Link>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaign ?? "General"}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? "General"}
                 </p>
               </div>
               <p className="shrink-0 font-semibold text-money">{currency(d.amount)}</p>
@@ -354,7 +356,7 @@ function Dashboard() {
                   </Link>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaign ?? "General"}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? "General"}
                 </p>
               </div>
               <p className="shrink-0 font-semibold text-money">{currency(d.amount)}</p>

@@ -130,7 +130,7 @@ function DonationsPage() {
                   donor: personName(d.people),
                   amount: d.amount,
                   date: d.date,
-                  campaign: d.campaigns?.name ?? d.campaign ?? "",
+                  campaign: d.campaigns?.name ?? "",
                   grant: d.grants?.name ?? "",
                   method: d.method ?? "",
                   source: d.source ?? "",
@@ -278,7 +278,7 @@ function DonationsPage() {
                   </p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaigns?.name ?? d.campaign ?? "General"} ·{" "}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? "General"} ·{" "}
                   {d.method ?? "—"}
                 </p>
                 {d.grants && (
