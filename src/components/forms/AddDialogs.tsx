@@ -18,6 +18,8 @@ import { MethodDraftList } from "@/components/ContactMethodsEditor";
 import { addContactMethods, emptyDraft, phoneKey, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case";
 import { attributeGiftToEvent, findEventsNearDate, type NearbyEvent } from "@/lib/gift-events";
+import { findGiftsOnOtherContacts, type OtherContactGift } from "@/lib/donation-dupes";
+import { friendlyDbError } from "@/lib/db-errors";
 import { createFindOutWhoTask, findHouseholdAtAddress, nameFromAddress } from "@/lib/address-household";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
@@ -598,6 +600,9 @@ export function AddDonationDialog({
   const [nearby, setNearby] = useState<NearbyEvent[] | null>(null);
   const [linkEventId, setLinkEventId] = useState("");
   const [attended, setAttended] = useState<"yes" | "sponsor" | "unsure">("yes");
+  /** The same amount on the same day, already recorded against another contact. */
+  const [elsewhere, setElsewhere] = useState<OtherContactGift[] | null>(null);
+  const [elsewhereOk, setElsewhereOk] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pickOther, setPickOther] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
