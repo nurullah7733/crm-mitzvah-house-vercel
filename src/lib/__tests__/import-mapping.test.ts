@@ -287,7 +287,7 @@ describe("matching a row to existing contacts", () => {
   it("matches on email, phone, then name + address", () => {
     const people = [person({})];
     expect(matchRow({ email: "YOSEF@example.com" }, people).status).toBe("matched");
-    expect(matchRow({ phone: "(404) 555-0100" }, people).reason).toBe("Matched on phone");
+    expect(matchRow({ phone: "(404) 555-0100" }, people).reason).toBe("Same phone number");
     expect(
       matchRow({ first_name: "Yosef", last_name: "Katz", address: "123 Main St" }, people).status,
     ).toBe("matched");
