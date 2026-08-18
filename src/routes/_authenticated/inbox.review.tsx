@@ -983,8 +983,11 @@ function DataInbox() {
                                   : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
                               </p>
                             )}
+                            <p className="mt-1 inline-block rounded-full bg-suggestion/15 px-2.5 py-1 text-xs font-medium text-foreground">
+                              Why it's here: {r.reason}
+                            </p>
                             <p className="text-xs text-muted-foreground">
-                              {r.reason} · from {r.filename ?? "a manual entry"} · uploaded{" "}
+                              From {r.filename ?? "a manual entry"} · uploaded{" "}
                               {formatDate(r.created_at?.slice(0, 10))}
                               {r.status === "skipped" ? " · skipped earlier" : ""}
                             </p>
