@@ -1054,6 +1054,79 @@ function DataInbox() {
         suggestedIds={mergeFor?.slice(1) ?? []}
       />
 
+      <ResponsiveModal
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title={`Clear ${pending.length} row${pending.length === 1 ? "" : "s"} out of the Inbox?`}
+        description="Nothing already in Mitzvah House is touched — only these unreviewed rows are thrown away."
+        footer={
+          <>
+            <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setClearOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 rounded-xl bg-urgent text-primary-foreground hover:bg-urgent/90 sm:flex-none"
+              disabled={bulkDiscard.isPending}
+              onClick={() => bulkDiscard.mutate(pending.map((r) => r.id))}
+            >
+              {bulkDiscard.isPending ? "Clearing…" : "Yes, discard them"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm text-foreground">
+          <p>This will discard:</p>
+          <ul className="list-disc pl-5 text-muted-foreground">
+            {batchOptions
+              .filter(([key]) => !batchFilter || key === batchFilter)
+              .map(([key, name]) => (
+                <li key={key}>
+                  {name} — {pending.filter((r) => batchKey(r) === key).length} row
+                  {pending.filter((r) => batchKey(r) === key).length === 1 ? "" : "s"}
+                </li>
+              ))}
+          </ul>
+          <Input
+            className="text-base"
+            placeholder="Why are you clearing these? (saved in the change history)"
+            value={bulkReason}
+            onChange={(e) => setBulkReason(e.target.value)}
+          />
+        </div>
+      </ResponsiveModal>
+
+      <ResponsiveModal
+        open={bulkDiscardOpen}
+        onOpenChange={setBulkDiscardOpen}
+        title={`Discard ${selection.count} selected row${selection.count === 1 ? "" : "s"}?`}
+        description="They leave the Inbox for good. Contacts already in Mitzvah House are untouched."
+        footer={
+          <>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => setBulkDiscardOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 rounded-xl bg-urgent text-primary-foreground hover:bg-urgent/90 sm:flex-none"
+              disabled={bulkDiscard.isPending}
+              onClick={() => bulkDiscard.mutate(selection.ids)}
+            >
+              {bulkDiscard.isPending ? "Discarding…" : "Yes, discard"}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          className="text-base"
+          placeholder="Why are you discarding these?"
+          value={bulkReason}
+          onChange={(e) => setBulkReason(e.target.value)}
+        />
+      </ResponsiveModal>
+
       {reviewItem && (
         <ReviewCompareDialog
           open
