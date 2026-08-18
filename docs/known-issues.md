@@ -42,6 +42,10 @@ see what changed rather than wondering whether it was quietly dropped.
    Remaining caveat: `SECURITY DEFINER` functions (`merge_people`,
    `merge_households`, `recalc_person_totals`, triggers) bypass RLS by design and
    must keep filtering explicitly.
+   Because a removed row is invisible even to the query that removed it, remove
+   and restore now go through `archive_records()` / `restore_records()`
+   (`src/lib/archive.ts`); nothing writes `deleted_at` directly any more, and the
+   admin-only trigger still gates removal.
 7. **Duplicate donations can still slip through as a *different person*.**
    Dedupe is now solid within a person: `donations.import_fingerprint` plus a
    unique index, and app-level checks in the import loop, quick-merge and review
