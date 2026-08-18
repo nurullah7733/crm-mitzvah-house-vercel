@@ -985,23 +985,21 @@ function ImportCenter() {
           }
 
           // Link this contact to the event named on the row, or to the event the
-          // reviewer chose for the whole file. Nothing is linked twice.
+          // reviewer chose for the whole file. One shared attendance function, so an
+          // existing RSVP is upgraded to Attended instead of being left as-is.
           const rowEventKey = normalizeLabel(v.event_name ?? "");
           const targetEventId = (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ?? bulkTarget.eventId ?? "";
           if (targetEventId) {
-            const { data: alreadyOn } = await supabase
-              .from("registrations")
-              .select("id")
-              .eq("event_id", targetEventId)
-              .eq("person_id", personId)
-              .limit(1);
-            if (!alreadyOn?.length) {
-              await supabase
-                .from("registrations")
-                .insert({ event_id: targetEventId, person_id: personId, status: "Attended", import_batch_id: batchId });
-              // The attendance timeline entry is written by the database from the
-              // registration, so removing the registration removes the entry too.
-            }
+            const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
+            await recordAttendance({
+              personId,
+              eventId: targetEventId,
+              eventName: linkedEvent?.name ?? "an event",
+              eventDate: linkedEvent?.date ?? null,
+              importBatchId: batchId,
+            });
+            // The attendance timeline entry is written by the database from the
+            // registration, so removing the registration removes the entry too.
           }
 
           // Programs and lists chosen for the whole file, added without wiping
