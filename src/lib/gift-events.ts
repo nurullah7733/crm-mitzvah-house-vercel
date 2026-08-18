@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveCampaignId } from "@/lib/campaigns";
 
 /** An event close enough to a gift date that it might be where the gift was given. */
 export type NearbyEvent = {
@@ -60,7 +61,7 @@ export async function attributeGiftToEvent({
     .eq("id", eventId)
     .maybeSingle();
 
-  const patch: { event_id: string; campaign_id?: string; campaign?: string } = {
+  const patch: { event_id: string; campaign_id?: string } = {
     event_id: eventId,
   };
 
@@ -68,10 +69,10 @@ export async function attributeGiftToEvent({
   // program, so an event gift stops reading as "General".
   const { data: gift } = await supabase
     .from("donations")
-    .select("campaign_id, campaign")
+    .select("campaign_id")
     .eq("id", donationId)
     .maybeSingle();
-  if (!gift?.campaign_id && !gift?.campaign) {
+  if (!gift?.campaign_id) {
     const { data: campaign } = await supabase
       .from("campaigns")
       .select("id, name")
@@ -80,9 +81,9 @@ export async function attributeGiftToEvent({
       .maybeSingle();
     if (campaign) {
       patch.campaign_id = campaign.id;
-      patch.campaign = campaign.name;
     } else if (event?.program) {
-      patch.campaign = event.program;
+      const programCampaign = await resolveCampaignId(event.program);
+      if (programCampaign) patch.campaign_id = programCampaign;
     }
   }
 

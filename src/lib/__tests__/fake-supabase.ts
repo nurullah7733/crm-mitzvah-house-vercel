@@ -4,7 +4,7 @@
  */
 export type Rows = Record<string, Record<string, unknown>[]>;
 
-type Filter = { column: string; value: unknown; op: "eq" | "is" | "gte" | "lte" };
+type Filter = { column: string; value: unknown; op: "eq" | "is" | "gte" | "lte" | "ilike" };
 
 export function createFakeSupabase(initial: Rows) {
   const tables: Rows = JSON.parse(JSON.stringify(initial));
@@ -19,6 +19,7 @@ export function createFakeSupabase(initial: Rows) {
       const v = row[f.column];
       if (f.op === "eq") return v === f.value;
       if (f.op === "is") return (v ?? null) === (f.value ?? null);
+      if (f.op === "ilike") return String(v ?? "").toLowerCase() === String(f.value).toLowerCase();
       if (f.op === "gte") return String(v) >= String(f.value);
       return String(v) <= String(f.value);
     });
@@ -29,14 +30,16 @@ export function createFakeSupabase(initial: Rows) {
     let mode: "select" | "insert" | "update" | "delete" = "select";
     let payload: Record<string, unknown> = {};
     let limit: number | null = null;
+    let inserted: Record<string, unknown> | null = null;
 
     const run = () => {
       tables[table] ??= [];
       const rows = tables[table]!;
       if (mode === "insert") {
-        rows.push({ id: `${table}-${rows.length + 1}`, ...payload });
+        inserted = { id: `${table}-${rows.length + 1}`, ...payload };
+        rows.push(inserted);
         writes.push({ table, op: "insert", payload });
-        return { data: null, error: null };
+        return { data: [inserted], error: null };
       }
       if (mode === "update") {
         for (const row of rows.filter((r) => matches(r, filters))) Object.assign(row, payload);
@@ -77,6 +80,10 @@ export function createFakeSupabase(initial: Rows) {
         filters.push({ column, value, op: "is" });
         return builder;
       },
+      ilike: (column: string, value: unknown) => {
+        filters.push({ column, value, op: "ilike" });
+        return builder;
+      },
       gte: (column: string, value: unknown) => {
         filters.push({ column, value, op: "gte" });
         return builder;
@@ -93,6 +100,11 @@ export function createFakeSupabase(initial: Rows) {
         limit = 1;
         const r = run() as { data: Record<string, unknown>[] };
         return Promise.resolve({ data: r.data[0] ?? null, error: null });
+      },
+      single: () => {
+        limit = 1;
+        const r = run() as { data: Record<string, unknown>[] | null };
+        return Promise.resolve({ data: r.data?.[0] ?? null, error: null });
       },
       then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
         Promise.resolve(run()).then(resolve, reject),

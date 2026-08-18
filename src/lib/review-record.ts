@@ -59,7 +59,7 @@ export async function fetchFullRecord(personId: string): Promise<FullRecord> {
       .order("is_primary", { ascending: false }),
     supabase
       .from("donations")
-      .select("id, amount, date, campaign")
+      .select("id, amount, date, campaigns(name)")
       .eq("person_id", personId)
       .is("deleted_at", null)
       .order("date", { ascending: false }),
@@ -105,7 +105,7 @@ export async function fetchFullRecord(personId: string): Promise<FullRecord> {
     id: g.id,
     amount: Number(g.amount ?? 0),
     date: g.date as string,
-    campaign: g.campaign ?? null,
+    campaign: g.campaigns?.name ?? null,
   }));
   const noteRows = (notes.data ?? []).map((n) => ({
     id: n.id,

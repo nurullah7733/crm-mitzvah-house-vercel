@@ -17,6 +17,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 const { attributeGiftToEvent, findEventsNearDate, recordAttendance } =
   await import("@/lib/gift-events");
+const { resetCampaignCache } = await import("@/lib/campaigns");
 
 const world = (over: Partial<Rows> = {}): Rows => ({
   events: [
@@ -34,7 +35,6 @@ const world = (over: Partial<Rows> = {}): Rows => ({
       person_id: "p1",
       amount: 180,
       date: "2026-12-10",
-      campaign: null,
       campaign_id: null,
       event_id: null,
     },
@@ -46,6 +46,7 @@ const world = (over: Partial<Rows> = {}): Rows => ({
 
 beforeEach(() => {
   fake = createFakeSupabase(world());
+  resetCampaignCache();
 });
 
 const registrations = () =>
@@ -146,10 +147,17 @@ describe("attributing a gift to an event", () => {
     );
     await attributeGiftToEvent({ donationId: "d1", personId: "p1", eventId: "e1", attended: true });
     const gift = (
-      fake.tables["donations"] as { event_id: string | null; campaign: string | null }[]
+      fake.tables["donations"] as { event_id: string | null; campaign_id: string | null }[]
     )[0]!;
     expect(gift.event_id).toBe("e1");
-    expect(gift.campaign).toBe("Chanukah"); // stops reading as "General"
+    // The event's program becomes a real campaign row, so the gift stops
+    // reading as "General" without a second free-text copy of the name.
+    expect(gift.campaign_id).toBeTruthy();
+    expect(
+      (fake.tables["campaigns"] as { id: string; name: string }[]).find(
+        (c) => c.id === gift.campaign_id,
+      )!.name,
+    ).toBe("Chanukah");
     expect(registrations()[0]!.status).toBe("attended");
   });
 
@@ -173,11 +181,11 @@ describe("attributing a gift to an event", () => {
             person_id: "p1",
             amount: 180,
             date: "2026-12-10",
-            campaign: "Building Fund",
-            campaign_id: null,
+            campaign_id: "c9",
             event_id: null,
           },
         ],
+        campaigns: [{ id: "c9", name: "Building Fund", event_id: null }],
       }),
     );
     await attributeGiftToEvent({
@@ -186,7 +194,7 @@ describe("attributing a gift to an event", () => {
       eventId: "e1",
       attended: false,
     });
-    expect((fake.tables["donations"] as { campaign: string }[])[0]!.campaign).toBe("Building Fund");
+    expect((fake.tables["donations"] as { campaign_id: string }[])[0]!.campaign_id).toBe("c9");
   });
 
   it("prefers the event's own campaign when there is one", async () => {
@@ -199,9 +207,8 @@ describe("attributing a gift to an event", () => {
       eventId: "e1",
       attended: false,
     });
-    const gift = (fake.tables["donations"] as { campaign_id: string; campaign: string }[])[0]!;
+    const gift = (fake.tables["donations"] as { campaign_id: string }[])[0]!;
     expect(gift.campaign_id).toBe("c1");
-    expect(gift.campaign).toBe("Chanukah 2026");
   });
 });
 

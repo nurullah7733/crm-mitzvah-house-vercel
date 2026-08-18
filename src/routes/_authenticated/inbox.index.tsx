@@ -14,6 +14,7 @@ import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveCampaignId } from "@/lib/campaigns";
 import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import {
   type EventDecision,
   type EventOption,
 } from "@/lib/import-links";
+import { EventDecisionPicker } from "@/components/import/EventDecisionPicker";
 import {
   ESSENTIAL_CHECKS,
   FIELD_HINTS,
@@ -1117,6 +1119,7 @@ function ImportCenter() {
             if (Number.isFinite(amount) && amount > 0) {
               const giftDate = isoDate(v.date) ?? importDate;
               const fingerprint = donationImportFingerprint(v, amount, giftDate);
+              const rowCampaignId = await resolveCampaignId(v.campaign);
               // Re-importing the same file must not add the same gift twice, and a
               // gift only ever gets one timeline entry — the donation itself.
               const dupeCheck = supabase
@@ -1127,7 +1130,9 @@ function ImportCenter() {
                 .eq("date", giftDate)
                 .is("deleted_at", null);
               const { data: existingGift } = await (
-                v.campaign ? dupeCheck.eq("campaign", v.campaign) : dupeCheck.is("campaign", null)
+                rowCampaignId
+                  ? dupeCheck.eq("campaign_id", rowCampaignId)
+                  : dupeCheck.is("campaign_id", null)
               ).limit(1);
               if (!existingGift?.length) {
                 const { data: newGift } = await supabase
@@ -1136,7 +1141,7 @@ function ImportCenter() {
                     person_id: personId,
                     amount,
                     date: giftDate,
-                    campaign: v.campaign ?? null,
+                    campaign_id: rowCampaignId,
                     source,
                     notes: v.notes ?? null,
                     import_batch_id: batch.id,
@@ -1404,40 +1409,22 @@ function ImportCenter() {
                           </button>
                         </div>
                       ) : (
-                        <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr]">
-                          <select
-                            className={selectClass}
-                            value={
-                              decision?.action === "existing"
-                                ? decision.eventId
-                                : (decision?.action ?? "")
-                            }
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setEventDecisions((d) => ({
-                                ...d,
-                                [fe.key]:
-                                  val === "create"
-                                    ? { action: "create" }
-                                    : val === "ignore"
-                                      ? { action: "ignore" }
-                                      : { action: "existing", eventId: val },
-                              }));
-                            }}
-                          >
-                            <option value="">What should we do?</option>
-                            <option value="create">Create a new event called “{fe.value}”</option>
-                            <option value="ignore">Skip this — don't link anyone</option>
-                            {(events ?? []).map((ev) => (
-                              <option key={ev.id} value={ev.id}>
-                                Add them to “{ev.name}” ({ev.date})
-                              </option>
-                            ))}
-                          </select>
-                          <p className="self-center text-xs text-muted-foreground">
-                            We didn't find an event with this name.
-                          </p>
-                        </div>
+                        <EventDecisionPicker
+                          name={fe.value}
+                          rows={fe.rows}
+                          events={events ?? []}
+                          decision={decision}
+                          onApply={(next) =>
+                            setEventDecisions((d) => ({ ...d, [fe.key]: next }))
+                          }
+                          onClear={() =>
+                            setEventDecisions((d) => {
+                              const nextState = { ...d };
+                              delete nextState[fe.key];
+                              return nextState;
+                            })
+                          }
+                        />
                       )}
                     </div>
                   );

@@ -99,16 +99,19 @@ function Dashboard() {
     queryKey: ["dashboard"],
     queryFn: async () => {
       const [overdue, recentGifts, upcoming, grantDeadlines, pendingThanks] = await Promise.all([
+        // Anything still open, not only rows already past due — the old strict
+        // "due before today" filter hid tasks due today and tasks with no date,
+        // which is why this panel could look empty with work outstanding.
         supabase
           .from("tasks")
-          .select("*, people(id, display_name, first_name, last_name)")
+          .select("*, people(id, display_name, first_name, last_name)", { count: "exact" })
           .is("deleted_at", null)
           .neq("status", "done")
-          .lt("due_date", new Date().toISOString().slice(0, 10))
-          .order("due_date"),
+          .order("due_date", { ascending: true, nullsFirst: false })
+          .limit(200),
         supabase
           .from("donations")
-          .select("*, people(id, display_name, first_name, last_name)")
+          .select("*, campaigns(name), people(id, display_name, first_name, last_name)")
           .is("deleted_at", null)
           .order("date", { ascending: false })
           .limit(5),
@@ -126,7 +129,9 @@ function Dashboard() {
           ),
         supabase
           .from("donations")
-          .select("id, amount, date, campaign, people(id, display_name, first_name, last_name)")
+          .select(
+            "id, amount, date, campaigns(name), people(id, display_name, first_name, last_name)",
+          )
           .is("deleted_at", null)
           .eq("thank_you_sent", false)
           .order("date", { ascending: false })
@@ -139,6 +144,7 @@ function Dashboard() {
       }
       return {
         overdue: overdue.data ?? [],
+        overdueTotal: overdue.count ?? (overdue.data ?? []).length,
         recentGifts: recentGifts.data ?? [],
         upcoming: upcoming.data ?? [],
         grants: grantDeadlines.data ?? [],
@@ -149,6 +155,18 @@ function Dashboard() {
 
   // Lapsed donors are computed live from the gift ledger, so this card is right
   // on January 1 too. Ranked by consistency plus total giving.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  // Only eight at a time, overdue first then soonest due, so a big import
+  // doesn't bury the dashboard. The count beside the title shows the real total.
+  const urgentTasks = [...(data?.overdue ?? [])]
+    .sort((a, b) => {
+      const rank = (d: string | null) => (d && d < todayStr ? 0 : d ? 1 : 2);
+      const diff = rank(a.due_date) - rank(b.due_date);
+      if (diff !== 0) return diff;
+      return (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999");
+    })
+    .slice(0, 8);
+
   const { data: lapsed } = useQuery({
     queryKey: ["dashboard-renewals"],
     queryFn: () => fetchRenewalDonors("lapsed", 5),
@@ -275,11 +293,20 @@ function Dashboard() {
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
-          {data?.overdue.length === 0 && (
-            <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>
+        <Panel
+          title="Needs attention"
+          to="/tasks"
+          linkLabel="All tasks"
+          count={
+            urgentTasks.length > 0
+              ? `${urgentTasks.length} of ${data?.overdueTotal ?? urgentTasks.length}`
+              : undefined
+          }
+        >
+          {data && urgentTasks.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nothing waiting. Nice.</p>
           )}
-          {data?.overdue.map((t) => (
+          {urgentTasks.map((t) => (
             <div key={t.id} className="flex gap-3 border-b border-border py-2.5 last:border-0">
               <TaskCheckbox
                 done={false}
@@ -289,8 +316,13 @@ function Dashboard() {
               />
               <div className="min-w-0">
                 <p className="text-sm text-foreground">{t.text}</p>
-                <p className="text-xs text-urgent">
-                  Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"}
+                <p
+                  className={`text-xs ${
+                    t.due_date && t.due_date < todayStr ? "text-urgent" : "text-muted-foreground"
+                  }`}
+                >
+                  {t.due_date ? `Due ${formatDate(t.due_date)}` : "No due date"} ·{" "}
+                  {t.owner ?? "Unassigned"}
                 </p>
                 {t.people && (
                   <Link
@@ -326,7 +358,7 @@ function Dashboard() {
                   </Link>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaign ?? "General"}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? "General"}
                 </p>
               </div>
               <p className="shrink-0 font-semibold text-money">{currency(d.amount)}</p>
@@ -354,7 +386,7 @@ function Dashboard() {
                   </Link>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaign ?? "General"}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? "General"}
                 </p>
               </div>
               <p className="shrink-0 font-semibold text-money">{currency(d.amount)}</p>
@@ -547,17 +579,22 @@ function Panel({
   title,
   to,
   linkLabel,
+  count,
   children,
 }: {
   title: string;
   to: "/tasks" | "/donations" | "/events" | "/people" | "/grants" | "/renewals";
   linkLabel: string;
+  count?: string | undefined;
   children: React.ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center justify-between">
-        <h2 className="font-heading font-semibold text-foreground">{title}</h2>
+        <h2 className="font-heading font-semibold text-foreground">
+          {title}
+          {count && <span className="ml-2 text-xs font-normal text-muted-foreground">{count}</span>}
+        </h2>
         <Link to={to} className="text-xs text-primary hover:underline">
           {linkLabel}
         </Link>

@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import { recordAttendance } from "@/lib/gift-events";
+import { resolveCampaignId } from "@/lib/campaigns";
 import { guard } from "@/lib/app-errors";
 import {
   applyIncoming,
@@ -101,6 +102,7 @@ async function addRowActivity(
     if (Number.isFinite(amount) && amount > 0) {
       const giftDate = isoDate(row.date) ?? today();
       const fingerprint = donationImportFingerprint(row, amount, giftDate);
+      const campaignId = await resolveCampaignId(row.campaign);
       const check = supabase
         .from("donations")
         .select("id")
@@ -109,7 +111,7 @@ async function addRowActivity(
         .eq("date", giftDate)
         .is("deleted_at", null);
       const { data: existingGift } = await (
-        row.campaign ? check.eq("campaign", row.campaign) : check.is("campaign", null)
+        campaignId ? check.eq("campaign_id", campaignId) : check.is("campaign_id", null)
       ).limit(1);
       const { data: fingerprintGift } = fingerprint
         ? await supabase
@@ -126,7 +128,7 @@ async function addRowActivity(
             person_id: personId,
             amount,
             date: giftDate,
-            campaign: row.campaign ?? null,
+            campaign_id: campaignId,
             source,
             notes: row.notes ?? null,
             import_batch_id: batchId,

@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { guard, mustWrite } from "@/lib/app-errors";
+import { resolveCampaignId } from "@/lib/campaigns";
 import {
   addressKey,
   composeAddress,
@@ -171,7 +172,7 @@ export async function createPersonFromRow(
         person_id: personId,
         amount,
         date: giftDate,
-        campaign: row.campaign ?? null,
+        campaign_id: await resolveCampaignId(row.campaign),
         source,
         notes: row.notes ?? null,
         import_batch_id: batchId,

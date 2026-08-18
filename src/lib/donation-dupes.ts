@@ -24,7 +24,7 @@ export async function findGiftsOnOtherContacts(
   const skip = new Set(excludePersonIds.filter(Boolean) as string[]);
   const { data, error } = await supabase
     .from("donations")
-    .select("id, person_id, campaign, people(display_name, first_name, last_name)")
+    .select("id, person_id, campaigns(name), people(display_name, first_name, last_name)")
     .eq("amount", amount)
     .eq("date", date)
     .is("deleted_at", null)
@@ -36,7 +36,7 @@ export async function findGiftsOnOtherContacts(
       id: g.id,
       personId: g.person_id,
       name: personName(g.people),
-      campaign: g.campaign ?? null,
+      campaign: g.campaigns?.name ?? null,
     }));
 }
 

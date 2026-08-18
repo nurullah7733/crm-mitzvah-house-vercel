@@ -771,7 +771,6 @@ export function AddDonationDialog({
       return data;
     },
   });
-  const campaignName = (campaigns ?? []).find((c) => c.id === form.campaign_id)?.name ?? "";
 
   // Pledges this donor has made, so a payment can be credited against the promise.
   const donorId = personId ?? form.person_id;
@@ -804,7 +803,6 @@ export function AddDonationDialog({
           amount,
           date: form.date || todayISO(),
           campaign_id: form.campaign_id || null,
-          campaign: campaignName || null,
           grant_id: form.grant_id || null,
           pledge_id: form.pledge_id || null,
           method: form.method.trim() || null,

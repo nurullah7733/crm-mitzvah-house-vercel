@@ -51,7 +51,7 @@ export type ReminderDonation = {
   person_id: string;
   amount: number | string;
   date: string;
-  campaign?: string | null;
+  campaigns?: { name: string | null } | null;
   source?: string | null;
   people?: {
     id: string;
@@ -124,7 +124,7 @@ export function giftReminders(
     const amount = Number(d.amount) || 0;
     const days = daysSince(d.date, now);
     if (days === null) continue;
-    const where = [d.source, d.campaign].filter(Boolean).join(" / ");
+    const where = [d.source, d.campaigns?.name].filter(Boolean).join(" / ");
 
     if (d.date.slice(0, 10) >= weekStart) {
       out.push({
