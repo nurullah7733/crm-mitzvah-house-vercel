@@ -1,3 +1,4 @@
+import { parseImportDate } from "@/lib/import-dates";
 import { fuzzyScore } from "@/lib/nl-search";
 
 /** Fields a spreadsheet column can be mapped to. */
@@ -643,7 +644,8 @@ export function roleFromRow(v: {
   const age = Number((v.age ?? "").replace(/[^0-9.]/g, ""));
   if (Number.isFinite(age) && age > 0) return age < 18 ? "Child" : "Adult";
   if (v.birth_date) {
-    const d = new Date(v.birth_date);
+    const parsed = parseImportDate(v.birth_date);
+    const d = parsed ? new Date(`${parsed}T00:00:00Z`) : new Date(NaN);
     if (!Number.isNaN(d.getTime())) {
       const years = (Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000);
       if (years > 0 && years < 18) return "Child";
@@ -658,6 +660,8 @@ export type ExistingPerson = {
   last_name: string;
   email: string | null;
   phone: string | null;
+  /** Used to confirm or rule out a name match outright. */
+  birth_date?: string | null;
   household_id: string | null;
   households?: { name: string; address: string | null } | null;
   /** Every phone and email on file, so a match is never missed. */
@@ -694,14 +698,51 @@ export function personPhones(p: ExistingPerson): string[] {
   return list.filter((d) => d.length >= 7).map((d) => d.slice(-10));
 }
 
-/** Match a spreadsheet row to existing people: email, then phone, then name + address. */
+/** How different two words are, counted as single-character edits. */
+function editDistance(a: string, b: string) {
+  if (a === b) return 0;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let last = prev[0]!;
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cur = prev[j]!;
+      prev[j] = Math.min(
+        prev[j]! + 1,
+        prev[j - 1]! + 1,
+        last + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      last = cur;
+    }
+  }
+  return prev[b.length]!;
+}
+
+/** A real name signal: the same name, or a name one or two typos away from it. */
+export function namesAreClose(a: string, b: string) {
+  const x = a.trim().toLowerCase().replace(/\s+/g, " ");
+  const y = b.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const allowed = Math.min(x.length, y.length) >= 8 ? 2 : 1;
+  return editDistance(x, y) <= allowed;
+}
+
+/**
+ * Match a spreadsheet row to existing people.
+ *
+ * Only real signals count: the same email, the same phone number, the same name
+ * with the same address or birth date, or a name that is a typo away from one we
+ * have. Being an adult, sharing a program or sharing a role is never a signal, and
+ * two different birth dates rule a match out even when the names look alike.
+ */
 export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResult {
   const rowEmails = (values.emails ?? []).map((e) => e.value.trim().toLowerCase()).filter(Boolean);
   if ((values.email ?? "").trim()) rowEmails.unshift(values.email!.trim().toLowerCase());
   if (rowEmails.length > 0) {
     const hits = people.filter((p) => personEmails(p).some((e) => rowEmails.includes(e)));
     if (hits.length === 1)
-      return { status: "matched", reason: "Matched on email", candidates: hits };
+      return { status: "matched", reason: "Same email address", candidates: hits };
     if (hits.length > 1)
       return { status: "ambiguous", reason: "Several people share that email", candidates: hits };
   }
@@ -714,39 +755,93 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
   if (rowPhones.length > 0) {
     const hits = people.filter((p) => personPhones(p).some((d) => rowPhones.includes(d)));
     if (hits.length === 1)
-      return { status: "matched", reason: "Matched on phone", candidates: hits };
+      return { status: "matched", reason: "Same phone number", candidates: hits };
     if (hits.length > 1)
       return { status: "ambiguous", reason: "Several people share that phone", candidates: hits };
   }
 
   const { first, last } = splitName(values);
   if (first || last) {
-    const nameHits = people.filter(
-      (p) =>
-        (p.first_name ?? "").trim().toLowerCase() === first.toLowerCase() &&
-        (p.last_name ?? "").trim().toLowerCase() === last.toLowerCase(),
-    );
+    const rowFull = [first, last].filter(Boolean).join(" ");
+    const rowBirth = parseImportDate(values.birth_date) ?? "";
+    const storedBirth = (p: ExistingPerson) => (p.birth_date ?? "").trim().slice(0, 10);
+    /** A different birth date means a different person, full stop. */
+    const birthRulesOut = (p: ExistingPerson) =>
+      Boolean(rowBirth) && Boolean(storedBirth(p)) && storedBirth(p) !== rowBirth;
+    const sameBirth = (p: ExistingPerson) =>
+      Boolean(rowBirth) && storedBirth(p) === rowBirth;
+    const fullName = (p: ExistingPerson) =>
+      [(p.first_name ?? "").trim(), (p.last_name ?? "").trim()].filter(Boolean).join(" ");
+    const exact = (p: ExistingPerson) =>
+      (p.first_name ?? "").trim().toLowerCase() === first.toLowerCase() &&
+      (p.last_name ?? "").trim().toLowerCase() === last.toLowerCase();
+
+    const usable = people.filter((p) => !birthRulesOut(p));
+    const nameHits = usable.filter(exact);
     const address = (values.address ?? "").trim().toLowerCase();
     const sameAddress = (stored: string | null | undefined) => {
       const s = (stored ?? "").trim().toLowerCase();
       return Boolean(s) && (s === address || s.startsWith(address));
     };
+
+    const confirmedByBirth = nameHits.filter(sameBirth);
+    if (confirmedByBirth.length === 1)
+      return {
+        status: "matched",
+        reason: "Same name and same birth date",
+        candidates: confirmedByBirth,
+      };
+
     if (nameHits.length === 1) {
       if (!address || sameAddress(nameHits[0]?.households?.address)) {
-        return { status: "matched", reason: "Matched on name + address", candidates: nameHits };
+        return {
+          status: "matched",
+          reason: address ? "Same name and same address" : "Same name",
+          candidates: nameHits,
+        };
       }
-      return { status: "ambiguous", reason: "Same name, different address", candidates: nameHits };
+      return {
+        status: "ambiguous",
+        reason: "Same name, but a different address",
+        candidates: nameHits,
+      };
     }
     if (nameHits.length > 1) {
       const withAddress = address ? nameHits.filter((p) => sameAddress(p.households?.address)) : [];
       if (withAddress.length === 1)
-        return { status: "matched", reason: "Matched on name + address", candidates: withAddress };
+        return {
+          status: "matched",
+          reason: "Same name and same address",
+          candidates: withAddress,
+        };
       return {
         status: "ambiguous",
-        reason: "More than one person with that name",
+        reason: `More than one person is already called ${rowFull}`,
         candidates: nameHits,
       };
     }
+
+    // No exact name. A name a typo or two away only counts when something else
+    // agrees as well, so unrelated people never reach the review queue.
+    const close = usable.filter((p) => namesAreClose(rowFull, fullName(p)));
+    const strongClose = close.filter(
+      (p) => sameBirth(p) || (Boolean(address) && sameAddress(p.households?.address)),
+    );
+    if (strongClose.length > 0)
+      return {
+        status: "ambiguous",
+        reason: `Almost the same name as ${fullName(strongClose[0]!)}, and ${
+          sameBirth(strongClose[0]!) ? "the same birth date" : "the same address"
+        }`,
+        candidates: strongClose,
+      };
+    if (close.length > 0 && !rowBirth)
+      return {
+        status: "ambiguous",
+        reason: `Very close to the name ${fullName(close[0]!)} already on file`,
+        candidates: close,
+      };
+
     if (!first && !last)
       return { status: "ambiguous", reason: "No name in the file", candidates: [] };
     return { status: "new", reason: "Looks like a new person", candidates: [] };

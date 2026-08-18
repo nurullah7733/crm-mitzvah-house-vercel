@@ -282,7 +282,12 @@ function PersonPage() {
 
   type Item = { key: string; date: string; kind: string; title: string; detail?: string | null };
   const timeline: Item[] = [
-    ...(data?.interactions ?? []).map((i) => ({
+    // Gifts and event attendance are shown from their own records below. The
+    // mirror rows the database keeps for them are skipped so one gift never
+    // reads as two entries.
+    ...(data?.interactions ?? [])
+      .filter((i) => !i.source_kind)
+      .map((i) => ({
       key: `i-${i.id}`,
       date: i.date,
       kind: i.type ?? "note",

@@ -688,6 +688,18 @@ function DataInbox() {
                     return next;
                   });
                 const answered = card.rows.filter((r) => choices[r.id]).length;
+                const chosenInCard = card.rows.filter((r) => selection.has(r.id));
+                /** Apply one answer to just the rows ticked inside this card. */
+                const setSelected = (action: GroupAction, relationship = "") =>
+                  setChoices((c) => {
+                    const next = { ...c };
+                    for (const r of chosenInCard)
+                      next[r.id] = {
+                        action,
+                        relationship: relationship || (c[r.id]?.relationship ?? ""),
+                      };
+                    return next;
+                  });
                 return (
                   <div
                     key={card.key}
@@ -722,6 +734,48 @@ function DataInbox() {
                         Leave all for later
                       </Button>
                     </div>
+
+                    {chosenInCard.length > 0 && (
+                      <div className="mt-2 rounded-xl border border-primary/40 bg-primary/5 p-3">
+                        <p className="text-sm font-medium text-foreground">
+                          {chosenInCard.length} ticked on this card — answer just those
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Use this when a group is mixed: tick the rows that are the same person as
+                          someone we already have, answer them here, then tick the rest and say how
+                          they're related.
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={() => setSelected("same")}
+                          >
+                            Ticked are the same person — merge into their match
+                          </Button>
+                          {RELATIONSHIP_OPTIONS.map((rel) => (
+                            <Button
+                              key={rel}
+                              size="sm"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => setSelected("related", rel)}
+                            >
+                              Ticked are {rel.toLowerCase()}
+                            </Button>
+                          ))}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="rounded-xl"
+                            onClick={() => setSelected("separate")}
+                          >
+                            Ticked are not related
+                          </Button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="mt-3 space-y-2">
                       {card.rows.map((r) => {
@@ -929,8 +983,11 @@ function DataInbox() {
                                   : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
                               </p>
                             )}
+                            <p className="mt-1 inline-block rounded-full bg-suggestion/15 px-2.5 py-1 text-xs font-medium text-foreground">
+                              Why it's here: {r.reason}
+                            </p>
                             <p className="text-xs text-muted-foreground">
-                              {r.reason} · from {r.filename ?? "a manual entry"} · uploaded{" "}
+                              From {r.filename ?? "a manual entry"} · uploaded{" "}
                               {formatDate(r.created_at?.slice(0, 10))}
                               {r.status === "skipped" ? " · skipped earlier" : ""}
                             </p>

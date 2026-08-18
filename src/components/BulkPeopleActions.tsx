@@ -258,7 +258,7 @@ export function BulkPeopleBar({
             >
               <CalendarPlus className="size-4" /> Add to event
             </Button>
-            {selectedIds.length === 2 && (
+            {selectedIds.length >= 2 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -406,13 +406,14 @@ export function BulkPeopleBar({
         </p>
       </ResponsiveModal>
 
-      {selectedIds.length === 2 && (
+      {selectedIds.length >= 2 && (
         <MergeContactsDialog
           open={mergeOpen}
           onOpenChange={setMergeOpen}
           lockSelection
           primaryId={selectedIds[0]!}
           suggestedIds={[selectedIds[1]!]}
+          queueIds={selectedIds}
           onMerged={() => onClear()}
         />
       )}

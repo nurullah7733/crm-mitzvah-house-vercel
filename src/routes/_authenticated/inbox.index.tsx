@@ -14,6 +14,7 @@ import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { parseImportDate } from "@/lib/import-dates";
 import { resolveCampaignId } from "@/lib/campaigns";
 import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, EmptyState } from "@/components/AppShell";
@@ -49,6 +50,7 @@ import {
   composeAddress,
   donationImportFingerprint,
   guessMapping,
+  namesAreClose,
   matchRowOnce,
   newRowIdentityRegistry,
   roleFromRow,
@@ -117,11 +119,8 @@ async function readFile(file: File): Promise<Sheet> {
   };
 }
 
-function isoDate(raw: string | undefined) {
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
+/** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
+const isoDate = (raw: string | undefined) => parseImportDate(raw);
 
 function splitList(raw: string | undefined) {
   return raw
@@ -206,7 +205,7 @@ function ImportCenter() {
         supabase
           .from("people")
           .select(
-            "id, first_name, last_name, email, phone, household_id, households(name, address), contact_methods(kind, value)",
+            "id, first_name, last_name, email, phone, birth_date, household_id, households(name, address), contact_methods(kind, value)",
           )
           .is("deleted_at", null)
           .order("id")
@@ -514,6 +513,8 @@ function ImportCenter() {
       }[] = [];
       let failures = 0;
       let queued = 0;
+      /** Gifts we refused to date ourselves, so no gift is ever silently dated today. */
+      let unreadableGiftDates = 0;
 
       const existingGiftFingerprints = new Set(
         (
@@ -582,6 +583,7 @@ function ImportCenter() {
         phone?: string | null;
         householdId?: string | null;
         address?: string | null;
+        birthDate?: string | null;
         methods?: { kind: string; value: string }[];
       }) {
         const existing = livePeople.find((p) => p.id === entry.id);
@@ -600,6 +602,7 @@ function ImportCenter() {
           last_name: entry.last,
           email: entry.email ?? null,
           phone: entry.phone ?? null,
+          birth_date: entry.birthDate ?? null,
           household_id: entry.householdId ?? null,
           households: entry.address ? { name: "", address: entry.address } : null,
           contact_methods: entry.methods ?? [],
@@ -728,14 +731,19 @@ function ImportCenter() {
 
           // The gift itself, not the person: the same amount on the same day sitting
           // on a contact we did NOT match to usually means a second record for one donor.
-          const giftsElsewhere =
+          // Only worth asking about when the other contact is plausibly the same
+          // human: a same-day, same-amount gift on an unrelated donor is a
+          // coincidence, not a duplicate, and must never reach the review queue.
+          const rowFullName = mainName(v).display;
+          const giftsElsewhere = (
             Number.isFinite(rowAmount) && rowAmount > 0
               ? await findGiftsOnOtherContacts(
                   rowAmount,
                   rowGiftDate,
                   live.candidates.map((c) => c.id),
                 )
-              : [];
+              : []
+          ).filter((g) => rowFullName && namesAreClose(rowFullName, g.name));
 
           // A flagged row is never written. It waits in the Data Inbox for a person.
           if (
@@ -762,7 +770,10 @@ function ImportCenter() {
                   (live.candidates.length
                     ? live.candidates.map((c) => c.id)
                     : item.match.candidates.map((c) => c.id)
-                  ).concat(giftsElsewhere.map((g) => g.personId)),
+                  ).concat(
+                    // Same-gift candidates are only offered when the name matched too.
+                    giftsElsewhere.map((g) => g.personId),
+                  ),
                 ),
               ],
               groupInfo,
@@ -834,6 +845,7 @@ function ImportCenter() {
               last,
               email: v.email ?? null,
               phone: v.phone ?? null,
+              birthDate: isoDate(v.birth_date),
               householdId,
               address: fullAddress,
               methods: [
@@ -869,6 +881,7 @@ function ImportCenter() {
               last,
               email: v.email ?? null,
               phone: v.phone ?? null,
+              birthDate: isoDate(v.birth_date),
               methods: [
                 ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
                 ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
@@ -1116,8 +1129,13 @@ function ImportCenter() {
 
           if (v.amount) {
             const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
-            if (Number.isFinite(amount) && amount > 0) {
-              const giftDate = isoDate(v.date) ?? importDate;
+            const readDate = isoDate(v.date);
+            if (v.date && !readDate) {
+              // Better no gift than a gift dated today: a wrong date corrupts
+              // giving history, so the row is reported instead of guessed at.
+              unreadableGiftDates += 1;
+            } else if (Number.isFinite(amount) && amount > 0) {
+              const giftDate = readDate ?? importDate;
               const fingerprint = donationImportFingerprint(v, amount, giftDate);
               const rowCampaignId = await resolveCampaignId(v.campaign);
               // Re-importing the same file must not add the same gift twice, and a
@@ -1229,18 +1247,23 @@ function ImportCenter() {
       }
 
       const importedRows = Math.max(analysed.length - queued, 0);
+      const notes = [
+        queued > 0
+          ? "The rows that need a person to look at them are waiting in the Data Inbox."
+          : "",
+        unreadableGiftDates > 0
+          ? `${unreadableGiftDates} gift${
+              unreadableGiftDates === 1 ? " was" : "s were"
+            } left out because the date in the file couldn't be read — nothing was dated today by mistake.`
+          : "",
+      ].filter(Boolean);
       toast.success(
         `${importedRows} imported · ${queued} need review${
           counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
         }`,
         {
           duration: 12000,
-          ...(queued > 0
-            ? {
-                description:
-                  "The rows that need a person to look at them are waiting in the Data Inbox.",
-              }
-            : {}),
+          ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
         },
       );
       await queryClient.invalidateQueries();

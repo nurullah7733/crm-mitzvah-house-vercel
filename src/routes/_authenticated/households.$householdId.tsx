@@ -155,7 +155,10 @@ function HouseholdPage() {
   }
 
   const feed = [
-    ...(data?.interactions ?? []).map((i) => ({
+    // Gift and attendance mirrors are skipped: the gifts themselves are below.
+    ...(data?.interactions ?? [])
+      .filter((i) => !i.source_kind)
+      .map((i) => ({
       id: `i-${i.id}`,
       date: i.date,
       kind: i.type,
