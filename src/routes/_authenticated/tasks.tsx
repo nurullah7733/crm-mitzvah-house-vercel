@@ -405,6 +405,32 @@ function TasksPage() {
       }
     >
       {isLoading && <EmptyState label="Loading tasks…" />}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <select
+          className="h-10 rounded-xl border border-border bg-card px-3 text-base text-foreground"
+          value={batchFilter}
+          onChange={(e) => {
+            setBatchFilter(e.target.value);
+            selection.clear();
+          }}
+        >
+          <option value="all">All tasks</option>
+          <option value="none">Added by hand (not from a file)</option>
+          {(batches ?? []).map((b) => (
+            <option key={b.id} value={b.id}>
+              From “{b.filename}” ({b.import_date})
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={tasks.length === 0}
+          className="h-10 rounded-xl border border-urgent/50 bg-card px-3 text-sm text-urgent disabled:opacity-50"
+          onClick={() => setClearOpen(true)}
+        >
+          Clear all {tasks.length} showing
+        </button>
+      </div>
       <SelectAllToggle
         visibleIds={tasks.map((t) => t.id)}
         selectedIds={selection.ids}
@@ -412,6 +438,39 @@ function TasksPage() {
         onClear={selection.clear}
         noun="tasks"
       />
+      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear {tasks.length} tasks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes every task currently showing
+              {batchFilter === "all" ? "" : " for the file you picked"}. They move to the archive, so
+              nothing is lost for good.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">Keep them</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-xl bg-urgent text-urgent-foreground hover:bg-urgent/90"
+              onClick={async () => {
+                try {
+                  await archiveRecords(
+                    "tasks",
+                    tasks.map((t) => t.id),
+                  );
+                  toast.success(`Cleared ${tasks.length} tasks`);
+                  selection.clear();
+                  await queryClient.invalidateQueries();
+                } catch (e) {
+                  await showError(e);
+                }
+              }}
+            >
+              Clear them
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="space-y-6">
         {reminders.length > 0 && (
