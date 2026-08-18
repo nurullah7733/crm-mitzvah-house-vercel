@@ -44,6 +44,11 @@ describe.skipIf(!configured)("database rules", () => {
     return { id: data?.id as string | undefined, error };
   }
 
+  async function archiveGift(id: string) {
+    const { error } = await db.rpc("archive_records", { _table: "donations", _ids: [id] });
+    expect(error).toBeNull();
+  }
+
   const totals = async (personId: string) => {
     const { data } = await db.from("people").select("lifetime_giving, this_year_giving").eq("id", personId).single();
     return { lifetime: Number(data!.lifetime_giving), thisYear: Number(data!.this_year_giving) };
@@ -74,7 +79,7 @@ describe.skipIf(!configured)("database rules", () => {
       const id = await addPerson("Archived");
       const gift = await addGift(id, 80, `${year}-03-01`);
       expect((await totals(id)).lifetime).toBe(80);
-      await db.from("donations").update({ deleted_at: new Date().toISOString() }).eq("id", gift.id!);
+      await archiveGift(gift.id!);
       const t = await totals(id);
       expect(t.lifetime).toBe(0);
       expect(t.thisYear).toBe(0);
@@ -114,7 +119,8 @@ describe.skipIf(!configured)("database rules", () => {
       await addGift(dupe, 25, `${year}-06-02`);
       await db.from("registrations").insert({ event_id: event!.id, person_id: keep, status: "registered" });
       await db.from("registrations").insert({ event_id: event!.id, person_id: dupe, status: "attended" });
-      await db.from("tasks").insert({ person_id: dupe, text: `${tag} follow up`, status: "open" });
+      const task = await db.from("tasks").insert({ person_id: dupe, text: `${tag} follow up`, status: "upcoming" });
+      expect(task.error).toBeNull();
 
       const { error } = await db.rpc("merge_people", { _surviving_id: keep, _merged_id: dupe, _field_values: {} });
       expect(error).toBeNull();
@@ -169,7 +175,7 @@ describe.skipIf(!configured)("database rules", () => {
     it("archiving a gift takes its timeline entries with it", async () => {
       const id = await addPerson("Archive2", { email: `archive2.${tag}@example.com` });
       const gift = await addGift(id, 75, `${year}-08-01`);
-      await db.from("donations").update({ deleted_at: new Date().toISOString() }).eq("id", gift.id!);
+      await archiveGift(gift.id!);
       const { data } = await db.from("interactions").select("id").eq("source_id", gift.id!);
       expect(data).toHaveLength(0);
     });
