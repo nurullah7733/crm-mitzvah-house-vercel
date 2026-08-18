@@ -108,7 +108,9 @@ export function mergedValues(
 ): Record<CompareKey, string | null> {
   const out = {} as Record<CompareKey, string | null>;
   for (const f of fields) {
-    if (f.state === "conflict") out[f.key] = choices[f.key] === "incoming" ? f.incoming : f.existing;
+    const picked = choices[f.key];
+    if (picked) out[f.key] = (picked === "incoming" ? f.incoming : f.existing) ?? (picked === "incoming" ? f.existing : f.incoming);
+    else if (f.state === "conflict") out[f.key] = f.existing;
     else out[f.key] = f.existing ?? f.incoming ?? null;
   }
   return out;
