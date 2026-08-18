@@ -182,6 +182,7 @@ export type Database = {
           method: string | null
           notes: string | null
           person_id: string
+          pledge_id: string | null
           receipt_sent: boolean
           receipt_sent_date: string | null
           source: string | null
@@ -203,6 +204,7 @@ export type Database = {
           method?: string | null
           notes?: string | null
           person_id: string
+          pledge_id?: string | null
           receipt_sent?: boolean
           receipt_sent_date?: string | null
           source?: string | null
@@ -224,6 +226,7 @@ export type Database = {
           method?: string | null
           notes?: string | null
           person_id?: string
+          pledge_id?: string | null
           receipt_sent?: boolean
           receipt_sent_date?: string | null
           source?: string | null
@@ -264,6 +267,13 @@ export type Database = {
             columns: ["person_id"]
             isOneToOne: false
             referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donations_pledge_id_fkey"
+            columns: ["pledge_id"]
+            isOneToOne: false
+            referencedRelation: "pledges"
             referencedColumns: ["id"]
           },
         ]
@@ -869,6 +879,79 @@ export type Database = {
           },
         ]
       }
+      pledges: {
+        Row: {
+          amount: number
+          campaign_id: string | null
+          created_at: string
+          end_date: string | null
+          external_ref: string | null
+          frequency: string
+          grace_days: number
+          id: string
+          import_batch_id: string | null
+          notes: string | null
+          person_id: string
+          start_date: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          campaign_id?: string | null
+          created_at?: string
+          end_date?: string | null
+          external_ref?: string | null
+          frequency?: string
+          grace_days?: number
+          id?: string
+          import_batch_id?: string | null
+          notes?: string | null
+          person_id: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          campaign_id?: string | null
+          created_at?: string
+          end_date?: string | null
+          external_ref?: string | null
+          frequency?: string
+          grace_days?: number
+          id?: string
+          import_batch_id?: string | null
+          notes?: string | null
+          person_id?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pledges_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pledges_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pledges_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       program_options: {
         Row: {
           created_at: string
@@ -1284,6 +1367,19 @@ export type Database = {
         Returns: string
       }
       money_text: { Args: { _amount: number }; Returns: string }
+      pledges_missing_payments: {
+        Args: never
+        Returns: {
+          amount: number
+          days_late: number
+          expected_date: string
+          frequency: string
+          last_gift_date: string
+          name: string
+          person_id: string
+          pledge_id: string
+        }[]
+      }
       purge_audit_log_internal: { Args: never; Returns: number }
       purge_old_audit_log: { Args: never; Returns: number }
       recalc_all_totals_internal: { Args: never; Returns: number }
