@@ -11,6 +11,8 @@ import { currency } from "@/components/AppShell";
 import { personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
 import { friendlyDbError } from "@/lib/db-errors";
+import { ExistingRecordPanel } from "@/components/ExistingRecordPanel";
+import { fetchFullRecord } from "@/lib/review-record";
 import {
   COMPARE_FIELDS,
   applyIncoming,
@@ -95,6 +97,12 @@ export function ReviewCompareDialog({
     queryKey: ["review-history", selectedExisting?.id],
     enabled: open && Boolean(selectedExisting?.id),
     queryFn: () => selectedExisting ? fetchHistory(selectedExisting.id) : Promise.resolve(null),
+  });
+
+  const { data: fullRecord } = useQuery({
+    queryKey: ["review-full-record", selectedExisting?.id],
+    enabled: open && Boolean(selectedExisting?.id),
+    queryFn: () => fetchFullRecord(selectedExisting!.id),
   });
 
   const { data: searchResults } = useQuery({
@@ -204,8 +212,15 @@ export function ReviewCompareDialog({
   });
 
   const busy = merge.isPending || keepBoth.isPending || discard.isPending || saveExistingEdits.isPending;
+  /** Assign one side as the winner for every field that has a value anywhere. */
   const pickAll = (side: Side) =>
-    setChoices(Object.fromEntries(conflicts.map((f) => [f.key, side])) as Partial<Record<CompareKey, Side>>);
+    setChoices(
+      Object.fromEntries(
+        fields.filter((f) => f.existing || f.incoming).map((f) => [f.key, side]),
+      ) as Partial<Record<CompareKey, Side>>,
+    );
+  const pickAllConflicts = (side: Side) =>
+    setChoices((c) => ({ ...c, ...(Object.fromEntries(conflicts.map((f) => [f.key, side])) as Partial<Record<CompareKey, Side>>) }));
 
   return (
     <ResponsiveModal
