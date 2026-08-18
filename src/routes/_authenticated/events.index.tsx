@@ -2,12 +2,13 @@ import { personName } from "@/lib/names";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Download, Plus } from "lucide-react";
+import { Download, Pencil, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QueryError } from "@/components/ErrorState";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddEventDialog } from "@/components/forms/AddDialogs";
+import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { downloadCsv, stamp } from "@/lib/csv";
@@ -36,6 +37,9 @@ function EventsPage() {
   const [program, setProgram] = useState<string | null>(null);
   const selection = useSelection();
   const [addOpen, setAddOpen] = useState(false);
+  // Imports often bring in messy event names, so they're fixable straight from
+  // the list. Renaming or re-dating an event never touches its attendance rows.
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["events-list"],
@@ -147,6 +151,13 @@ function EventsPage() {
                   {e.capacity ? ` / ${e.capacity}` : ""} registered
                 </p>
                 {e.staff_lead && <p className="text-xs">Lead: {e.staff_lead}</p>}
+                <button
+                  type="button"
+                  className="mt-2 inline-flex items-center gap-1 rounded-xl border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+                  onClick={() => setEditing(e as unknown as Record<string, unknown>)}
+                >
+                  <Pencil className="size-3.5" /> Edit
+                </button>
               </div>
             </div>
             {e.description && <p className="mt-2 text-sm text-muted-foreground">{e.description}</p>}
@@ -169,6 +180,30 @@ function EventsPage() {
         )}
       </div>
       <AddEventDialog open={addOpen} onOpenChange={setAddOpen} />
+      {editing && (
+        <EditRecordDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditing(null);
+          }}
+          table="events"
+          id={String(editing["id"])}
+          record={editing}
+          title="Edit event"
+          deleteLabel="Remove this event"
+          onDeleted={() => setEditing(null)}
+          fields={[
+            { key: "name", label: "Name" },
+            { key: "date", label: "Date", type: "date" },
+            { key: "time", label: "Time", type: "time" },
+            { key: "location", label: "Location" },
+            { key: "program", label: "Program" },
+            { key: "capacity", label: "Capacity", type: "number" },
+            { key: "staff_lead", label: "Staff lead" },
+            { key: "description", label: "Description", type: "textarea" },
+          ]}
+        />
+      )}
       <BulkRecordBar
         table="events"
         noun="event"
