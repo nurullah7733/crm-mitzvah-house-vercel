@@ -111,7 +111,10 @@ export function ReviewCompareDialog({
       const { data: people, error } = await supabase.from("people").select("*").in("id", ids).is("deleted_at", null);
       if (error) throw error;
       const byId = new Map((people ?? []).map((person) => [person.id, person]));
-      return ids.map((id) => byId.get(id)).filter((person): person is ReviewPerson => Boolean(person));
+      return ids
+        .map((id) => byId.get(id))
+        .filter((person) => person !== undefined)
+        .map((person) => person as ReviewPerson);
     },
   });
 
