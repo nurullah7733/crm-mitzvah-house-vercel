@@ -467,7 +467,7 @@ export function ReviewCompareDialog({
                       <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("existing")}>
                         Keep what we have
                       </Button>
-                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("incoming")}>
+                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAllConflicts("incoming")}>
                         Use the file's version
                       </Button>
                     </div>
