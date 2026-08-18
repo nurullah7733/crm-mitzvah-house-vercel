@@ -7,15 +7,10 @@
 -- and intentionally not included; roles (anon, authenticated, service_role) are assumed to exist.
 
 --
---
-
-\restrict ySumauDSQtuqfnt9fCrjYSKQnZ34PMCodySbsHG7oTffjO4zrrxaoaZOykXo5db
-
---
 -- Name: public; Type: SCHEMA; Schema: -; Owner: -
 --
 
-CREATE SCHEMA public;
+CREATE SCHEMA IF NOT EXISTS public;
 
 --
 -- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
@@ -3777,7 +3772,3 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 
---
---
-
-\unrestrict ySumauDSQtuqfnt9fCrjYSKQnZ34PMCodySbsHG7oTffjO4zrrxaoaZOykXo5db
