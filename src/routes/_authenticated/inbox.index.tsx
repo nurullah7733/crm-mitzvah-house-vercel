@@ -1247,25 +1247,23 @@ function ImportCenter() {
       }
 
       const importedRows = Math.max(analysed.length - queued, 0);
+      const notes = [
+        queued > 0
+          ? "The rows that need a person to look at them are waiting in the Data Inbox."
+          : "",
+        unreadableGiftDates > 0
+          ? `${unreadableGiftDates} gift${
+              unreadableGiftDates === 1 ? " was" : "s were"
+            } left out because the date in the file couldn't be read — nothing was dated today by mistake.`
+          : "",
+      ].filter(Boolean);
       toast.success(
         `${importedRows} imported · ${queued} need review${
           counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
         }`,
         {
           duration: 12000,
-          ...(unreadableGiftDates > 0
-            ? {
-                description: `${unreadableGiftDates} gift${
-                  unreadableGiftDates === 1 ? "" : "s"
-                } were left out because the date in the file couldn't be read. Nothing was dated today by mistake.`,
-              }
-            : {}),
-          ...(queued > 0
-            ? {
-                description:
-                  "The rows that need a person to look at them are waiting in the Data Inbox.",
-              }
-            : {}),
+          ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
         },
       );
       await queryClient.invalidateQueries();
