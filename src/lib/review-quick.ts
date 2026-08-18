@@ -195,7 +195,7 @@ export async function undoQuickMerge(result: QuickMergeResult) {
   if (result.upgradedRegistration)
     await supabase
       .from("registrations")
-      .update({ status: result.upgradedRegistration.status ?? "Registered" } as never)
+      .update({ status: result.upgradedRegistration.status ?? "registered" } as never)
       .eq("id", result.upgradedRegistration.id);
   for (const id of result.interactionIds) await supabase.from("interactions").delete().eq("id", id);
   await supabase
