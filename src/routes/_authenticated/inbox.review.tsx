@@ -538,6 +538,76 @@ function DataInbox() {
         </div>
       )}
 
+      {allPending.length > 0 && (
+        <div className="mb-3 rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={selectClass}
+              aria-label="Which import are you working on?"
+              value={batchFilter}
+              onChange={(e) => {
+                setBatchFilter(e.target.value);
+                selection.clear();
+              }}
+            >
+              <option value="">All imports ({allPending.length} rows)</option>
+              {batchOptions.map(([key, name]) => (
+                <option key={key} value={key}>
+                  {name} ({allPending.filter((r) => batchKey(r) === key).length} rows)
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              className="rounded-xl border-urgent/40 text-urgent"
+              onClick={() => setClearOpen(true)}
+            >
+              Clear all {batchFilter ? "in this import" : ""}
+            </Button>
+          </div>
+          <SelectAllToggle
+            visibleIds={pending.map((r) => r.id)}
+            selectedIds={selection.ids}
+            onSelectAll={() => selection.selectAll(pending.map((r) => r.id))}
+            onClear={selection.clear}
+            noun="rows matching this filter"
+          />
+          {selection.count > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-3">
+              <span className="text-sm font-medium text-foreground">{selection.count} selected</span>
+              <Button
+                size="sm"
+                className="rounded-xl"
+                disabled={bulkMerge.isPending}
+                onClick={() => bulkMerge.mutate()}
+              >
+                {bulkMerge.isPending ? "Merging…" : "Merge all with no conflicts"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                disabled={bulkDismiss.isPending}
+                onClick={() => bulkDismiss.mutate(selection.ids)}
+              >
+                Dismiss all
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl border-urgent/40 text-urgent"
+                onClick={() => setBulkDiscardOpen(true)}
+              >
+                Discard all
+              </Button>
+              <Button size="sm" variant="ghost" className="rounded-xl" onClick={selection.clear}>
+                Clear selection
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-6">
         {addressCards.length > 0 && (
           <section>
