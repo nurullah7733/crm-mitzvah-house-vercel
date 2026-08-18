@@ -26,9 +26,7 @@ export function matchEventByName(value: string, events: EventOption[]): EventOpt
 
 /** What to do with an event name in the file that matched nothing. */
 export type EventDecision =
-  | { action: "ignore" }
-  | { action: "create" }
-  | { action: "existing"; eventId: string };
+  { action: "ignore" } | { action: "create" } | { action: "existing"; eventId: string };
 
 /** Everything the reviewer chose to apply to the whole file. */
 export type BulkTarget = {
@@ -56,7 +54,9 @@ export const RELATIONSHIP_OPTIONS = ["Spouse", "Child", "Parent", "Sibling", "Ot
 export const GROUP_KEY_FIELD = "_group_key";
 export const GROUP_ADDRESS_FIELD = "_group_address";
 
-export function rowGroup(row: Record<string, unknown> | null | undefined): { key: string; address: string } | null {
+export function rowGroup(
+  row: Record<string, unknown> | null | undefined,
+): { key: string; address: string } | null {
   const key = row?.[GROUP_KEY_FIELD];
   if (typeof key !== "string" || !key) return null;
   const address = row?.[GROUP_ADDRESS_FIELD];
@@ -79,7 +79,10 @@ export type AddressDecision = {
 export function groupSharedAddresses(
   rows: { index: number; name: string; surname: string; address: string | null }[],
 ): AddressGroup[] {
-  const byKey = new Map<string, { address: string; rows: { index: number; name: string }[]; surnames: Set<string> }>();
+  const byKey = new Map<
+    string,
+    { address: string; rows: { index: number; name: string }[]; surnames: Set<string> }
+  >();
   for (const r of rows) {
     const key = addressKey(r.address);
     if (!key || !r.address) continue;

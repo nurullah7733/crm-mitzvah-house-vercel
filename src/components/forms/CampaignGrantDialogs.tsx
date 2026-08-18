@@ -11,6 +11,7 @@ import { logChange } from "@/lib/session-log";
 import { CAMPAIGN_STATUSES, GRANT_STAGES, personName } from "@/lib/names";
 import { useProgramOptions } from "@/components/forms/AddDialogs";
 import { ContactPicker } from "@/components/forms/ContactPicker";
+import { showError } from "@/lib/app-errors";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -18,7 +19,10 @@ export function useCampaignsMini() {
   return useQuery({
     queryKey: ["campaigns-mini"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("campaigns").select("id, name, status").order("name");
+      const { data, error } = await supabase
+        .from("campaigns")
+        .select("id, name, status")
+        .order("name");
       if (error) throw error;
       return data;
     },
@@ -54,7 +58,10 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
   const { data: events } = useQuery({
     queryKey: ["events-mini-campaign"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("events").select("id, name, date").order("date", { ascending: false });
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, date")
+        .order("date", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -78,10 +85,18 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
       toast.success("Campaign added");
       logChange("Added a campaign");
       queryClient.invalidateQueries();
-      setForm({ name: "", description: "", goal_amount: "", status: "active", start_date: "", end_date: "", event_id: "" });
+      setForm({
+        name: "",
+        description: "",
+        goal_amount: "",
+        status: "active",
+        start_date: "",
+        end_date: "",
+        event_id: "",
+      });
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -92,10 +107,18 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
       description="Progress is always summed from linked gifts — never typed in."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save campaign
           </Button>
         </>
@@ -103,7 +126,11 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Campaign name" className="sm:col-span-2">
-          <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
         </Field>
         <Field label="Goal amount">
           <Input
@@ -116,7 +143,11 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
           />
         </Field>
         <Field label="Status">
-          <select value={form.status} onChange={(e) => set("status", e.target.value)} className={selectClass}>
+          <select
+            value={form.status}
+            onChange={(e) => set("status", e.target.value)}
+            className={selectClass}
+          >
             {CAMPAIGN_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -125,13 +156,27 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
           </select>
         </Field>
         <Field label="Start date">
-          <Input className="text-base" type="date" value={form.start_date} onChange={(e) => set("start_date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.start_date}
+            onChange={(e) => set("start_date", e.target.value)}
+          />
         </Field>
         <Field label="End date">
-          <Input className="text-base" type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.end_date}
+            onChange={(e) => set("end_date", e.target.value)}
+          />
         </Field>
         <Field label="Linked event (optional)" className="sm:col-span-2">
-          <select value={form.event_id} onChange={(e) => set("event_id", e.target.value)} className={selectClass}>
+          <select
+            value={form.event_id}
+            onChange={(e) => set("event_id", e.target.value)}
+            className={selectClass}
+          >
             <option value="">No event</option>
             {(events ?? []).map((e) => (
               <option key={e.id} value={e.id}>
@@ -141,7 +186,12 @@ export function AddCampaignDialog({ open, onOpenChange }: DialogProps) {
           </select>
         </Field>
         <Field label="Description" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>
@@ -176,7 +226,8 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
   const save = useMutation({
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("A grant name is required");
-      if (!form.funder_id) throw new Error("Pick the funder (a foundation or organization contact)");
+      if (!form.funder_id)
+        throw new Error("Pick the funder (a foundation or organization contact)");
       const { data: grant, error } = await supabase
         .from("grants")
         .insert({
@@ -221,13 +272,17 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
       return deadlineTasks.length;
     },
     onSuccess: (count) => {
-      toast.success(count ? `Grant added · ${count} deadline task${count === 1 ? "" : "s"} created` : "Grant added");
+      toast.success(
+        count
+          ? `Grant added · ${count} deadline task${count === 1 ? "" : "s"} created`
+          : "Grant added",
+      );
       logChange("Added a grant");
       queryClient.invalidateQueries();
       setForm(EMPTY_GRANT);
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -238,10 +293,18 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
       description="Deadlines automatically become tasks so nothing is missed."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save grant
           </Button>
         </>
@@ -249,7 +312,11 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Grant name" className="sm:col-span-2">
-          <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
         </Field>
         <ContactPicker
           label="Funder"
@@ -291,7 +358,11 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
           />
         </Field>
         <Field label="Stage" className="sm:col-span-2">
-          <select value={form.stage} onChange={(e) => set("stage", e.target.value)} className={selectClass}>
+          <select
+            value={form.stage}
+            onChange={(e) => set("stage", e.target.value)}
+            className={selectClass}
+          >
             {GRANT_STAGES.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -338,7 +409,11 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
           </select>
         </Field>
         <Field label="Linked campaign" className="sm:col-span-2">
-          <select value={form.campaign_id} onChange={(e) => set("campaign_id", e.target.value)} className={selectClass}>
+          <select
+            value={form.campaign_id}
+            onChange={(e) => set("campaign_id", e.target.value)}
+            className={selectClass}
+          >
             <option value="">No campaign</option>
             {(campaigns ?? []).map((c) => (
               <option key={c.id} value={c.id}>
@@ -348,7 +423,12 @@ export function AddGrantDialog({ open, onOpenChange }: DialogProps) {
           </select>
         </Field>
         <Field label="Notes" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>

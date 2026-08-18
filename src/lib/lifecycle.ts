@@ -25,7 +25,11 @@ export function useLifecycleSettings() {
   return useQuery({
     queryKey: ["lifecycle-settings"],
     queryFn: async (): Promise<LifecycleSettings> => {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "lifecycle").maybeSingle();
+      const { data } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "lifecycle")
+        .maybeSingle();
       const v = (data?.value ?? {}) as Partial<LifecycleSettings>;
       return {
         adult_age: Number(v.adult_age ?? LIFECYCLE_DEFAULTS.adult_age),
@@ -104,7 +108,8 @@ export function lifecycleItemsFor(
         personId: p.id,
         name,
         label: `${name} has no birth date on file`,
-        detail: "We can't work out bar/bat mitzvah or adult age without it. Ask the family — don't guess.",
+        detail:
+          "We can't work out bar/bat mitzvah or adult age without it. Ask the family — don't guess.",
         dueDate: iso(startOfToday()),
         priority: "Normal",
         sort: 500,
@@ -137,7 +142,8 @@ export function lifecycleItemsFor(
         personId: p.id,
         name,
         label: `${name} is close to bar/bat mitzvah age, but we don't have male or female on file`,
-        detail: "Boys reach bar mitzvah age at 13, girls bat mitzvah age at 12 — add it and this will be exact.",
+        detail:
+          "Boys reach bar mitzvah age at 13, girls bat mitzvah age at 12 — add it and this will be exact.",
         dueDate: iso(startOfToday()),
         priority: "Normal",
         sort: 400,
@@ -168,7 +174,9 @@ export function lifecycleItems(
   nameOf: (p: LifecyclePerson) => string,
   settings: LifecycleSettings,
 ): LifecycleItem[] {
-  return people.flatMap((p) => lifecycleItemsFor(p, nameOf, settings)).sort((a, b) => a.sort - b.sort);
+  return people
+    .flatMap((p) => lifecycleItemsFor(p, nameOf, settings))
+    .sort((a, b) => a.sort - b.sort);
 }
 
 /** True when this child is past the adult age and waiting for a staff decision. */

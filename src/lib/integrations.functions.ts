@@ -5,10 +5,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export type IntegrationStatus =
-  | "connected"
-  | "needs_attention"
-  | "awaiting_authorisation"
-  | "not_connected";
+  "connected" | "needs_attention" | "awaiting_authorisation" | "not_connected";
 
 export type IntegrationStatusEntry = {
   key: string;
@@ -21,20 +18,50 @@ export type IntegrationStatusEntry = {
 };
 
 const PROVIDERS: Record<string, { name: string; purpose: string; primaryKeyField: string }> = {
-  donorbox: { name: "Donorbox", purpose: "Online donation forms and recurring gifts.", primaryKeyField: "api_key" },
-  stripe: { name: "Stripe", purpose: "Card processing for online gifts.", primaryKeyField: "secret_key" },
-  constant_contact: { name: "Constant Contact", purpose: "Email newsletters and campaigns.", primaryKeyField: "client_secret" },
-  wordpress: { name: "WordPress", purpose: "Website donation and contact forms.", primaryKeyField: "webhook_secret" },
-  cognito_forms: { name: "Cognito Forms", purpose: "Event registration and intake forms.", primaryKeyField: "webhook_secret" },
-  quickbooks: { name: "QuickBooks", purpose: "Accounting and financial reporting.", primaryKeyField: "client_secret" },
-  google_sheets: { name: "Google Sheets", purpose: "Spreadsheet imports and exports.", primaryKeyField: "webhook_secret" },
+  donorbox: {
+    name: "Donorbox",
+    purpose: "Online donation forms and recurring gifts.",
+    primaryKeyField: "api_key",
+  },
+  stripe: {
+    name: "Stripe",
+    purpose: "Card processing for online gifts.",
+    primaryKeyField: "secret_key",
+  },
+  constant_contact: {
+    name: "Constant Contact",
+    purpose: "Email newsletters and campaigns.",
+    primaryKeyField: "client_secret",
+  },
+  wordpress: {
+    name: "WordPress",
+    purpose: "Website donation and contact forms.",
+    primaryKeyField: "webhook_secret",
+  },
+  cognito_forms: {
+    name: "Cognito Forms",
+    purpose: "Event registration and intake forms.",
+    primaryKeyField: "webhook_secret",
+  },
+  quickbooks: {
+    name: "QuickBooks",
+    purpose: "Accounting and financial reporting.",
+    primaryKeyField: "client_secret",
+  },
+  google_sheets: {
+    name: "Google Sheets",
+    purpose: "Spreadsheet imports and exports.",
+    primaryKeyField: "webhook_secret",
+  },
 };
 
 const NO_KEY_PROVIDERS = new Set(["wordpress", "cognito_forms", "google_sheets"]);
 const OAUTH_PROVIDERS = new Set(["constant_contact", "quickbooks"]);
 
 /** Only an admin may change or read integration credentials. */
-async function requireAdmin(context: { supabase: { rpc: (fn: string) => PromiseLike<{ data: unknown }> } }) {
+async function requireAdmin(context: {
+  supabase: { rpc: (fn: string) => PromiseLike<{ data: unknown }> };
+}) {
   const { data } = await context.supabase.rpc("is_admin");
   if (data !== true) throw new Error("Only an admin can manage integrations.");
 }
@@ -67,11 +94,19 @@ async function syncPublicIntegrationsRow(
   displayName: string,
   status: IntegrationStatus,
 ) {
-  const mapped = status === "connected" ? "connected" : status === "needs_attention" ? "needs_attention" : "not_connected";
+  const mapped =
+    status === "connected"
+      ? "connected"
+      : status === "needs_attention"
+        ? "needs_attention"
+        : "not_connected";
   try {
     await admin
       .from("integrations")
-      .update({ status: mapped, last_sync_at: mapped === "connected" ? new Date().toISOString() : null })
+      .update({
+        status: mapped,
+        last_sync_at: mapped === "connected" ? new Date().toISOString() : null,
+      })
       .ilike("name", displayName);
   } catch {
     // Best-effort sync only — the integration_credentials table is the source of truth.
@@ -101,7 +136,12 @@ async function buildStatusEntry(
     .maybeSingle();
 
   const lastEvent = eventRow
-    ? { ok: !!eventRow.ok, kind: eventRow.kind as string, message: (eventRow.message as string) ?? null, created_at: eventRow.created_at as string }
+    ? {
+        ok: !!eventRow.ok,
+        kind: eventRow.kind as string,
+        message: (eventRow.message as string) ?? null,
+        created_at: eventRow.created_at as string,
+      }
     : null;
 
   return {
@@ -182,26 +222,31 @@ export const testIntegration = createServerFn({ method: "POST" })
     let result: { ok: boolean; message: string };
 
     if (data.provider === "stripe") {
-      if (!credentials['secret_key']) {
+      if (!credentials["secret_key"]) {
         result = { ok: false, message: "No secret key saved yet." };
       } else {
         try {
           const res = await fetch("https://api.stripe.com/v1/balance", {
-            headers: { Authorization: `Bearer ${credentials['secret_key']}` },
+            headers: { Authorization: `Bearer ${credentials["secret_key"]}` },
           });
           result = res.ok
             ? { ok: true, message: "Connected — Stripe accepted the secret key." }
             : { ok: false, message: `Stripe rejected the secret key (status ${res.status}).` };
         } catch {
-          result = { ok: false, message: "Could not reach Stripe. Check your internet connection and try again." };
+          result = {
+            ok: false,
+            message: "Could not reach Stripe. Check your internet connection and try again.",
+          };
         }
       }
     } else if (data.provider === "donorbox") {
-      if (!credentials['email'] || !credentials['api_key']) {
+      if (!credentials["email"] || !credentials["api_key"]) {
         result = { ok: false, message: "Account email and API key are both required." };
       } else {
         try {
-          const basic = Buffer.from(`${credentials['email']}:${credentials['api_key']}`).toString("base64");
+          const basic = Buffer.from(`${credentials["email"]}:${credentials["api_key"]}`).toString(
+            "base64",
+          );
           const res = await fetch("https://donorbox.org/api/v1/campaigns?page=1&per_page=1", {
             headers: { Authorization: `Basic ${basic}` },
           });
@@ -209,7 +254,10 @@ export const testIntegration = createServerFn({ method: "POST" })
             ? { ok: true, message: "Connected — Donorbox accepted the credentials." }
             : { ok: false, message: `Donorbox rejected the credentials (status ${res.status}).` };
         } catch {
-          result = { ok: false, message: "Could not reach Donorbox. Check your internet connection and try again." };
+          result = {
+            ok: false,
+            message: "Could not reach Donorbox. Check your internet connection and try again.",
+          };
         }
       }
     } else if (OAUTH_PROVIDERS.has(data.provider)) {
@@ -223,7 +271,10 @@ export const testIntegration = createServerFn({ method: "POST" })
     } else {
       const hasCreds = Object.keys(credentials).length > 0;
       result = hasCreds
-        ? { ok: true, message: `${meta.name} data arrives through the Import Center, not a live API call — this just confirms the webhook secret is saved.` }
+        ? {
+            ok: true,
+            message: `${meta.name} data arrives through the Import Center, not a live API call — this just confirms the webhook secret is saved.`,
+          }
         : { ok: false, message: "Nothing saved yet for this integration." };
     }
 

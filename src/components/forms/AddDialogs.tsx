@@ -21,7 +21,12 @@ import { normalizeEmail, properCase, properCaseAddress } from "@/lib/proper-case
 import { attributeGiftToEvent, findEventsNearDate, type NearbyEvent } from "@/lib/gift-events";
 import { findGiftsOnOtherContacts, type OtherContactGift } from "@/lib/donation-dupes";
 import { friendlyDbError } from "@/lib/db-errors";
-import { createFindOutWhoTask, findHouseholdAtAddress, nameFromAddress } from "@/lib/address-household";
+import {
+  createFindOutWhoTask,
+  findHouseholdAtAddress,
+  nameFromAddress,
+} from "@/lib/address-household";
+import { showError, guard } from "@/lib/app-errors";
 
 type DialogProps = { open: boolean; onOpenChange: (v: boolean) => void };
 
@@ -37,7 +42,9 @@ function usePeopleMini() {
       fetchAll((f, t) =>
         supabase
           .from("people")
-          .select("id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving")
+          .select(
+            "id, display_name, first_name, last_name, contact_type, lifetime_giving, this_year_giving",
+          )
           .order("display_name")
           .order("id")
           .range(f, t),
@@ -49,7 +56,14 @@ function useHouseholdsMini() {
   return useQuery({
     queryKey: ["households-mini"],
     queryFn: () =>
-      fetchAll((f, t) => supabase.from("households").select("id, name, address").order("name").order("id").range(f, t)),
+      fetchAll((f, t) =>
+        supabase
+          .from("households")
+          .select("id, name, address")
+          .order("name")
+          .order("id")
+          .range(f, t),
+      ),
   });
 }
 
@@ -57,7 +71,10 @@ export function useMetSourceOptions() {
   return useQuery({
     queryKey: ["met-source-options"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("met_source_options").select("id, label").order("label");
+      const { data, error } = await supabase
+        .from("met_source_options")
+        .select("id, label")
+        .order("label");
       if (error) throw error;
       return data;
     },
@@ -68,7 +85,10 @@ export function useProgramOptions() {
   return useQuery({
     queryKey: ["program-options"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("program_options").select("id, label").order("label");
+      const { data, error } = await supabase
+        .from("program_options")
+        .select("id, label")
+        .order("label");
       if (error) throw error;
       return data;
     },
@@ -120,13 +140,16 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
     enabled: form.address.trim().length > 5,
     queryFn: () => findHouseholdAtAddress(form.address.trim()),
   });
-  const suggestHousehold = addressMatch && !form.household_id && !form.new_household.trim() ? addressMatch : null;
+  const suggestHousehold =
+    addressMatch && !form.household_id && !form.new_household.trim() ? addressMatch : null;
 
   const enteredPhones = phones.map((p) => p.value.trim()).filter(Boolean);
   const enteredEmails = emails.map((e) => normalizeEmail(e.value)).filter(Boolean);
 
   // Duplicate guard: every number and address entered is checked, not just the first.
-  const dupName = isOrg ? form.org_name.trim() : `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
+  const dupName = isOrg
+    ? form.org_name.trim()
+    : `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
   const { data: duplicates } = useQuery({
     queryKey: ["duplicate-check", enteredEmails.join(","), enteredPhones.join(","), dupName],
     enabled: enteredEmails.length > 0 || enteredPhones.length > 0 || dupName.length > 2,
@@ -199,7 +222,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       setShowNewSource(false);
       toast.success("Saved for future use");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const save = useMutation({
@@ -225,7 +248,10 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
         if (error) throw error;
         householdId = data.id;
       } else if (householdId && address) {
-        await supabase.from("households").update({ address }).eq("id", householdId);
+        await guard(supabase.from("households").update({ address }).eq("id", householdId), {
+          area: "forms",
+          action: "Save a related detail",
+        });
       }
 
       const list = (value: string) =>
@@ -260,7 +286,14 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       // Every phone number and email address entered is saved to the contact.
       // A household that was address-only now has someone in it.
       if (householdId) {
-        await supabase.from("households").update({ status: "active" }).eq("id", householdId).eq("status", "address_only");
+        await guard(
+          supabase
+            .from("households")
+            .update({ status: "active" })
+            .eq("id", householdId)
+            .eq("status", "address_only"),
+          { area: "forms", action: "Save a related detail" },
+        );
       }
       const drafts: MethodDraft[] = [
         ...phones.filter((p) => p.value.trim()).map((p, i) => ({ ...p, is_primary: i === 0 })),
@@ -277,17 +310,25 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       };
       const sourceRows = (["phone", "email", "address"] as const)
         .filter((f) => provided[f])
-        .map((field_name) => ({ person_id: person.id, field_name, source, recorded_date: recorded }));
+        .map((field_name) => ({
+          person_id: person.id,
+          field_name,
+          source,
+          recorded_date: recorded,
+        }));
       if (sourceRows.length) await supabase.from("field_sources").insert(sourceRows);
 
       if (form.notes.trim()) {
-        await supabase.from("interactions").insert({
-          person_id: person.id,
-          type: "note",
-          date: todayISO(),
-          text: form.notes.trim(),
-          author: form.owner.trim() || null,
-        });
+        await guard(
+          supabase.from("interactions").insert({
+            person_id: person.id,
+            type: "note",
+            date: todayISO(),
+            text: form.notes.trim(),
+            author: form.owner.trim() || null,
+          }),
+          { area: "forms", action: "Save a related detail" },
+        );
       }
     },
     onSuccess: () => {
@@ -299,7 +340,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       setEmails([emptyDraft("email", true)]);
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -310,7 +351,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
       description="Only a name is required — everything else can come later."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -349,7 +394,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
           </div>
         )}
         <Field label="Contact type" className="sm:col-span-2">
-          <select value={form.contact_type} onChange={(e) => set("contact_type", e.target.value)} className={selectClass}>
+          <select
+            value={form.contact_type}
+            onChange={(e) => set("contact_type", e.target.value)}
+            className={selectClass}
+          >
             <option value="individual">Individual</option>
             <option value="organization">Organization</option>
             <option value="foundation">Foundation</option>
@@ -357,15 +406,27 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
         </Field>
         {isOrg ? (
           <Field label="Organization name" className="sm:col-span-2">
-            <Input className="text-base" value={form.org_name} onChange={(e) => set("org_name", e.target.value)} />
+            <Input
+              className="text-base"
+              value={form.org_name}
+              onChange={(e) => set("org_name", e.target.value)}
+            />
           </Field>
         ) : (
           <>
             <Field label="First name">
-              <Input className="text-base" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
+              <Input
+                className="text-base"
+                value={form.first_name}
+                onChange={(e) => set("first_name", e.target.value)}
+              />
             </Field>
             <Field label="Last name">
-              <Input className="text-base" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} />
+              <Input
+                className="text-base"
+                value={form.last_name}
+                onChange={(e) => set("last_name", e.target.value)}
+              />
             </Field>
             <ContactPicker
               label="Works for (organization or foundation)"
@@ -387,7 +448,11 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
 
         <Field label="Where did we meet them?" className="sm:col-span-2">
           <div className="flex gap-2">
-            <select value={form.met_source} onChange={(e) => set("met_source", e.target.value)} className={selectClass}>
+            <select
+              value={form.met_source}
+              onChange={(e) => set("met_source", e.target.value)}
+              className={selectClass}
+            >
               <option value="">Not sure yet</option>
               {(metSources ?? []).map((m) => (
                 <option key={m.id} value={m.label}>
@@ -425,10 +490,19 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
         </Field>
 
         <Field label="Date met">
-          <Input className="text-base" type="date" value={form.met_date} onChange={(e) => set("met_date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.met_date}
+            onChange={(e) => set("met_date", e.target.value)}
+          />
         </Field>
         <Field label="Adult or child">
-          <select value={form.role} onChange={(e) => set("role", e.target.value)} className={selectClass}>
+          <select
+            value={form.role}
+            onChange={(e) => set("role", e.target.value)}
+            className={selectClass}
+          >
             <option value="Adult">Adult</option>
             <option value="Child">Child</option>
           </select>
@@ -459,13 +533,19 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
         </Field>
 
         <Field label="Address" className="sm:col-span-2">
-          <Input className="text-base" value={form.address} onChange={(e) => set("address", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.address}
+            onChange={(e) => set("address", e.target.value)}
+          />
           {suggestHousehold && (
             <div className="mt-2 rounded-xl border border-primary/40 bg-primary/5 p-3 text-sm">
               <p className="text-foreground">
                 There's already a household at this address:{" "}
                 <span className="font-semibold">{suggestHousehold.name}</span>
-                {suggestHousehold.status === "address_only" ? " (address only — no contact yet)" : ""}
+                {suggestHousehold.status === "address_only"
+                  ? " (address only — no contact yet)"
+                  : ""}
               </p>
               <Button
                 type="button"
@@ -479,21 +559,47 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
           )}
         </Field>
 
-        <Field label="Birthday" hint={hebrew ? `Hebrew date: ${hebrew}` : null} className="sm:col-span-2">
-          <Input className="text-base" type="date" value={form.birth_date} onChange={(e) => set("birth_date", e.target.value)} />
+        <Field
+          label="Birthday"
+          hint={hebrew ? `Hebrew date: ${hebrew}` : null}
+          className="sm:col-span-2"
+        >
+          <Input
+            className="text-base"
+            type="date"
+            value={form.birth_date}
+            onChange={(e) => set("birth_date", e.target.value)}
+          />
         </Field>
 
         <Field label="Programs (comma separated)">
-          <Input className="text-base" value={form.programs} onChange={(e) => set("programs", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.programs}
+            onChange={(e) => set("programs", e.target.value)}
+          />
         </Field>
         <Field label="Tags (comma separated)">
-          <Input className="text-base" value={form.tags} onChange={(e) => set("tags", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.tags}
+            onChange={(e) => set("tags", e.target.value)}
+          />
         </Field>
         <Field label="Owner" className="sm:col-span-2">
-          <Input className="text-base" value={form.owner} onChange={(e) => set("owner", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.owner}
+            onChange={(e) => set("owner", e.target.value)}
+          />
         </Field>
         <Field label="Notes" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>
@@ -515,7 +621,8 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
 
       if (address) {
         const existing = await findHouseholdAtAddress(address);
-        if (existing) throw new Error(`There's already a household at this address: ${existing.name}`);
+        if (existing)
+          throw new Error(`There's already a household at this address: ${existing.name}`);
       }
 
       // No family name yet? It becomes an address-only household with a follow-up task.
@@ -537,7 +644,7 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
       setForm({ name: "", address: "", phone: "", notes: "" });
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -548,10 +655,18 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
       description="An address on its own is enough — the family name can come later."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save household
           </Button>
         </>
@@ -559,16 +674,35 @@ export function AddHouseholdDialog({ open, onOpenChange }: DialogProps) {
     >
       <div className="grid gap-3">
         <Field label="Household name (optional)">
-          <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
         </Field>
         <Field label="Address">
-          <Input className="text-base" value={form.address} onChange={(e) => set("address", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.address}
+            onChange={(e) => set("address", e.target.value)}
+          />
         </Field>
         <Field label="Phone">
-          <Input className="text-base" type="tel" inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+          <Input
+            className="text-base"
+            type="tel"
+            inputMode="tel"
+            value={form.phone}
+            onChange={(e) => set("phone", e.target.value)}
+          />
         </Field>
         <Field label="Notes">
-          <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>
@@ -666,16 +800,16 @@ export function AddDonationDialog({
       const { data: gift, error } = await supabase
         .from("donations")
         .insert({
-        person_id: pid,
-        amount,
-        date: form.date || todayISO(),
-        campaign_id: form.campaign_id || null,
-        campaign: campaignName || null,
-        grant_id: form.grant_id || null,
-        pledge_id: form.pledge_id || null,
-        method: form.method.trim() || null,
-        source: form.source.trim() || null,
-        notes: form.notes.trim() || null,
+          person_id: pid,
+          amount,
+          date: form.date || todayISO(),
+          campaign_id: form.campaign_id || null,
+          campaign: campaignName || null,
+          grant_id: form.grant_id || null,
+          pledge_id: form.pledge_id || null,
+          method: form.method.trim() || null,
+          source: form.source.trim() || null,
+          notes: form.notes.trim() || null,
           thank_you_sent: thankYouSent,
           thank_you_sent_date: thankYouSent ? todayISO() : null,
           receipt_sent: receiptSent,
@@ -704,21 +838,34 @@ export function AddDonationDialog({
       if (!thankYouSent && gift?.id) {
         const due = new Date();
         due.setDate(due.getDate() + 7);
-        await supabase.from("tasks").insert({
-          person_id: pid,
-          donation_id: gift.id,
-          text: `Send thank-you letter for ${personName(gift.people)}'s $${amount.toLocaleString()} gift`,
-          due_date: due.toISOString().slice(0, 10),
-          priority: "Normal",
-          status: "upcoming",
-        });
+        await guard(
+          supabase.from("tasks").insert({
+            person_id: pid,
+            donation_id: gift.id,
+            text: `Send thank-you letter for ${personName(gift.people)}'s $${amount.toLocaleString()} gift`,
+            due_date: due.toISOString().slice(0, 10),
+            priority: "Normal",
+            status: "upcoming",
+          }),
+          { area: "forms", action: "Save a related detail" },
+        );
       }
     },
     onSuccess: () => {
       toast.success("Donation logged");
       logChange("Logged a donation");
       refresh();
-      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", pledge_id: "", method: "", source: "", notes: "" });
+      setForm({
+        person_id: personId ?? "",
+        amount: "",
+        date: todayISO(),
+        campaign_id: "",
+        grant_id: "",
+        pledge_id: "",
+        method: "",
+        source: "",
+        notes: "",
+      });
       setThankYouSent(false);
       setReceiptSent(false);
       setNearby(null);
@@ -729,9 +876,7 @@ export function AddDonationDialog({
       setElsewhereOk(false);
       onOpenChange(false);
     },
-    onError: (e: Error) => {
-      void friendlyDbError(e, "That donation didn't save.").then((why) => toast.error(why));
-    },
+    onError: (e: unknown) => void showError(e, "That donation didn't save."),
   });
 
   /**
@@ -780,7 +925,11 @@ export function AddDonationDialog({
       description="Gifts always attach to a person, never to a household."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           {nearby && nearby.length > 0 ? (
@@ -828,12 +977,12 @@ export function AddDonationDialog({
       {elsewhere && elsewhere.length > 0 && (
         <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
           <p className="text-sm font-medium text-foreground">
-            A ${Number(form.amount).toLocaleString()} gift on {form.date || todayISO()} is already recorded for{" "}
-            {elsewhere.map((g) => g.name).join(", ")}.
+            A ${Number(form.amount).toLocaleString()} gift on {form.date || todayISO()} is already
+            recorded for {elsewhere.map((g) => g.name).join(", ")}.
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            If that's the same gift, this contact may be a duplicate of theirs — close this and merge the two contacts
-            instead. If it's genuinely a separate gift, save it.
+            If that's the same gift, this contact may be a duplicate of theirs — close this and
+            merge the two contacts instead. If it's genuinely a separate gift, save it.
           </p>
         </div>
       )}
@@ -867,7 +1016,9 @@ export function AddDonationDialog({
             </button>
           )}
           <div className="mt-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Did they attend?</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Did they attend?
+            </p>
             <div className="mt-1 flex flex-wrap gap-2">
               {(
                 [
@@ -880,7 +1031,9 @@ export function AddDonationDialog({
                   key={key}
                   type="button"
                   className={`rounded-full px-3 py-1.5 text-sm ${
-                    attended === key ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
+                    attended === key
+                      ? "bg-primary text-primary-foreground"
+                      : "border border-border bg-card text-foreground"
                   }`}
                   onClick={() => setAttended(key)}
                 >
@@ -897,7 +1050,11 @@ export function AddDonationDialog({
       <div className="grid gap-3 sm:grid-cols-2">
         {!personId && (
           <Field label="Donor" className="sm:col-span-2">
-            <select value={form.person_id} onChange={(e) => set("person_id", e.target.value)} className={selectClass}>
+            <select
+              value={form.person_id}
+              onChange={(e) => set("person_id", e.target.value)}
+              className={selectClass}
+            >
               <option value="">Choose a person</option>
               {(people ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
@@ -933,7 +1090,11 @@ export function AddDonationDialog({
           />
         </Field>
         <Field label="Campaign">
-          <select value={form.campaign_id} onChange={(e) => set("campaign_id", e.target.value)} className={selectClass}>
+          <select
+            value={form.campaign_id}
+            onChange={(e) => set("campaign_id", e.target.value)}
+            className={selectClass}
+          >
             <option value="">No campaign</option>
             {(campaigns ?? []).map((c) => (
               <option key={c.id} value={c.id}>
@@ -948,18 +1109,27 @@ export function AddDonationDialog({
             hint="Links this gift to what they promised, without counting the money twice."
             className="sm:col-span-2"
           >
-            <select value={form.pledge_id} onChange={(e) => set("pledge_id", e.target.value)} className={selectClass}>
+            <select
+              value={form.pledge_id}
+              onChange={(e) => set("pledge_id", e.target.value)}
+              className={selectClass}
+            >
               <option value="">Not a pledge payment</option>
               {(donorPledges ?? []).map((pl) => (
                 <option key={pl.id} value={pl.id}>
-                  ${Number(pl.amount).toLocaleString()} {FREQUENCY_SHORT[pl.frequency as PledgeFrequency]} pledge
+                  ${Number(pl.amount).toLocaleString()}{" "}
+                  {FREQUENCY_SHORT[pl.frequency as PledgeFrequency]} pledge
                 </option>
               ))}
             </select>
           </Field>
         )}
         <Field label="Grant payment (optional)" className="sm:col-span-2">
-          <select value={form.grant_id} onChange={(e) => set("grant_id", e.target.value)} className={selectClass}>
+          <select
+            value={form.grant_id}
+            onChange={(e) => set("grant_id", e.target.value)}
+            className={selectClass}
+          >
             <option value="">Not a grant payment</option>
             {(grants ?? []).map((g) => (
               <option key={g.id} value={g.id}>
@@ -969,16 +1139,33 @@ export function AddDonationDialog({
           </select>
         </Field>
         <Field label="Method">
-          <Input className="text-base" placeholder="Check, card, cash…" value={form.method} onChange={(e) => set("method", e.target.value)} />
+          <Input
+            className="text-base"
+            placeholder="Check, card, cash…"
+            value={form.method}
+            onChange={(e) => set("method", e.target.value)}
+          />
         </Field>
         <Field label="Source">
-          <Input className="text-base" placeholder="Donorbox, Stripe, manual…" value={form.source} onChange={(e) => set("source", e.target.value)} />
+          <Input
+            className="text-base"
+            placeholder="Donorbox, Stripe, manual…"
+            value={form.source}
+            onChange={(e) => set("source", e.target.value)}
+          />
         </Field>
         <Field label="Notes" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+          />
         </Field>
         <div className="rounded-xl border border-border p-3 sm:col-span-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Follow-up</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Follow-up
+          </p>
           <label className="mt-2 flex items-center gap-2 text-sm text-foreground">
             <input
               type="checkbox"
@@ -1031,7 +1218,10 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
       if (!form.name.trim()) throw new Error("An event name is required");
       const program = form.program.trim();
       if (program && !(programOptions ?? []).some((o) => o.label === program)) {
-        await supabase.from("program_options").insert({ label: program });
+        await guard(supabase.from("program_options").insert({ label: program }), {
+          area: "forms",
+          action: "Save a related detail",
+        });
       }
       const { error } = await supabase.from("events").insert({
         name: form.name.trim(),
@@ -1049,10 +1239,19 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
       toast.success("Event added");
       logChange("Added an event");
       refresh();
-      setForm({ name: "", date: todayISO(), time: "", location: "", program: "", capacity: "", staff_lead: "", description: "" });
+      setForm({
+        name: "",
+        date: todayISO(),
+        time: "",
+        location: "",
+        program: "",
+        capacity: "",
+        staff_lead: "",
+        description: "",
+      });
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -1063,10 +1262,18 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
       description="Programs are a property of the event."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save event
           </Button>
         </>
@@ -1074,16 +1281,34 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Event name" className="sm:col-span-2">
-          <Input className="text-base" value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
         </Field>
         <Field label="Date">
-          <Input className="text-base" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.date}
+            onChange={(e) => set("date", e.target.value)}
+          />
         </Field>
         <Field label="Time">
-          <Input className="text-base" type="time" value={form.time} onChange={(e) => set("time", e.target.value)} />
+          <Input
+            className="text-base"
+            type="time"
+            value={form.time}
+            onChange={(e) => set("time", e.target.value)}
+          />
         </Field>
         <Field label="Location">
-          <Input className="text-base" value={form.location} onChange={(e) => set("location", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.location}
+            onChange={(e) => set("location", e.target.value)}
+          />
         </Field>
         <Field label="Program / event type">
           {newProgram ? (
@@ -1136,13 +1361,29 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
           )}
         </Field>
         <Field label="Capacity">
-          <Input className="text-base" type="number" inputMode="numeric" min="0" value={form.capacity} onChange={(e) => set("capacity", e.target.value)} />
+          <Input
+            className="text-base"
+            type="number"
+            inputMode="numeric"
+            min="0"
+            value={form.capacity}
+            onChange={(e) => set("capacity", e.target.value)}
+          />
         </Field>
         <Field label="Staff lead">
-          <Input className="text-base" value={form.staff_lead} onChange={(e) => set("staff_lead", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.staff_lead}
+            onChange={(e) => set("staff_lead", e.target.value)}
+          />
         </Field>
         <Field label="Description" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>
@@ -1151,7 +1392,11 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
 
 /* -------------------------------------------------------------------- task */
 
-export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { personId?: string }) {
+export function AddTaskDialog({
+  open,
+  onOpenChange,
+  personId,
+}: DialogProps & { personId?: string }) {
   const refresh = useRefresh();
   const { data: people } = usePeopleMini();
   const [form, setForm] = useState({
@@ -1184,10 +1429,17 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
       toast.success("Task added");
       logChange("Added a task");
       refresh();
-      setForm({ person_id: personId ?? "", text: "", due_date: "", priority: "Normal", owner: "", notes: "" });
+      setForm({
+        person_id: personId ?? "",
+        text: "",
+        due_date: "",
+        priority: "Normal",
+        owner: "",
+        notes: "",
+      });
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -1198,10 +1450,18 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
       description="Anything dated in the past is marked overdue automatically."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save task
           </Button>
         </>
@@ -1210,7 +1470,11 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
       <div className="grid gap-3 sm:grid-cols-2">
         {!personId && (
           <Field label="Person" className="sm:col-span-2">
-            <select value={form.person_id} onChange={(e) => set("person_id", e.target.value)} className={selectClass}>
+            <select
+              value={form.person_id}
+              onChange={(e) => set("person_id", e.target.value)}
+              className={selectClass}
+            >
               <option value="">No specific person</option>
               {(people ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
@@ -1221,23 +1485,45 @@ export function AddTaskDialog({ open, onOpenChange, personId }: DialogProps & { 
           </Field>
         )}
         <Field label="What needs doing?" className="sm:col-span-2">
-          <Input className="text-base" value={form.text} onChange={(e) => set("text", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.text}
+            onChange={(e) => set("text", e.target.value)}
+          />
         </Field>
         <Field label="Due date">
-          <Input className="text-base" type="date" value={form.due_date} onChange={(e) => set("due_date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.due_date}
+            onChange={(e) => set("due_date", e.target.value)}
+          />
         </Field>
         <Field label="Priority">
-          <select value={form.priority} onChange={(e) => set("priority", e.target.value)} className={selectClass}>
+          <select
+            value={form.priority}
+            onChange={(e) => set("priority", e.target.value)}
+            className={selectClass}
+          >
             <option>Low</option>
             <option>Normal</option>
             <option>High</option>
           </select>
         </Field>
         <Field label="Assignee" className="sm:col-span-2">
-          <Input className="text-base" value={form.owner} onChange={(e) => set("owner", e.target.value)} />
+          <Input
+            className="text-base"
+            value={form.owner}
+            onChange={(e) => set("owner", e.target.value)}
+          />
         </Field>
         <Field label="Notes" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>
@@ -1269,21 +1555,28 @@ export function CompleteTaskDialog({
       if (!task) return;
       const { error } = await supabase
         .from("tasks")
-        .update({ status: "done", completion_note: note.trim() || null, completed_at: new Date().toISOString() })
+        .update({
+          status: "done",
+          completion_note: note.trim() || null,
+          completed_at: new Date().toISOString(),
+        })
         .eq("id", task.id);
       if (error) throw error;
 
       if (task.person_id) {
-        await supabase.from("interactions").insert({
-          person_id: task.person_id,
-          type: kind === "meeting" ? "note" : kind,
-          date: todayISO(),
-          text: note.trim() ? `${task.text} — ${note.trim()}` : `Completed: ${task.text}`,
-          author: task.owner ?? null,
-          // Tied to the task, so reopening it removes this entry again.
-          source_kind: "task_completion",
-          source_id: task.id,
-        });
+        await guard(
+          supabase.from("interactions").insert({
+            person_id: task.person_id,
+            type: kind === "meeting" ? "note" : kind,
+            date: todayISO(),
+            text: note.trim() ? `${task.text} — ${note.trim()}` : `Completed: ${task.text}`,
+            author: task.owner ?? null,
+            // Tied to the task, so reopening it removes this entry again.
+            source_kind: "task_completion",
+            source_id: task.id,
+          }),
+          { area: "forms", action: "Save a related detail" },
+        );
       }
     },
     onSuccess: () => {
@@ -1294,7 +1587,7 @@ export function CompleteTaskDialog({
       setKind("note");
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -1305,10 +1598,18 @@ export function CompleteTaskDialog({
       description={task?.text}
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Mark done
           </Button>
         </>
@@ -1332,7 +1633,12 @@ export function CompleteTaskDialog({
           </div>
         </Field>
         <Field label="Add a note (optional)">
-          <Textarea className="text-base" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>

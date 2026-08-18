@@ -106,13 +106,13 @@ export function BackupExportPanel() {
         name: `00-READ-ME-load-order-${day}.csv`,
         text: csvText(
           out.map((r, i) => ({
-          load_order: i + 1,
-          file: r.file,
-          table: r.table,
-          what_it_is: r.label,
-          rows: r.rows,
-          status: r.error ? `FAILED: ${r.error}` : "ok",
-        })),
+            load_order: i + 1,
+            file: r.file,
+            table: r.table,
+            what_it_is: r.label,
+            rows: r.rows,
+            status: r.error ? `FAILED: ${r.error}` : "ok",
+          })),
         ),
       });
 
@@ -144,11 +144,12 @@ export function BackupExportPanel() {
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Downloads everything in the CRM as spreadsheet files — people, households, donations, events,
-        tasks, timeline notes, grants and your shared lists. The files are numbered in the order they
-        would be loaded back in, and a “READ ME” file lists them all. Everything arrives as one
-        <span className="font-medium"> .zip</span> file in your Downloads folder — double-click it to
-        see the spreadsheets. Keep a copy somewhere safe before any big import.
+        Downloads everything in the CRM as spreadsheet files — people, households, donations,
+        events, tasks, timeline notes, grants and your shared lists. The files are numbered in the
+        order they would be loaded back in, and a “READ ME” file lists them all. Everything arrives
+        as one
+        <span className="font-medium"> .zip</span> file in your Downloads folder — double-click it
+        to see the spreadsheets. Keep a copy somewhere safe before any big import.
       </p>
 
       {embedded && (
@@ -214,7 +215,10 @@ export function BackupExportPanel() {
           </div>
           <ul className="divide-y divide-border">
             {results.map((r) => (
-              <li key={r.table} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+              <li
+                key={r.table}
+                className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
+              >
                 <span className="truncate text-foreground">{r.label}</span>
                 <span className={r.error ? "text-urgent" : "text-muted-foreground"}>
                   {r.error ? r.error : `${r.rows.toLocaleString()} rows`}

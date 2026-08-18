@@ -39,18 +39,34 @@ export async function friendlyDbError(e: unknown, fallback = "That didn't save."
       return "This gift is already recorded — same person, amount, date and campaign. Nothing was added twice.";
     }
     if (/registrations/i.test(raw)) return "This person is already on the list for that event.";
-    if (/met_source_options|tag_options|program_options/i.test(raw)) return "That label already exists in the list.";
+    if (/met_source_options|tag_options|program_options/i.test(raw))
+      return "That label already exists in the list.";
     return "One of these details is already used by another record.";
   }
 
-  if (err.code === "23503") return "Something this record points to no longer exists — refresh the page and try again.";
-  if (err.code === "23502") return "A required detail is missing. Fill in the highlighted field and try again.";
-  if (err.code === "22P02" || err.code === "22008") return "A date or number wasn't in a format we could read.";
+  if (err.code === "23503")
+    return "Something this record points to no longer exists — refresh the page and try again.";
+  if (err.code === "23502")
+    return "A required detail is missing. Fill in the highlighted field and try again.";
+  if (err.code === "22P02" || err.code === "22008")
+    return "A date or number wasn't in a format we could read.";
   if (err.code === "42501" || err.code === "PGRST301")
     return "You don't have permission to do that. Ask an administrator.";
 
   if (/duplicate key/i.test(raw)) return "One of these details is already used by another record.";
-  if (raw) return raw.replace(/\s*\(.*?constraint.*?\)\s*/gi, "").trim();
+
+  // No internet, the backend is unreachable, or the request was cut off: the
+  // wording has to point at the connection, not at the data.
+  if (/failed to fetch|networkerror|network request failed|typeerror|load failed|err_(internet|network|connection|failed)|aborted|timeout/i.test(raw))
+    return "We couldn't reach the database. Check the internet connection and try again — nothing was changed.";
+
+  if (raw) {
+    const cleaned = raw
+      .replace(/\s*\(.*?constraint.*?\)\s*/gi, "")
+      .replace(/^(TypeError|Error|AuthApiError|PostgrestError)\s*:?\s*/i, "")
+      .trim();
+    if (cleaned) return cleaned;
+  }
   return fallback;
 }
 

@@ -31,7 +31,9 @@ export function PledgePanel({ personId }: { personId: string }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-        <h2 className="truncate font-heading font-semibold text-foreground">Pledges & recurring gifts</h2>
+        <h2 className="truncate font-heading font-semibold text-foreground">
+          Pledges & recurring gifts
+        </h2>
         <Button
           variant="outline"
           size="sm"
@@ -47,7 +49,8 @@ export function PledgePanel({ personId }: { personId: string }) {
       <div className="mt-3">
         {(pledges ?? []).length === 0 && (
           <p className="text-sm text-muted-foreground">
-            No pledge on file. Add one when someone commits to give — monthly, quarterly or once a year.
+            No pledge on file. Add one when someone commits to give — monthly, quarterly or once a
+            year.
           </p>
         )}
         {(pledges ?? []).map((p) => {
@@ -76,7 +79,9 @@ export function PledgePanel({ personId }: { personId: string }) {
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {currency(p.received)} received so far
-                {p.lastGiftDate ? ` · last payment ${formatDate(p.lastGiftDate)}` : " · no payments yet"}
+                {p.lastGiftDate
+                  ? ` · last payment ${formatDate(p.lastGiftDate)}`
+                  : " · no payments yet"}
               </p>
               {expected && (
                 <p className={`mt-1 text-sm ${late ? "text-urgent" : "text-muted-foreground"}`}>

@@ -92,7 +92,9 @@ export function FieldPicker({
                     f === value ? "bg-primary/10" : ""
                   }`}
                 >
-                  <Check className={`mt-0.5 size-4 shrink-0 ${f === value ? "text-primary" : "opacity-0"}`} />
+                  <Check
+                    className={`mt-0.5 size-4 shrink-0 ${f === value ? "text-primary" : "opacity-0"}`}
+                  />
                   <span>
                     <span className="block text-sm font-medium text-foreground">
                       {FIELD_LABELS[f]}

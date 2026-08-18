@@ -6,7 +6,10 @@ export function csvText(rows: Record<string, unknown>[]) {
     const s = v === null || v === undefined ? "" : Array.isArray(v) ? v.join("; ") : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => escape(r[h])).join(","))].join("\r\n");
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => escape(r[h])).join(",")),
+  ].join("\r\n");
   return `\uFEFF${csv}`;
 }
 

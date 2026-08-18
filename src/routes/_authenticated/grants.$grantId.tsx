@@ -8,16 +8,25 @@ import { selectClass } from "@/components/forms/fields";
 import { EditableCard } from "@/components/EditableCard";
 import { GRANT_STAGES, personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
+import { RouteError } from "@/components/RouteError";
+import { showError } from "@/lib/app-errors";
 
 export const Route = createFileRoute("/_authenticated/grants/$grantId")({
   head: () => ({
     meta: [
       { title: "Grant | Mitzvah House CRM" },
-      { name: "description", content: "One grant: funder, amounts, deadlines and payments received." },
+      {
+        name: "description",
+        content: "One grant: funder, amounts, deadlines and payments received.",
+      },
       { property: "og:title", content: "Grant | Mitzvah House CRM" },
-      { property: "og:description", content: "One grant: funder, amounts, deadlines and payments received." },
+      {
+        property: "og:description",
+        content: "One grant: funder, amounts, deadlines and payments received.",
+      },
     ],
   }),
+  errorComponent: RouteError,
   component: GrantPage,
 });
 
@@ -42,7 +51,12 @@ function GrantPage() {
           .is("deleted_at", null)
           .eq("grant_id", grantId)
           .order("date", { ascending: false }),
-        supabase.from("tasks").select("*").is("deleted_at", null).eq("grant_id", grantId).order("due_date"),
+        supabase
+          .from("tasks")
+          .select("*")
+          .is("deleted_at", null)
+          .eq("grant_id", grantId)
+          .order("due_date"),
       ]);
       return { grant: grant.data, payments: payments.data ?? [], tasks: tasks.data ?? [] };
     },
@@ -58,7 +72,7 @@ function GrantPage() {
       logChange("Updated a grant stage");
       queryClient.invalidateQueries();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   if (isLoading) {
@@ -85,7 +99,10 @@ function GrantPage() {
     for (const key of ["amount_requested", "amount_awarded"]) {
       if (key in clean) clean[key] = clean[key] === null ? null : Number(clean[key]);
     }
-    const { error } = await supabase.from("grants").update(clean as never).eq("id", grantId);
+    const { error } = await supabase
+      .from("grants")
+      .update(clean as never)
+      .eq("id", grantId);
     if (error) throw error;
     toast.success("Saved");
     logChange("Edited a grant");
@@ -135,13 +152,21 @@ function GrantPage() {
               </select>
             </Row>
             <Row label="Funder">
-              <Link to="/people/$personId" params={{ personId: g.funder_id }} className="text-primary hover:underline">
+              <Link
+                to="/people/$personId"
+                params={{ personId: g.funder_id }}
+                className="text-primary hover:underline"
+              >
                 {personName(g.funder)}
               </Link>
             </Row>
             {g.officer ? (
               <Row label="Program officer">
-                <Link to="/people/$personId" params={{ personId: g.officer.id }} className="text-primary hover:underline">
+                <Link
+                  to="/people/$personId"
+                  params={{ personId: g.officer.id }}
+                  className="text-primary hover:underline"
+                >
                   {personName(g.officer)}
                 </Link>
               </Row>
@@ -152,14 +177,14 @@ function GrantPage() {
             </Row>
             <Row label="Received">{currency(received)}</Row>
             <Row label="Outstanding">
-              <span className={outstanding > 0 ? "text-suggestion-foreground" : "text-muted-foreground"}>
+              <span
+                className={outstanding > 0 ? "text-suggestion-foreground" : "text-muted-foreground"}
+              >
                 {currency(outstanding)}
               </span>
             </Row>
             <Row label="Restricted to">{g.restricted_program ?? "Unrestricted"}</Row>
-            {g.campaigns ? (
-              <Row label="Campaign">{g.campaigns.name}</Row>
-            ) : null}
+            {g.campaigns ? <Row label="Campaign">{g.campaigns.name}</Row> : null}
             {g.notes ? <p className="pt-2 text-sm text-muted-foreground">{g.notes}</p> : null}
           </div>
         </EditableCard>
@@ -178,20 +203,24 @@ function GrantPage() {
             <Row label="Application">{formatDate(g.application_deadline)}</Row>
             <Row label="Report">{formatDate(g.report_deadline)}</Row>
             <Row label="Renewal">{formatDate(g.renewal_deadline)}</Row>
-          <h3 className="pt-4 font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Linked tasks
-          </h3>
-          <div className="mt-1">
-            {(data?.tasks ?? []).length === 0 && <p className="text-sm text-muted-foreground">No tasks yet.</p>}
-            {(data?.tasks ?? []).map((t) => (
-              <div key={t.id} className="border-b border-border py-2 last:border-0">
-                <p className="text-sm text-foreground">{t.text}</p>
-                <p className={`text-xs ${t.status === "overdue" ? "text-urgent" : "text-muted-foreground"}`}>
-                  Due {formatDate(t.due_date)} · {t.status}
-                </p>
-              </div>
-            ))}
-          </div>
+            <h3 className="pt-4 font-heading text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Linked tasks
+            </h3>
+            <div className="mt-1">
+              {(data?.tasks ?? []).length === 0 && (
+                <p className="text-sm text-muted-foreground">No tasks yet.</p>
+              )}
+              {(data?.tasks ?? []).map((t) => (
+                <div key={t.id} className="border-b border-border py-2 last:border-0">
+                  <p className="text-sm text-foreground">{t.text}</p>
+                  <p
+                    className={`text-xs ${t.status === "overdue" ? "text-urgent" : "text-muted-foreground"}`}
+                  >
+                    Due {formatDate(t.due_date)} · {t.status}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </EditableCard>
 
@@ -205,16 +234,25 @@ function GrantPage() {
               <p className="text-sm text-muted-foreground">No payments recorded yet.</p>
             )}
             {(data?.payments ?? []).map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
+              <div
+                key={d.id}
+                className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0"
+              >
                 <div className="min-w-0">
                   {d.people ? (
-                    <Link to="/people/$personId" params={{ personId: d.people.id }} className="text-sm text-primary hover:underline">
+                    <Link
+                      to="/people/$personId"
+                      params={{ personId: d.people.id }}
+                      className="text-sm text-primary hover:underline"
+                    >
                       {personName(d.people)}
                     </Link>
                   ) : (
                     <p className="text-sm text-foreground">Unknown</p>
                   )}
-                  <p className="text-xs text-muted-foreground">{formatDate(d.date)} · {d.method ?? "—"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(d.date)} · {d.method ?? "—"}
+                  </p>
                 </div>
                 <p className="shrink-0 font-semibold text-money">{currency(d.amount)}</p>
               </div>

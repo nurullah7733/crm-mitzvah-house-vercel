@@ -15,6 +15,7 @@ import {
   disconnectIntegration,
   type IntegrationStatusEntry,
 } from "@/lib/integrations.functions";
+import { showError } from "@/lib/app-errors";
 
 type FieldDef = { key: string; label: string; secret?: boolean };
 
@@ -51,13 +52,21 @@ const PROVIDER_ORDER = [
 function StatusPill({ status }: { status: IntegrationStatusEntry["status"] }) {
   const map: Record<IntegrationStatusEntry["status"], { label: string; className: string }> = {
     connected: { label: "Connected", className: "bg-money text-money-foreground" },
-    needs_attention: { label: "Needs attention", className: "bg-suggestion text-suggestion-foreground" },
-    awaiting_authorisation: { label: "Awaiting authorisation", className: "bg-suggestion text-suggestion-foreground" },
+    needs_attention: {
+      label: "Needs attention",
+      className: "bg-suggestion text-suggestion-foreground",
+    },
+    awaiting_authorisation: {
+      label: "Awaiting authorisation",
+      className: "bg-suggestion text-suggestion-foreground",
+    },
     not_connected: { label: "Not connected", className: "bg-muted text-muted-foreground" },
   };
   const info = map[status];
   return (
-    <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${info.className}`}>
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${info.className}`}
+    >
       {info.label}
     </span>
   );
@@ -83,7 +92,13 @@ export function IntegrationsPanel() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["integration-status"] });
 
   const save = useMutation({
-    mutationFn: async ({ provider, credentials }: { provider: string; credentials: Record<string, string> }) => {
+    mutationFn: async ({
+      provider,
+      credentials,
+    }: {
+      provider: string;
+      credentials: Record<string, string>;
+    }) => {
       return saveFn({ data: { provider, credentials } });
     },
     onSuccess: (entry) => {
@@ -91,7 +106,7 @@ export function IntegrationsPanel() {
       toast.success(`${entry.name} credentials saved`);
       logChange(`Saved ${entry.name} integration credentials`);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const test = useMutation({
@@ -103,7 +118,7 @@ export function IntegrationsPanel() {
       if (result.ok) toast.success(result.message);
       else toast.error(result.message);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const disconnect = useMutation({
@@ -116,7 +131,7 @@ export function IntegrationsPanel() {
       toast.success(`${meta?.name ?? "Integration"} disconnected`);
       logChange(`Disconnected ${meta?.name ?? provider} integration`);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const saveAndTest = async (provider: string) => {
@@ -132,9 +147,9 @@ export function IntegrationsPanel() {
         <h2 className="font-heading font-semibold">Integrations</h2>
       </div>
       <p className="text-xs text-muted-foreground">
-        Credentials are stored on the server and never shown back in full. Testing a connection confirms the key
-        works, but automatic two-way syncing between these systems isn't built yet — data still comes in through the
-        Import Center.
+        Credentials are stored on the server and never shown back in full. Testing a connection
+        confirms the key works, but automatic two-way syncing between these systems isn't built yet
+        — data still comes in through the Import Center.
       </p>
 
       {isLoading ? (
@@ -163,13 +178,19 @@ export function IntegrationsPanel() {
                       className="rounded-xl"
                       onClick={() => setExpanded(isOpen ? null : key)}
                     >
-                      {isOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                      {isOpen ? (
+                        <ChevronUp className="size-4" />
+                      ) : (
+                        <ChevronDown className="size-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>Last check: {entry.lastEvent ? formatDate(entry.lastEvent.created_at) : "never"}</span>
+                  <span>
+                    Last check: {entry.lastEvent ? formatDate(entry.lastEvent.created_at) : "never"}
+                  </span>
                   {entry.maskedHint && <span>Stored key: {entry.maskedHint}</span>}
                 </div>
                 {entry.lastEvent?.message && (

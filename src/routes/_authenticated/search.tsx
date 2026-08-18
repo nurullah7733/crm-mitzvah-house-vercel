@@ -4,10 +4,19 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
+import { QueryError } from "@/components/ErrorState";
+import {
+  AppShell,
+  EmptyState,
+  currency,
+  daysSince,
+  formatDate,
+  initials,
+} from "@/components/AppShell";
 import { describeIntents, parseQuery, runIntents, type SearchPerson } from "@/lib/nl-search";
 import { LabelChips } from "@/components/LabelChips";
 import { fetchAll } from "@/lib/fetch-all";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/_authenticated/search")({
   validateSearch: (search: Record<string, unknown>): { q?: string | undefined } => ({
@@ -16,7 +25,10 @@ export const Route = createFileRoute("/_authenticated/search")({
   head: () => ({
     meta: [
       { title: "Search | Mitzvah House CRM" },
-      { name: "description", content: "Ask a plain-English question and get the exact list of people it describes." },
+      {
+        name: "description",
+        content: "Ask a plain-English question and get the exact list of people it describes.",
+      },
       { property: "og:title", content: "Search | Mitzvah House CRM" },
       {
         property: "og:description",
@@ -26,6 +38,7 @@ export const Route = createFileRoute("/_authenticated/search")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: SearchPage,
 });
 
@@ -69,9 +82,16 @@ function SearchPage() {
   });
   const keywordMode =
     Boolean(q.trim()) &&
-    parsed.every((i) => i.kind === "text" || i.kind === "tag" || i.kind === "program" || i.kind === "met_at");
+    parsed.every(
+      (i) => i.kind === "text" || i.kind === "tag" || i.kind === "program" || i.kind === "met_at",
+    );
 
-  const { data: keyword, isLoading: keywordLoading } = useQuery({
+  const {
+    data: keyword,
+    isLoading: keywordLoading,
+    error: keywordError,
+    refetch: refetchKeyword,
+  } = useQuery({
     enabled: keywordMode,
     queryKey: ["search-keyword", q],
     queryFn: async () => {
@@ -102,14 +122,28 @@ function SearchPage() {
     },
   });
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    error: corpusError,
+    refetch: refetchCorpus,
+  } = useQuery({
     enabled: Boolean(q.trim()) && !keywordMode,
     queryKey: ["search-corpus"],
     queryFn: async () => {
       const lastYear = new Date().getFullYear() - 1;
       const [people, interactions, donations, programs, tags, metSources] = await Promise.all([
-        fetchAll((f, t) => supabase.from("people").select("*, households(name)").is("deleted_at", null).order("id").range(f, t)),
-        fetchAll((f, t) => supabase.from("interactions").select("person_id, text, type").order("id").range(f, t)),
+        fetchAll((f, t) =>
+          supabase
+            .from("people")
+            .select("*, households(name)")
+            .is("deleted_at", null)
+            .order("id")
+            .range(f, t),
+        ),
+        fetchAll((f, t) =>
+          supabase.from("interactions").select("person_id, text, type").order("id").range(f, t),
+        ),
         fetchAll((f, t) =>
           supabase
             .from("donations")
@@ -133,7 +167,10 @@ function SearchPage() {
       }
       const lastYearTotals = new Map<string, number>();
       for (const d of donations) {
-        lastYearTotals.set(d.person_id, (lastYearTotals.get(d.person_id) ?? 0) + Number(d.amount ?? 0));
+        lastYearTotals.set(
+          d.person_id,
+          (lastYearTotals.get(d.person_id) ?? 0) + Number(d.amount ?? 0),
+        );
       }
       const rows: (SearchPerson & { household_name: string | null })[] = people.map((p) => ({
         ...p,
@@ -152,11 +189,13 @@ function SearchPage() {
 
   const intents = parsed;
   const matches: (SearchPerson & { reason?: string })[] = keywordMode
-    ? keyword?.rows ?? []
+    ? (keyword?.rows ?? [])
     : data
       ? runIntents(intents, data.people)
       : [];
   const loading = keywordMode ? keywordLoading : isLoading;
+  const searchError = keywordMode ? keywordError : corpusError;
+  const retrySearch = keywordMode ? refetchKeyword : refetchCorpus;
 
   return (
     <AppShell title="Search" subtitle={q ? `“${q}”` : "Ask a question in the bar above"}>
@@ -169,10 +208,20 @@ function SearchPage() {
               : `Understood as: ${describeIntents(intents)}`}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {loading ? "Searching…" : `${matches.length} ${matches.length === 1 ? "person" : "people"} matched`}
+            {searchError
+              ? "Search didn't finish"
+              : loading
+                ? "Searching…"
+                : `${matches.length} ${matches.length === 1 ? "person" : "people"} matched`}
           </p>
         </div>
       )}
+
+      <QueryError
+        error={searchError}
+        what="the search results"
+        onRetry={() => void retrySearch()}
+      />
 
       {!q && (
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -196,7 +245,9 @@ function SearchPage() {
       )}
 
       <div className="mt-4 space-y-3">
-        {q && !loading && matches.length === 0 && <EmptyState label="Nobody matched that question." />}
+        {q && !loading && matches.length === 0 && (
+          <EmptyState label="Nobody matched that question." />
+        )}
         {matches.map((p) => (
           <div key={p.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <Link
@@ -204,32 +255,31 @@ function SearchPage() {
               params={{ personId: p.id }}
               className="flex items-start gap-3 transition hover:opacity-90"
             >
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
-              {personInitials(p)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-heading font-semibold text-primary">
-                {personName(p)}
-              </p>
-              {p.reason && (
-                <p className="mt-0.5 text-xs font-medium text-foreground">
-                  Matched — {p.reason}
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
+                {personInitials(p)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-heading font-semibold text-primary">{personName(p)}</p>
+                {p.reason && (
+                  <p className="mt-0.5 text-xs font-medium text-foreground">Matched — {p.reason}</p>
+                )}
+                <p className="truncate text-sm text-muted-foreground">
+                  {[p.email, formatPhone(p.phone), p.household_name].filter(Boolean).join(" · ") ||
+                    "No contact details yet"}
                 </p>
-              )}
-              <p className="truncate text-sm text-muted-foreground">
-                {[p.email, formatPhone(p.phone), p.household_name].filter(Boolean).join(" · ") || "No contact details yet"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {currency(p.lifetime_giving)} lifetime · {currency(p.this_year_giving)} this year
-                {p.last_year_giving ? ` · ${currency(p.last_year_giving)} last year` : ""}
-                {p.met_source ? ` · met at ${p.met_source}` : ""}
-              </p>
-            </div>
-            <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">
-              <p>Last activity</p>
-              <p>{formatDate(p.last_activity_date)}</p>
-              {daysSince(p.last_activity_date) !== null && <p>{daysSince(p.last_activity_date)} days ago</p>}
-            </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {currency(p.lifetime_giving)} lifetime · {currency(p.this_year_giving)} this year
+                  {p.last_year_giving ? ` · ${currency(p.last_year_giving)} last year` : ""}
+                  {p.met_source ? ` · met at ${p.met_source}` : ""}
+                </p>
+              </div>
+              <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">
+                <p>Last activity</p>
+                <p>{formatDate(p.last_activity_date)}</p>
+                {daysSince(p.last_activity_date) !== null && (
+                  <p>{daysSince(p.last_activity_date)} days ago</p>
+                )}
+              </div>
             </Link>
             <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
           </div>

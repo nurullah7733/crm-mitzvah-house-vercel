@@ -22,7 +22,9 @@ function isBlank(v: unknown) {
 }
 
 function norm(v: unknown) {
-  return String(v ?? "").trim().toLowerCase();
+  return String(v ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 /** How a value reads on screen. */
@@ -139,7 +141,8 @@ export function MergeCompare({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium text-foreground">
-              {conflicts.length} {conflicts.length === 1 ? "field needs" : "fields need"} your choice
+              {conflicts.length} {conflicts.length === 1 ? "field needs" : "fields need"} your
+              choice
             </p>
             <div className="ml-auto flex gap-2">
               <button
@@ -159,7 +162,10 @@ export function MergeCompare({
           {conflicts.map((r) => {
             const side = picks[r.key] ?? defaultSide;
             return (
-              <div key={r.key} className="rounded-xl border border-suggestion/50 bg-suggestion/10 p-3">
+              <div
+                key={r.key}
+                className="rounded-xl border border-suggestion/50 bg-suggestion/10 p-3"
+              >
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">{r.label}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {(["left", "right"] as const).map((s) => (
@@ -175,7 +181,9 @@ export function MergeCompare({
                       <span className="block text-[11px] text-muted-foreground">
                         {s === "left" ? leftLabel : rightLabel}
                       </span>
-                      <span className="break-words">{showValue(s === "left" ? r.left : r.right)}</span>
+                      <span className="break-words">
+                        {showValue(s === "left" ? r.left : r.right)}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -201,7 +209,8 @@ export function MergeCompare({
       {matches.length > 0 && (
         <details className="rounded-xl border border-border p-3">
           <summary className="flex cursor-pointer items-center gap-1 text-sm text-muted-foreground">
-            <ChevronDown className="size-4" /> {matches.length} {matches.length === 1 ? "field matches" : "fields match"}
+            <ChevronDown className="size-4" /> {matches.length}{" "}
+            {matches.length === 1 ? "field matches" : "fields match"}
           </summary>
           <ul className="mt-2 space-y-0.5 text-sm text-muted-foreground">
             {matches.map((r) => (

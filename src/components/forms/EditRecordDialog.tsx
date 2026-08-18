@@ -10,6 +10,7 @@ import { Field, selectClass } from "@/components/forms/fields";
 import { logChange } from "@/lib/session-log";
 import { friendlyDbError } from "@/lib/db-errors";
 import { archiveRecords, type ArchivableTable } from "@/lib/archive";
+import { showError } from "@/lib/app-errors";
 
 export type EditableTable = "people" | "donations" | "events" | "tasks";
 
@@ -69,7 +70,10 @@ export function EditRecordDialog({
         const v = (values[f.key] ?? "").trim();
         patch[f.key] = v === "" ? null : f.type === "number" ? Number(v) : v;
       }
-      const { error } = await supabase.from(table).update(patch as never).eq("id", id);
+      const { error } = await supabase
+        .from(table)
+        .update(patch as never)
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -78,7 +82,7 @@ export function EditRecordDialog({
       logChange(`Edited a record in ${table}`);
       onOpenChange(false);
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   const softDelete = useMutation({
@@ -92,7 +96,7 @@ export function EditRecordDialog({
       onOpenChange(false);
       onDeleted?.();
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -102,10 +106,18 @@ export function EditRecordDialog({
       title={title}
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" disabled={save.isPending} onClick={() => save.mutate()}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            disabled={save.isPending}
+            onClick={() => save.mutate()}
+          >
             {save.isPending ? "Saving…" : "Save changes"}
           </Button>
         </>
@@ -113,7 +125,11 @@ export function EditRecordDialog({
     >
       <div className="grid gap-3 sm:grid-cols-2">
         {fields.map((f) => (
-          <Field key={f.key} label={f.label} className={f.type === "textarea" ? "sm:col-span-2" : ""}>
+          <Field
+            key={f.key}
+            label={f.label}
+            className={f.type === "textarea" ? "sm:col-span-2" : ""}
+          >
             {f.type === "textarea" ? (
               <Textarea
                 className="text-base"
@@ -163,7 +179,11 @@ export function EditRecordDialog({
             </Button>
           </div>
         ) : (
-          <button type="button" className="text-sm text-urgent hover:underline" onClick={() => setConfirmDelete(true)}>
+          <button
+            type="button"
+            className="text-sm text-urgent hover:underline"
+            onClick={() => setConfirmDelete(true)}
+          >
             {deleteLabel}
           </button>
         )}

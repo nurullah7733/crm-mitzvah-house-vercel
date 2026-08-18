@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { splitName, roleFromRow, type RowValues } from "@/lib/import-mapping";
+import { guard } from "@/lib/app-errors";
 
 /** A person as the review screen needs it. */
 export type ReviewPerson = {
@@ -109,7 +110,10 @@ export function mergedValues(
   const out = {} as Record<CompareKey, string | null>;
   for (const f of fields) {
     const picked = choices[f.key];
-    if (picked) out[f.key] = (picked === "incoming" ? f.incoming : f.existing) ?? (picked === "incoming" ? f.existing : f.incoming);
+    if (picked)
+      out[f.key] =
+        (picked === "incoming" ? f.incoming : f.existing) ??
+        (picked === "incoming" ? f.existing : f.incoming);
     else if (f.state === "conflict") out[f.key] = f.existing;
     else out[f.key] = f.existing ?? f.incoming ?? null;
   }
@@ -128,9 +132,19 @@ export type RecordHistory = {
 export async function fetchHistory(personId: string): Promise<RecordHistory> {
   const [donations, registrations, notes, tasks] = await Promise.all([
     supabase.from("donations").select("amount").eq("person_id", personId).is("deleted_at", null),
-    supabase.from("registrations").select("id", { count: "exact", head: true }).eq("person_id", personId),
-    supabase.from("interactions").select("id", { count: "exact", head: true }).eq("person_id", personId),
-    supabase.from("tasks").select("id", { count: "exact", head: true }).eq("person_id", personId).is("deleted_at", null),
+    supabase
+      .from("registrations")
+      .select("id", { count: "exact", head: true })
+      .eq("person_id", personId),
+    supabase
+      .from("interactions")
+      .select("id", { count: "exact", head: true })
+      .eq("person_id", personId),
+    supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("person_id", personId)
+      .is("deleted_at", null),
   ]);
   const rows = donations.data ?? [];
   return {
@@ -143,14 +157,20 @@ export async function fetchHistory(personId: string): Promise<RecordHistory> {
 }
 
 /** Save corrections typed straight onto the stored contact during review. */
-export async function updateExistingFields(personId: string, patch: Partial<Record<CompareKey, string | null>>) {
+export async function updateExistingFields(
+  personId: string,
+  patch: Partial<Record<CompareKey, string | null>>,
+) {
   const clean: Record<string, string | null> = {};
   for (const [k, v] of Object.entries(patch)) {
     const s = (v ?? "").trim();
     clean[k] = s === "" ? null : s;
   }
   if (Object.keys(clean).length === 0) return;
-  const { error } = await supabase.from("people").update(clean as never).eq("id", personId);
+  const { error } = await supabase
+    .from("people")
+    .update(clean as never)
+    .eq("id", personId);
   if (error) throw error;
 }
 
@@ -184,19 +204,25 @@ export async function applyIncoming(
     }
   }
   if (Object.keys(patch).length > 0) {
-    const { error } = await supabase.from("people").update(patch as never).eq("id", personId);
+    const { error } = await supabase
+      .from("people")
+      .update(patch as never)
+      .eq("id", personId);
     if (error) throw error;
   }
   const traceable = changedFields.filter((k) => ["email", "phone", "school", "notes"].includes(k));
   if (traceable.length > 0) {
-    await supabase.from("field_sources").insert(
-      traceable.map((field_name) => ({
-        person_id: personId,
-        field_name,
-        source,
-        recorded_date: new Date().toISOString().slice(0, 10),
-        import_batch_id: batchId,
-      })),
+    await guard(
+      supabase.from("field_sources").insert(
+        traceable.map((field_name) => ({
+          person_id: personId,
+          field_name,
+          source,
+          recorded_date: new Date().toISOString().slice(0, 10),
+          import_batch_id: batchId,
+        })),
+      ),
+      { area: "import", action: "Record where these details came from" },
     );
   }
   return changedFields.length;
@@ -230,13 +256,16 @@ export async function createFromIncoming(
     .single();
   if (error) throw error;
   if (data?.id && incoming.email) {
-    await supabase.from("field_sources").insert({
-      person_id: data.id,
-      field_name: "email",
-      source,
-      recorded_date: new Date().toISOString().slice(0, 10),
-      import_batch_id: batchId,
-    });
+    await guard(
+      supabase.from("field_sources").insert({
+        person_id: data.id,
+        field_name: "email",
+        source,
+        recorded_date: new Date().toISOString().slice(0, 10),
+        import_batch_id: batchId,
+      }),
+      { area: "import", action: "Record where the email came from" },
+    );
   }
   return data?.id ?? null;
 }

@@ -21,7 +21,9 @@ export function hebrewMonthName(month: number) {
 }
 
 /** English (Gregorian) date string -> { month, day } on the Hebrew calendar. */
-export function hebrewMonthDayFromEnglish(value: string | null | undefined): { month: number; day: number } | null {
+export function hebrewMonthDayFromEnglish(
+  value: string | null | undefined,
+): { month: number; day: number } | null {
   if (!value) return null;
   const parts = value.slice(0, 10).split("-").map(Number);
   const [y, m, d] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];

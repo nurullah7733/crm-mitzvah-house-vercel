@@ -5,7 +5,9 @@ import type { FullRecord } from "@/lib/review-record";
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-2 py-1 text-sm">
-      <span className="w-24 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="w-24 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
       <span className="min-w-0 break-words text-foreground">{children}</span>
     </div>
   );
@@ -17,7 +19,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  * recognise the person on sight.
  */
 export function ExistingRecordPanel({ record }: { record: FullRecord | null }) {
-  if (!record) return <p className="text-sm text-muted-foreground">Loading the contact we already have…</p>;
+  if (!record)
+    return <p className="text-sm text-muted-foreground">Loading the contact we already have…</p>;
   const p = record.person as Record<string, unknown>;
 
   return (
@@ -36,12 +39,20 @@ export function ExistingRecordPanel({ record }: { record: FullRecord | null }) {
       <Row label="Phones">
         {record.phones.length === 0
           ? "—"
-          : record.phones.map((m) => `${m.value}${m.label ? ` (${m.label})` : ""}${m.primary ? " · main" : ""}`).join(", ")}
+          : record.phones
+              .map(
+                (m) => `${m.value}${m.label ? ` (${m.label})` : ""}${m.primary ? " · main" : ""}`,
+              )
+              .join(", ")}
       </Row>
       <Row label="Emails">
         {record.emails.length === 0
           ? "—"
-          : record.emails.map((m) => `${m.value}${m.label ? ` (${m.label})` : ""}${m.primary ? " · main" : ""}`).join(", ")}
+          : record.emails
+              .map(
+                (m) => `${m.value}${m.label ? ` (${m.label})` : ""}${m.primary ? " · main" : ""}`,
+              )
+              .join(", ")}
       </Row>
       <Row label="Address">{record.address || "—"}</Row>
       <Row label="Household">

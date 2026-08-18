@@ -26,6 +26,8 @@ import { selectClass } from "@/components/forms/fields";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { SelectAllToggle, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { ChevronDown } from "lucide-react";
+import { RouteError } from "@/components/RouteError";
+import { showError, guard } from "@/lib/app-errors";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -89,7 +91,10 @@ export const Route = createFileRoute("/_authenticated/inbox/review")({
   head: () => ({
     meta: [
       { title: "Data Inbox | Mitzvah House CRM" },
-      { name: "description", content: "Imported rows that need a person to review them before they enter the database." },
+      {
+        name: "description",
+        content: "Imported rows that need a person to review them before they enter the database.",
+      },
       { property: "og:title", content: "Data Inbox | Mitzvah House CRM" },
       {
         property: "og:description",
@@ -99,6 +104,7 @@ export const Route = createFileRoute("/_authenticated/inbox/review")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: DataInbox,
 });
 
@@ -109,7 +115,9 @@ function DataInbox() {
   const [deleteFor, setDeleteFor] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   /** One answer per row inside an address card. */
-  const [choices, setChoices] = useState<Record<string, { action: GroupAction; relationship: string }>>({});
+  const [choices, setChoices] = useState<
+    Record<string, { action: GroupAction; relationship: string }>
+  >({});
   const [chosenPeople, setChosenPeople] = useState<Record<string, ReviewPerson>>({});
   const [contactSearch, setContactSearch] = useState<{ rowId: string; query: string } | null>(null);
   const [batchFilter, setBatchFilter] = useState("");
@@ -124,11 +132,18 @@ function DataInbox() {
     enabled: Boolean(contactSearch && contactSearch.query.trim().length >= 2),
     queryFn: async () => {
       const query = contactSearch?.query.trim() ?? "";
-      const { data: hits, error: searchError } = await supabase.rpc("search_people", { _q: query, _limit: 8 });
+      const { data: hits, error: searchError } = await supabase.rpc("search_people", {
+        _q: query,
+        _limit: 8,
+      });
       if (searchError) throw searchError;
       const ids = (hits ?? []).map((hit) => hit.person_id);
       if (ids.length === 0) return [] as ReviewPerson[];
-      const { data: people, error } = await supabase.from("people").select("*").in("id", ids).is("deleted_at", null);
+      const { data: people, error } = await supabase
+        .from("people")
+        .select("*")
+        .in("id", ids)
+        .is("deleted_at", null);
       if (error) throw error;
       const byId = new Map((people ?? []).map((person) => [person.id, person]));
       return ids
@@ -157,7 +172,9 @@ function DataInbox() {
   /** One entry per upload, so staff can work through a single import at a time. */
   const batchOptions = Array.from(
     new Map(
-      allPending.map((r) => [r.batch_id ?? r.filename ?? "manual", r.filename ?? "Added by hand"] as const),
+      allPending.map(
+        (r) => [r.batch_id ?? r.filename ?? "manual", r.filename ?? "Added by hand"] as const,
+      ),
     ).entries(),
   );
   const batchKey = (r: { batch_id: string | null; filename: string | null }) =>
@@ -169,7 +186,11 @@ function DataInbox() {
     past
       .reduce((map, r) => {
         const key = batchKey(r);
-        const bucket = map.get(key) ?? { key, filename: r.filename ?? "Added by hand", rows: [] as typeof past };
+        const bucket = map.get(key) ?? {
+          key,
+          filename: r.filename ?? "Added by hand",
+          rows: [] as typeof past,
+        };
         bucket.rows.push(r);
         map.set(key, bucket);
         return map;
@@ -186,12 +207,15 @@ function DataInbox() {
     for (const r of pending) {
       const g = rowGroup(r.row_data as Record<string, unknown> | null);
       if (!g) continue;
-      const bucket = byKey.get(g.key) ?? { key: g.key, address: g.address, rows: [] as typeof pending };
+      const bucket = byKey.get(g.key) ?? {
+        key: g.key,
+        address: g.address,
+        rows: [] as typeof pending,
+      };
       bucket.rows.push(r);
       byKey.set(g.key, bucket);
     }
     return [...byKey.values()].filter((c) => c.rows.length > 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
 
   const groupedIds = new Set(addressCards.flatMap((c) => c.rows.map((r) => r.id)));
@@ -206,10 +230,7 @@ function DataInbox() {
     queryKey: ["review-candidates", candidateIds.join(",")],
     enabled: candidateIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("people")
-        .select("*")
-        .in("id", candidateIds);
+      const { data, error } = await supabase.from("people").select("*").in("id", candidateIds);
       if (error) throw error;
       return data;
     },
@@ -238,7 +259,12 @@ function DataInbox() {
         const existing = personById((r.candidate_person_ids ?? [])[0]);
         if (!existing) continue;
         await quickMerge(
-          { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: (r.row_data ?? {}) as RowValues },
+          {
+            id: r.id,
+            filename: r.filename,
+            batch_id: r.batch_id,
+            row_data: (r.row_data ?? {}) as RowValues,
+          },
           existing,
           personName(existing),
         );
@@ -251,7 +277,7 @@ function DataInbox() {
       toast.success(`${done} row${done === 1 ? "" : "s"} approved`);
       logChange(`Merged ${done} imported rows with no conflicts`);
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** One tap: fill blanks and add new activity, never overwrite. */
@@ -272,26 +298,31 @@ function DataInbox() {
       queryClient.invalidateQueries();
       logChange(`Updated ${result.personName} from an imported row`);
       const added = [
-        result.filledFields > 0 ? `${result.filledFields} detail${result.filledFields === 1 ? "" : "s"}` : "",
+        result.filledFields > 0
+          ? `${result.filledFields} detail${result.filledFields === 1 ? "" : "s"}`
+          : "",
         ...result.addedActivity,
       ].filter(Boolean);
-      toast.success(`${result.personName} updated${added.length ? ` — added ${added.join(", ")}` : ""}`, {
-        duration: 12000,
-        action: {
-          label: "Undo",
-          onClick: async () => {
-            try {
-              await undoQuickMerge(result);
-              queryClient.invalidateQueries();
-              toast.success("Put back the way it was — the row is on the list again");
-            } catch (e) {
-              toast.error(await friendlyDbError(e as Error));
-            }
+      toast.success(
+        `${result.personName} updated${added.length ? ` — added ${added.join(", ")}` : ""}`,
+        {
+          duration: 12000,
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              try {
+                await undoQuickMerge(result);
+                queryClient.invalidateQueries();
+                toast.success("Put back the way it was — the row is on the list again");
+              } catch (e) {
+                toast.error(await friendlyDbError(e as Error));
+              }
+            },
           },
         },
-      });
+      );
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** Throw the incoming row away, with a short reason kept on the record. */
@@ -305,7 +336,7 @@ function DataInbox() {
       toast.success("Row thrown away — your reason is saved in the change history");
       logChange("Discarded an imported row from the review list");
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** Leave a row for later without losing it. */
@@ -321,7 +352,7 @@ function DataInbox() {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Set aside — find it under Past imports whenever you want it back");
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** Bring a set-aside row back into the active list. */
@@ -337,7 +368,7 @@ function DataInbox() {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Back on the list");
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** Merge every selected row that has no disagreement with the contact on file. */
@@ -347,13 +378,20 @@ function DataInbox() {
       let skipped = 0;
       for (const r of pending.filter((row) => selection.has(row.id))) {
         const existing = personById((r.candidate_person_ids ?? [])[0]);
-        const fields = existing ? compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues)) : [];
+        const fields = existing
+          ? compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues))
+          : [];
         if (!existing || (r.candidate_person_ids ?? []).length !== 1 || hasConflict(fields)) {
           skipped += 1;
           continue;
         }
         await quickMerge(
-          { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: (r.row_data ?? {}) as RowValues },
+          {
+            id: r.id,
+            filename: r.filename,
+            batch_id: r.batch_id,
+            row_data: (r.row_data ?? {}) as RowValues,
+          },
           existing,
           personName(existing),
         );
@@ -367,13 +405,14 @@ function DataInbox() {
       toast.success(`${done} merged${skipped ? ` · ${skipped} still need a decision` : ""}`);
       logChange(`Merged ${done} imported rows with no conflicts`);
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** Throw away every selected row, with one shared reason. */
   const bulkDiscard = useMutation({
     mutationFn: async (ids: string[]) => {
-      for (const id of ids) await discardRow(id, bulkReason.trim() || "Cleared out from the Data Inbox");
+      for (const id of ids)
+        await discardRow(id, bulkReason.trim() || "Cleared out from the Data Inbox");
       return ids.length;
     },
     onSuccess: (count) => {
@@ -385,7 +424,7 @@ function DataInbox() {
       toast.success(`${count} row${count === 1 ? "" : "s"} thrown away`);
       logChange(`Discarded ${count} imported rows from the Data Inbox`);
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /** Set selected rows aside — they move to Past imports and can come back. */
@@ -401,9 +440,11 @@ function DataInbox() {
     onSuccess: (count) => {
       queryClient.invalidateQueries();
       selection.clear();
-      toast.success(`${count} row${count === 1 ? "" : "s"} set aside — find them under Past imports`);
+      toast.success(
+        `${count} row${count === 1 ? "" : "s"} set aside — find them under Past imports`,
+      );
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   /**
@@ -423,15 +464,24 @@ function DataInbox() {
         const item = { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: row };
         if (action === "later") {
           left += 1;
-          await supabase
-            .from("review_queue")
-            .update({ status: "skipped", resolution_note: "Left for later from the address card" })
-            .eq("id", r.id);
+          await guard(
+            supabase
+              .from("review_queue")
+              .update({
+                status: "skipped",
+                resolution_note: "Left for later from the address card",
+              })
+              .eq("id", r.id),
+            { area: "import", action: "Update the review queue" },
+          );
           continue;
         }
         if (action === "same") {
           const existing = chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]);
-          if (!existing) throw new Error("We don't have a matching contact for that person — open and decide instead.");
+          if (!existing)
+            throw new Error(
+              "We don't have a matching contact for that person — open and decide instead.",
+            );
           await quickMerge(item, existing, personName(existing));
           saved += 1;
           continue;
@@ -463,7 +513,7 @@ function DataInbox() {
       toast.success(`${saved} saved${left ? ` · ${left} left for later` : ""}`);
       logChange(`Reviewed an address with ${saved + left} people from an import`);
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   // Duplicates that already exist in the database, not just from imports.
@@ -500,7 +550,10 @@ function DataInbox() {
       title="Data Inbox"
       subtitle={`${pending.length} thing${pending.length === 1 ? "" : "s"} to look at`}
       action={
-        <Link to="/inbox" className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-primary">
+        <Link
+          to="/inbox"
+          className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-primary"
+        >
           Import Center
         </Link>
       }
@@ -520,8 +573,9 @@ function DataInbox() {
             />
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Nothing here is in Mitzvah House yet. For each one you can add the new details, keep both people, fix a
-            typo, or throw the row away. If you're unsure, set it aside — it waits under Past imports.
+            Nothing here is in Mitzvah House yet. For each one you can add the new details, keep
+            both people, fix a typo, or throw the row away. If you're unsure, set it aside — it
+            waits under Past imports.
           </p>
         </div>
       )}
@@ -529,10 +583,14 @@ function DataInbox() {
       {safeRows.length > 1 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-money/40 bg-money/5 p-4">
           <p className="text-sm text-foreground">
-            {safeRows.length} of these are clearly the same person and only add details we were missing. Nothing gets
-            overwritten.
+            {safeRows.length} of these are clearly the same person and only add details we were
+            missing. Nothing gets overwritten.
           </p>
-          <Button className="rounded-xl" disabled={approveSafe.isPending} onClick={() => approveSafe.mutate()}>
+          <Button
+            className="rounded-xl"
+            disabled={approveSafe.isPending}
+            onClick={() => approveSafe.mutate()}
+          >
             {approveSafe.isPending ? "Merging…" : `Merge all ${safeRows.length} with no conflicts`}
           </Button>
         </div>
@@ -574,7 +632,9 @@ function DataInbox() {
           />
           {selection.count > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-3">
-              <span className="text-sm font-medium text-foreground">{selection.count} selected</span>
+              <span className="text-sm font-medium text-foreground">
+                {selection.count} selected
+              </span>
               <Button
                 size="sm"
                 className="rounded-xl"
@@ -615,8 +675,8 @@ function DataInbox() {
               People at the same address ({addressCards.length})
             </h2>
             <p className="text-sm text-muted-foreground">
-              Everyone the file lists at one address is on one card. Say who lives together and who doesn't — we never
-              guess from an address on its own.
+              Everyone the file lists at one address is on one card. Say who lives together and who
+              doesn't — we never guess from an address on its own.
             </p>
             <div className="mt-2 space-y-3">
               {addressCards.map((card) => {
@@ -629,7 +689,10 @@ function DataInbox() {
                   });
                 const answered = card.rows.filter((r) => choices[r.id]).length;
                 return (
-                  <div key={card.key} className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm">
+                  <div
+                    key={card.key}
+                    className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm"
+                  >
                     <p className="font-heading font-semibold text-foreground">
                       {card.address || "This address"}
                     </p>
@@ -637,13 +700,25 @@ function DataInbox() {
                       {card.rows.length} people in the upload share this address.
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Button variant="outline" className="rounded-xl" onClick={() => setAll("related")}>
+                      <Button
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={() => setAll("related")}
+                      >
                         All related — one household
                       </Button>
-                      <Button variant="outline" className="rounded-xl" onClick={() => setAll("separate")}>
+                      <Button
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={() => setAll("separate")}
+                      >
                         None related — separate contacts
                       </Button>
-                      <Button variant="ghost" className="rounded-xl" onClick={() => setAll("later")}>
+                      <Button
+                        variant="ghost"
+                        className="rounded-xl"
+                        onClick={() => setAll("later")}
+                      >
                         Leave all for later
                       </Button>
                     </div>
@@ -666,8 +741,11 @@ function DataInbox() {
                               {name}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {[row.email, row.phone].filter(Boolean).join(" · ") || "No email or phone on the row"}
-                              {selectedPerson ? ` · comparing with ${personName(selectedPerson)}, already on file` : ""}
+                              {[row.email, row.phone].filter(Boolean).join(" · ") ||
+                                "No email or phone on the row"}
+                              {selectedPerson
+                                ? ` · comparing with ${personName(selectedPerson)}, already on file`
+                                : ""}
                             </p>
                             <div className="mt-2 grid gap-2 sm:grid-cols-2">
                               <select
@@ -685,9 +763,13 @@ function DataInbox() {
                                 }
                               >
                                 <option value="">What should we do?</option>
-                                {GROUP_ACTIONS.filter((a) => a.value !== "same" || selectedPerson).map((a) => (
+                                {GROUP_ACTIONS.filter(
+                                  (a) => a.value !== "same" || selectedPerson,
+                                ).map((a) => (
                                   <option key={a.value} value={a.value}>
-                                    {a.value === "same" && selectedPerson ? `Same person as ${personName(selectedPerson)}` : a.label}
+                                    {a.value === "same" && selectedPerson
+                                      ? `Same person as ${personName(selectedPerson)}`
+                                      : a.label}
                                   </option>
                                 ))}
                               </select>
@@ -717,36 +799,49 @@ function DataInbox() {
                                 className="text-base"
                                 value={contactSearch?.rowId === r.id ? contactSearch.query : ""}
                                 placeholder="Search for a different existing contact"
-                                onChange={(event) => setContactSearch({ rowId: r.id, query: event.target.value })}
+                                onChange={(event) =>
+                                  setContactSearch({ rowId: r.id, query: event.target.value })
+                                }
                               />
-                              {contactSearch?.rowId === r.id && contactSearch.query.trim().length >= 2 && (
-                                <div className="mt-1 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
-                                  {(contactSearchResults ?? []).map((person) => (
-                                    <Button
-                                      key={person.id}
-                                      type="button"
-                                      variant="ghost"
-                                      className="w-full justify-start rounded-md"
-                                      onClick={() => {
-                                        setChosenPeople((current) => ({ ...current, [r.id]: person }));
-                                        setChoices((current) => ({
-                                          ...current,
-                                          [r.id]: { action: "same", relationship: current[r.id]?.relationship ?? "" },
-                                        }));
-                                        setContactSearch(null);
-                                      }}
-                                    >
-                                      {personName(person)}
-                                      <span className="ml-2 text-xs text-muted-foreground">
-                                        {[person.email, person.phone].filter(Boolean).join(" · ") || "No email or phone"}
-                                      </span>
-                                    </Button>
-                                  ))}
-                                  {contactSearchResults?.length === 0 && (
-                                    <p className="px-2 py-1 text-sm text-muted-foreground">No matching contacts found.</p>
-                                  )}
-                                </div>
-                              )}
+                              {contactSearch?.rowId === r.id &&
+                                contactSearch.query.trim().length >= 2 && (
+                                  <div className="mt-1 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
+                                    {(contactSearchResults ?? []).map((person) => (
+                                      <Button
+                                        key={person.id}
+                                        type="button"
+                                        variant="ghost"
+                                        className="w-full justify-start rounded-md"
+                                        onClick={() => {
+                                          setChosenPeople((current) => ({
+                                            ...current,
+                                            [r.id]: person,
+                                          }));
+                                          setChoices((current) => ({
+                                            ...current,
+                                            [r.id]: {
+                                              action: "same",
+                                              relationship: current[r.id]?.relationship ?? "",
+                                            },
+                                          }));
+                                          setContactSearch(null);
+                                        }}
+                                      >
+                                        {personName(person)}
+                                        <span className="ml-2 text-xs text-muted-foreground">
+                                          {[person.email, person.phone]
+                                            .filter(Boolean)
+                                            .join(" · ") || "No email or phone"}
+                                        </span>
+                                      </Button>
+                                    ))}
+                                    {contactSearchResults?.length === 0 && (
+                                      <p className="px-2 py-1 text-sm text-muted-foreground">
+                                        No matching contacts found.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
                             </div>
                             <button
                               type="button"
@@ -780,7 +875,9 @@ function DataInbox() {
         )}
 
         {BUCKETS.map((bucket) => {
-          const rows = pending.filter((r) => !groupedIds.has(r.id) && bucketFor(r.reason).id === bucket.id);
+          const rows = pending.filter(
+            (r) => !groupedIds.has(r.id) && bucketFor(r.reason).id === bucket.id,
+          );
           if (rows.length === 0) return null;
           return (
             <section key={bucket.id}>
@@ -797,10 +894,15 @@ function DataInbox() {
                   const conflicts = fields.filter((f) => f.state === "conflict");
                   const fills = fields.filter((f) => f.state === "fill");
                   const safe =
-                    Boolean(existing) && (r.candidate_person_ids ?? []).length === 1 && conflicts.length === 0;
+                    Boolean(existing) &&
+                    (r.candidate_person_ids ?? []).length === 1 &&
+                    conflicts.length === 0;
                   const fileName = incoming.display_name ?? "This row";
                   return (
-                    <div key={r.id} className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm">
+                    <div
+                      key={r.id}
+                      className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm"
+                    >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex min-w-0 gap-2">
                           <SelectBox
@@ -809,25 +911,29 @@ function DataInbox() {
                             label="this row"
                           />
                           <div className="min-w-0">
-                          <p className="font-heading font-semibold text-foreground">
-                            {plainSummary(fileName, existing ? personName(existing) : null, conflicts.length)}
-                          </p>
-                          {existing && (
-                            <p
-                              className={`mt-1 text-sm font-medium ${
-                                conflicts.length > 0 ? "text-urgent" : "text-money"
-                              }`}
-                            >
-                              {conflicts.length > 0
-                                ? `${conflicts.length} field${conflicts.length === 1 ? "" : "s"} disagree — needs review`
-                                : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
+                            <p className="font-heading font-semibold text-foreground">
+                              {plainSummary(
+                                fileName,
+                                existing ? personName(existing) : null,
+                                conflicts.length,
+                              )}
                             </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            {r.reason} · from {r.filename ?? "a manual entry"} · uploaded{" "}
-                            {formatDate(r.created_at?.slice(0, 10))}
-                            {r.status === "skipped" ? " · skipped earlier" : ""}
-                          </p>
+                            {existing && (
+                              <p
+                                className={`mt-1 text-sm font-medium ${
+                                  conflicts.length > 0 ? "text-urgent" : "text-money"
+                                }`}
+                              >
+                                {conflicts.length > 0
+                                  ? `${conflicts.length} field${conflicts.length === 1 ? "" : "s"} disagree — needs review`
+                                  : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                              {r.reason} · from {r.filename ?? "a manual entry"} · uploaded{" "}
+                              {formatDate(r.created_at?.slice(0, 10))}
+                              {r.status === "skipped" ? " · skipped earlier" : ""}
+                            </p>
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -848,7 +954,11 @@ function DataInbox() {
                               ✓ Same person — update contact
                             </Button>
                           )}
-                          <Button variant="outline" className="rounded-xl" onClick={() => setReviewId(r.id)}>
+                          <Button
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={() => setReviewId(r.id)}
+                          >
                             ✏️ Open and decide
                           </Button>
                           <Button
@@ -876,7 +986,11 @@ function DataInbox() {
                             className="rounded-xl"
                             disabled={discard.isPending || !deleteReason.trim()}
                             onClick={() =>
-                              discard.mutate({ id: r.id, reason: deleteReason, personId: existing?.id ?? null })
+                              discard.mutate({
+                                id: r.id,
+                                reason: deleteReason,
+                                personId: existing?.id ?? null,
+                              })
                             }
                           >
                             Delete row
@@ -908,19 +1022,29 @@ function DataInbox() {
                                 }`}
                               >
                                 <span className="text-xs text-muted-foreground">{f.label}</span>
-                                <span className={f.state === "same" ? "text-muted-foreground" : "text-foreground"}>
+                                <span
+                                  className={
+                                    f.state === "same" ? "text-muted-foreground" : "text-foreground"
+                                  }
+                                >
                                   {showValue(f.existing)}
                                 </span>
                                 <span
                                   className={
-                                    f.state === "same" ? "text-muted-foreground" : "font-medium text-foreground"
+                                    f.state === "same"
+                                      ? "text-muted-foreground"
+                                      : "font-medium text-foreground"
                                   }
                                 >
                                   {showValue(f.incoming)}
                                   {f.state === "conflict" && (
-                                    <span className="ml-2 text-xs text-suggestion">doesn't match</span>
+                                    <span className="ml-2 text-xs text-suggestion">
+                                      doesn't match
+                                    </span>
                                   )}
-                                  {f.state === "fill" && <span className="ml-2 text-xs text-money">new</span>}
+                                  {f.state === "fill" && (
+                                    <span className="ml-2 text-xs text-money">new</span>
+                                  )}
                                 </span>
                               </div>
                             ))}
@@ -931,7 +1055,9 @@ function DataInbox() {
                             .filter(([, v]) => typeof v === "string" && v)
                             .map(([k, v]) => (
                               <div key={k} className="rounded-xl bg-muted/50 px-3 py-2">
-                                <dt className="text-xs text-muted-foreground">{k.replace(/_/g, " ")}</dt>
+                                <dt className="text-xs text-muted-foreground">
+                                  {k.replace(/_/g, " ")}
+                                </dt>
                                 <dd className="text-sm text-foreground">{String(v)}</dd>
                               </div>
                             ))}
@@ -949,7 +1075,9 @@ function DataInbox() {
                                 params={{ personId: id }}
                                 className="rounded-full border border-border px-3 py-1 text-xs text-primary"
                               >
-                                {match ? `Look at ${personName(match)}'s page` : "Look at the possible match"}
+                                {match
+                                  ? `Look at ${personName(match)}'s page`
+                                  : "Look at the possible match"}
                               </Link>
                             );
                           })}
@@ -977,7 +1105,9 @@ function DataInbox() {
 
       {(dbDupes ?? []).length > 0 && (
         <section className="mt-6">
-          <h2 className="font-heading font-semibold text-foreground">Possible duplicates already in the database</h2>
+          <h2 className="font-heading font-semibold text-foreground">
+            Possible duplicates already in the database
+          </h2>
           <p className="text-xs text-muted-foreground">
             Contacts that share an email, a phone number, or the same name in one household.
           </p>
@@ -999,7 +1129,9 @@ function DataInbox() {
                   <Button
                     variant="outline"
                     className="rounded-xl"
-                    onClick={() => setMergeFor([d.person_a, d.person_b].filter(Boolean) as string[])}
+                    onClick={() =>
+                      setMergeFor([d.person_a, d.person_b].filter(Boolean) as string[])
+                    }
                   >
                     Compare and merge
                   </Button>
@@ -1020,7 +1152,8 @@ function DataInbox() {
             <span>
               <span className="font-heading font-semibold text-foreground">Past imports</span>
               <span className="ml-2 text-sm text-muted-foreground">
-                {pastBatches.length} finished upload{pastBatches.length === 1 ? "" : "s"} · {past.length} row
+                {pastBatches.length} finished upload{pastBatches.length === 1 ? "" : "s"} ·{" "}
+                {past.length} row
                 {past.length === 1 ? "" : "s"} settled
               </span>
             </span>
@@ -1035,7 +1168,10 @@ function DataInbox() {
                   </p>
                   <div className="mt-2 space-y-1">
                     {b.rows.map((r) => (
-                      <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <div
+                        key={r.id}
+                        className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+                      >
                         <span>
                           {r.reason} · {r.status}
                           {r.resolution_note ? ` · ${r.resolution_note}` : ""}
@@ -1075,7 +1211,11 @@ function DataInbox() {
         description="Nothing already in Mitzvah House is touched — only these unreviewed rows are thrown away."
         footer={
           <>
-            <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setClearOpen(false)}>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => setClearOpen(false)}
+            >
               Cancel
             </Button>
             <Button

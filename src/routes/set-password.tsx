@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/set-password")({
   head: () => ({
@@ -22,6 +23,7 @@ export const Route = createFileRoute("/set-password")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: SetPasswordPage,
 });
 
@@ -101,7 +103,10 @@ function SetPasswordPage() {
                 This link has expired or has already been used. Ask a director to send you a fresh
                 invite from Settings → Staff.
               </p>
-              <Button className="h-12 w-full rounded-xl text-base" onClick={() => navigate({ to: "/auth" })}>
+              <Button
+                className="h-12 w-full rounded-xl text-base"
+                onClick={() => navigate({ to: "/auth" })}
+              >
                 Go to sign in
               </Button>
             </div>
@@ -136,7 +141,11 @@ function SetPasswordPage() {
                 />
               </div>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
-              <Button type="submit" className="h-12 w-full rounded-xl text-base" disabled={busy || ready === null}>
+              <Button
+                type="submit"
+                className="h-12 w-full rounded-xl text-base"
+                disabled={busy || ready === null}
+              >
                 {busy ? "Saving…" : "Save password and sign in"}
               </Button>
             </form>

@@ -17,6 +17,8 @@ import {
   type RenewalDonor,
   type RenewalMode,
 } from "@/lib/renewal";
+import { RouteError } from "@/components/RouteError";
+import { showError } from "@/lib/app-errors";
 
 const MODES: RenewalMode[] = ["lapsed", "lybunt", "sybunt"];
 
@@ -38,6 +40,7 @@ export const Route = createFileRoute("/_authenticated/renewals")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: RenewalsPage,
 });
 
@@ -76,9 +79,11 @@ function RenewalsPage() {
       logChange(`Created ${n} renewal follow-up ${n === 1 ? "task" : "tasks"}`);
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       setSelected({});
-      toast.success(`${n} renewal ${n === 1 ? "call" : "calls"} added to Tasks, assigned to the relationship owner`);
+      toast.success(
+        `${n} renewal ${n === 1 ? "call" : "calls"} added to Tasks, assigned to the relationship owner`,
+      );
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not create the follow-up tasks"),
+    onError: (e: unknown) => void showError(e, "Could not create the follow-up tasks"),
   });
 
   function exportCsv() {
@@ -147,7 +152,9 @@ function RenewalsPage() {
               disabled={rows.length === 0 || createTasks.isPending}
             >
               <HeartHandshake className="mr-2 size-4" />
-              {chosen.length > 0 ? `Create ${chosen.length} renewal calls` : "Create renewal calls for all"}
+              {chosen.length > 0
+                ? `Create ${chosen.length} renewal calls`
+                : "Create renewal calls for all"}
             </Button>
           </div>
         </div>
@@ -195,12 +202,18 @@ function RenewalsPage() {
                     <span className="font-medium text-money">
                       {d.last_gift_amount === null ? "—" : currency(d.last_gift_amount)}
                     </span>
-                    <span className="block text-xs text-muted-foreground">{formatDate(d.last_gift_date)}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {formatDate(d.last_gift_date)}
+                    </span>
                   </td>
                   <td className="p-3 text-money">{currency(d.lifetime_total)}</td>
                   <td className="p-3">
                     {d.prior_years} {d.prior_years === 1 ? "year" : "years"}
-                    {d.gave_last_year ? <span className="block text-xs text-muted-foreground">including last year</span> : null}
+                    {d.gave_last_year ? (
+                      <span className="block text-xs text-muted-foreground">
+                        including last year
+                      </span>
+                    ) : null}
                   </td>
                   <td className="p-3 text-muted-foreground">{d.owner ?? "Unassigned"}</td>
                 </tr>

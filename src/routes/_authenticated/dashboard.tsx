@@ -3,15 +3,26 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { AlertTriangle, History } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { QueryError } from "@/components/ErrorState";
 import { AppShell, currency, formatDate } from "@/components/AppShell";
 import { greeting, useCurrentStaff } from "@/lib/current-staff";
 import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/session-log";
-import { CompleteTaskDialog, TaskCheckbox, type CompletableTask } from "@/components/forms/AddDialogs";
+import {
+  CompleteTaskDialog,
+  TaskCheckbox,
+  type CompletableTask,
+} from "@/components/forms/AddDialogs";
 import { personName } from "@/lib/names";
 import { fetchRenewalDonors } from "@/lib/renewal";
 import { fetchAll } from "@/lib/fetch-all";
 import { nextHebrewAnniversary, nextYahrzeit } from "@/lib/hebrew";
-import { FREQUENCY_LABELS, monthlyEquivalent, type PledgeFrequency, type PledgeStatus } from "@/lib/pledges";
+import {
+  FREQUENCY_LABELS,
+  monthlyEquivalent,
+  type PledgeFrequency,
+  type PledgeStatus,
+} from "@/lib/pledges";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -19,15 +30,18 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
       { title: "Dashboard | Mitzvah House CRM" },
       {
         name: "description",
-        content: "Signed-in overview of Mitzvah House people, households, donations, events and tasks.",
+        content:
+          "Signed-in overview of Mitzvah House people, households, donations, events and tasks.",
       },
       { property: "og:title", content: "Dashboard | Mitzvah House CRM" },
       {
         property: "og:description",
-        content: "Signed-in overview of Mitzvah House people, households, donations, events and tasks.",
+        content:
+          "Signed-in overview of Mitzvah House people, households, donations, events and tasks.",
       },
     ],
   }),
+  errorComponent: RouteError,
   component: Dashboard,
 });
 
@@ -39,10 +53,11 @@ function Dashboard() {
   const { data: pendingReview } = useQuery({
     queryKey: ["review-queue-count"],
     queryFn: async () => {
-      const { count } = await supabase
+      const { count, error } = await supabase
         .from("review_queue")
         .select("id", { count: "exact", head: true })
         .eq("status", "pending");
+      if (error) throw error;
       return count ?? 0;
     },
   });
@@ -56,7 +71,11 @@ function Dashboard() {
         .select("id, amount, frequency, status")
         .in("status", ["active", "paused", "lapsed"]);
       if (error) throw error;
-      const rows = (data ?? []) as { amount: number; frequency: PledgeFrequency; status: PledgeStatus }[];
+      const rows = (data ?? []) as {
+        amount: number;
+        frequency: PledgeFrequency;
+        status: PledgeStatus;
+      }[];
       const active = rows.filter((r) => r.status === "active");
       const lapsed = rows.filter((r) => r.status === "lapsed");
       const byFrequency = new Map<PledgeFrequency, number>();
@@ -72,7 +91,11 @@ function Dashboard() {
     },
   });
 
-  const { data } = useQuery({
+  const {
+    data,
+    error: dashboardError,
+    refetch: refetchDashboard,
+  } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
       const [overdue, recentGifts, upcoming, grantDeadlines, pendingThanks] = await Promise.all([
@@ -89,10 +112,18 @@ function Dashboard() {
           .is("deleted_at", null)
           .order("date", { ascending: false })
           .limit(5),
-        supabase.from("events").select("*").is("deleted_at", null).gte("date", new Date().toISOString().slice(0, 10)).order("date").limit(4),
+        supabase
+          .from("events")
+          .select("*")
+          .is("deleted_at", null)
+          .gte("date", new Date().toISOString().slice(0, 10))
+          .order("date")
+          .limit(4),
         supabase
           .from("grants")
-          .select("id, name, stage, amount_awarded, application_deadline, report_deadline, renewal_deadline, funder:funder_id(id, display_name, first_name, last_name)"),
+          .select(
+            "id, name, stage, amount_awarded, application_deadline, report_deadline, renewal_deadline, funder:funder_id(id, display_name, first_name, last_name)",
+          ),
         supabase
           .from("donations")
           .select("id, amount, date, campaign, people(id, display_name, first_name, last_name)")
@@ -101,6 +132,11 @@ function Dashboard() {
           .order("date", { ascending: false })
           .limit(6),
       ]);
+      // One failed read used to look exactly like an empty dashboard, so any
+      // failure here is raised instead of quietly showing nothing.
+      for (const result of [overdue, recentGifts, upcoming, grantDeadlines, pendingThanks]) {
+        if (result.error) throw result.error;
+      }
       return {
         overdue: overdue.data ?? [],
         recentGifts: recentGifts.data ?? [],
@@ -134,7 +170,9 @@ function Dashboard() {
         fetchAll((f, t) =>
           supabase
             .from("yahrzeits")
-            .select("id, deceased_name, hebrew_month, hebrew_day, people(id, display_name, first_name, last_name)")
+            .select(
+              "id, deceased_name, hebrew_month, hebrew_day, people(id, display_name, first_name, last_name)",
+            )
             .order("id")
             .range(f, t),
         ),
@@ -149,10 +187,26 @@ function Dashboard() {
       const a = nextHebrewAnniversary(p.anniversary_date);
       return [
         ...(b && b.days <= 31
-          ? [{ id: `b-${p.id}`, personId: p.id, name: personName(p), what: `Birthday · ${b.hebrewLabel}`, occ: b }]
+          ? [
+              {
+                id: `b-${p.id}`,
+                personId: p.id,
+                name: personName(p),
+                what: `Birthday · ${b.hebrewLabel}`,
+                occ: b,
+              },
+            ]
           : []),
         ...(a && a.days <= 31
-          ? [{ id: `a-${p.id}`, personId: p.id, name: personName(p), what: `Anniversary · ${a.hebrewLabel}`, occ: a }]
+          ? [
+              {
+                id: `a-${p.id}`,
+                personId: p.id,
+                name: personName(p),
+                what: `Anniversary · ${a.hebrewLabel}`,
+                occ: a,
+              },
+            ]
           : []),
       ];
     }),
@@ -184,7 +238,14 @@ function Dashboard() {
         ] as const
       )
         .filter(([, date]) => !!date)
-        .map(([kind, date]) => ({ id: `${g.id}-${kind}`, grantId: g.id, name: g.name, funder: g.funder, kind, date: date! })),
+        .map(([kind, date]) => ({
+          id: `${g.id}-${kind}`,
+          grantId: g.id,
+          name: g.name,
+          funder: g.funder,
+          kind,
+          date: date!,
+        })),
     )
     .filter((d) => d.date >= today)
     .sort((a, b) => (a.date < b.date ? -1 : 1))
@@ -195,6 +256,11 @@ function Dashboard() {
       title={`${greeting()}${staff?.name ? `, ${staff.name}` : ""}`}
       subtitle={`Signed in as ${user.email}`}
     >
+      <QueryError
+        error={dashboardError}
+        what="the dashboard"
+        onRetry={() => void refetchDashboard()}
+      />
       {!!pendingReview && (
         <Link
           to="/inbox/review"
@@ -202,23 +268,30 @@ function Dashboard() {
         >
           <AlertTriangle className="size-4 text-suggestion" />
           <span className="font-medium">
-            {pendingReview} imported {pendingReview === 1 ? "row" : "rows"} waiting in the Data Inbox
+            {pendingReview} imported {pendingReview === 1 ? "row" : "rows"} waiting in the Data
+            Inbox
           </span>
           <span className="text-primary underline">Review now</span>
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Needs attention" to="/tasks" linkLabel="All tasks">
-          {data?.overdue.length === 0 && <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>}
+          {data?.overdue.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nothing overdue. Nice.</p>
+          )}
           {data?.overdue.map((t) => (
             <div key={t.id} className="flex gap-3 border-b border-border py-2.5 last:border-0">
               <TaskCheckbox
                 done={false}
-                onClick={() => setCompleting({ id: t.id, text: t.text, person_id: t.person_id, owner: t.owner })}
+                onClick={() =>
+                  setCompleting({ id: t.id, text: t.text, person_id: t.person_id, owner: t.owner })
+                }
               />
               <div className="min-w-0">
                 <p className="text-sm text-foreground">{t.text}</p>
-                <p className="text-xs text-urgent">Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"}</p>
+                <p className="text-xs text-urgent">
+                  Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"}
+                </p>
                 {t.people && (
                   <Link
                     to="/people/$personId"
@@ -234,9 +307,14 @@ function Dashboard() {
         </Panel>
 
         <Panel title="Recent gifts" to="/donations" linkLabel="All donations">
-          {data?.recentGifts.length === 0 && <p className="text-sm text-muted-foreground">No gifts logged yet.</p>}
+          {data?.recentGifts.length === 0 && (
+            <p className="text-sm text-muted-foreground">No gifts logged yet.</p>
+          )}
           {data?.recentGifts.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
+            <div
+              key={d.id}
+              className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0"
+            >
               <div className="min-w-0">
                 {d.people && (
                   <Link
@@ -261,7 +339,10 @@ function Dashboard() {
             <p className="text-sm text-muted-foreground">Every gift has been thanked. Lovely.</p>
           )}
           {data?.pendingThanks.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0">
+            <div
+              key={d.id}
+              className="flex items-center justify-between gap-3 border-b border-border py-2.5 last:border-0"
+            >
               <div className="min-w-0">
                 {d.people && (
                   <Link
@@ -282,7 +363,9 @@ function Dashboard() {
         </Panel>
 
         <Panel title="Upcoming events" to="/events" linkLabel="All events">
-          {data?.upcoming.length === 0 && <p className="text-sm text-muted-foreground">No upcoming events.</p>}
+          {data?.upcoming.length === 0 && (
+            <p className="text-sm text-muted-foreground">No upcoming events.</p>
+          )}
           {data?.upcoming.map((e) => (
             <div key={e.id} className="border-b border-border py-2.5 last:border-0">
               <p className="text-sm text-foreground">{e.name}</p>
@@ -293,9 +376,15 @@ function Dashboard() {
           ))}
         </Panel>
 
-        <Panel title="Renewal outreach — lapsed donors" to="/renewals" linkLabel="Full renewal list">
+        <Panel
+          title="Renewal outreach — lapsed donors"
+          to="/renewals"
+          linkLabel="Full renewal list"
+        >
           {lapsed?.length === 0 && (
-            <p className="text-sm text-muted-foreground">Everyone who gave before has given again this year.</p>
+            <p className="text-sm text-muted-foreground">
+              Everyone who gave before has given again this year.
+            </p>
           )}
           {lapsed?.map((d) => (
             <Link
@@ -306,18 +395,24 @@ function Dashboard() {
               <div>
                 <p className="text-sm text-primary">{d.name ?? "Unnamed contact"}</p>
                 <p className="text-xs text-muted-foreground">
-                  Last gift {d.last_gift_amount === null ? "" : `${currency(d.last_gift_amount)} · `}
-                  {formatDate(d.last_gift_date)} · gave in {d.prior_years} {d.prior_years === 1 ? "year" : "years"}
+                  Last gift{" "}
+                  {d.last_gift_amount === null ? "" : `${currency(d.last_gift_amount)} · `}
+                  {formatDate(d.last_gift_date)} · gave in {d.prior_years}{" "}
+                  {d.prior_years === 1 ? "year" : "years"}
                 </p>
               </div>
-              <p className="shrink-0 text-sm text-muted-foreground">{currency(d.lifetime_total)} lifetime</p>
+              <p className="shrink-0 text-sm text-muted-foreground">
+                {currency(d.lifetime_total)} lifetime
+              </p>
             </Link>
           ))}
         </Panel>
 
         <Panel title="Upcoming Hebrew dates" to="/people" linkLabel="All people">
           {upcomingHebrew.length === 0 && (
-            <p className="text-sm text-muted-foreground">No birthdays, anniversaries or yahrzeits in the next month.</p>
+            <p className="text-sm text-muted-foreground">
+              No birthdays, anniversaries or yahrzeits in the next month.
+            </p>
           )}
           {upcomingHebrew.map((d) => (
             <Link
@@ -328,15 +423,17 @@ function Dashboard() {
             >
               <p className="text-sm text-primary">{d.name}</p>
               <p className={`text-xs ${d.occ.days <= 3 ? "text-urgent" : "text-muted-foreground"}`}>
-                {d.what} — in {d.occ.days} {d.occ.days === 1 ? "day" : "days"} ({formatDate(d.occ.date.toISOString())},
-                begins the evening before)
+                {d.what} — in {d.occ.days} {d.occ.days === 1 ? "day" : "days"} (
+                {formatDate(d.occ.date.toISOString())}, begins the evening before)
               </p>
             </Link>
           ))}
         </Panel>
 
         <Panel title="Recurring giving" to="/donations" linkLabel="All donations">
-          {!pledgeSummary || pledgeSummary.activeCount + pledgeSummary.lapsedCount + pledgeSummary.pausedCount === 0 ? (
+          {!pledgeSummary ||
+          pledgeSummary.activeCount + pledgeSummary.lapsedCount + pledgeSummary.pausedCount ===
+            0 ? (
             <p className="text-sm text-muted-foreground">
               No pledges recorded yet. Add one from a person's profile when they commit to give.
             </p>
@@ -344,13 +441,19 @@ function Dashboard() {
             <>
               <div className="flex items-baseline justify-between gap-3 border-b border-border py-2.5">
                 <p className="text-sm text-foreground">
-                  {pledgeSummary.activeCount} active {pledgeSummary.activeCount === 1 ? "pledge" : "pledges"}
+                  {pledgeSummary.activeCount} active{" "}
+                  {pledgeSummary.activeCount === 1 ? "pledge" : "pledges"}
                 </p>
-                <p className="shrink-0 font-semibold text-money">{currency(pledgeSummary.monthlyValue)} / month</p>
+                <p className="shrink-0 font-semibold text-money">
+                  {currency(pledgeSummary.monthlyValue)} / month
+                </p>
               </div>
               <div className="flex items-baseline justify-between gap-3 border-b border-border py-2.5">
-                <p className={`text-sm ${pledgeSummary.lapsedCount > 0 ? "text-urgent" : "text-muted-foreground"}`}>
-                  {pledgeSummary.lapsedCount} lapsed {pledgeSummary.lapsedCount === 1 ? "pledge" : "pledges"}
+                <p
+                  className={`text-sm ${pledgeSummary.lapsedCount > 0 ? "text-urgent" : "text-muted-foreground"}`}
+                >
+                  {pledgeSummary.lapsedCount} lapsed{" "}
+                  {pledgeSummary.lapsedCount === 1 ? "pledge" : "pledges"}
                   {pledgeSummary.pausedCount > 0 ? ` · ${pledgeSummary.pausedCount} paused` : ""}
                 </p>
                 {pledgeSummary.lapsedValue > 0 && (
@@ -371,9 +474,13 @@ function Dashboard() {
         </Panel>
 
         <Panel title="Upcoming grant deadlines" to="/grants" linkLabel="All grants">
-          {grantDeadlines.length === 0 && <p className="text-sm text-muted-foreground">No grant deadlines ahead.</p>}
+          {grantDeadlines.length === 0 && (
+            <p className="text-sm text-muted-foreground">No grant deadlines ahead.</p>
+          )}
           {grantDeadlines.map((d) => {
-            const days = Math.round((new Date(d.date).getTime() - new Date(today).getTime()) / 86400000);
+            const days = Math.round(
+              (new Date(d.date).getTime() - new Date(today).getTime()) / 86400000,
+            );
             return (
               <Link
                 key={d.id}
@@ -385,7 +492,8 @@ function Dashboard() {
                   {d.kind} · {d.name}
                 </p>
                 <p className={`text-xs ${days <= 14 ? "text-urgent" : "text-muted-foreground"}`}>
-                  Due {formatDate(d.date)} — in {days} {days === 1 ? "day" : "days"} · {personName(d.funder)}
+                  Due {formatDate(d.date)} — in {days} {days === 1 ? "day" : "days"} ·{" "}
+                  {personName(d.funder)}
                 </p>
               </Link>
             );
@@ -422,7 +530,10 @@ function SessionLogPanel() {
               <p className="text-sm text-foreground">{e.text}</p>
               <p className="text-xs text-muted-foreground">
                 {e.actor} ·{" "}
-                {new Date(e.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                {new Date(e.at).toLocaleTimeString(undefined, {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
               </p>
             </div>
           ))

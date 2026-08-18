@@ -2,10 +2,25 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { formatPhone } from "@/lib/phone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ArrowLeft, CalendarDays, FileText, HandCoins, Phone, StickyNote, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  FileText,
+  HandCoins,
+  Phone,
+  StickyNote,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { AppShell, EmptyState, currency, daysSince, formatDate, initials } from "@/components/AppShell";
+import {
+  AppShell,
+  EmptyState,
+  currency,
+  daysSince,
+  formatDate,
+  initials,
+} from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
@@ -45,18 +60,27 @@ import { YahrzeitEditor } from "@/components/YahrzeitEditor";
 import { PledgePanel } from "@/components/pledges/PledgePanel";
 import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
+import { RouteError } from "@/components/RouteError";
+import { showError, guard } from "@/lib/app-errors";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
   head: () => ({
     meta: [
       { title: "Person profile | Mitzvah House CRM" },
-      { name: "description", content: "One unified timeline of everything we know about this person." },
+      {
+        name: "description",
+        content: "One unified timeline of everything we know about this person.",
+      },
       { property: "og:title", content: "Person profile | Mitzvah House CRM" },
-      { property: "og:description", content: "One unified timeline of everything we know about this person." },
+      {
+        property: "og:description",
+        content: "One unified timeline of everything we know about this person.",
+      },
       { property: "og:type", content: "profile" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: PersonPage,
 });
 
@@ -76,7 +100,9 @@ function today() {
 function PersonPage() {
   const { personId } = Route.useParams();
   const navigate = useNavigate();
-  const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(null);
+  const [dialog, setDialog] = useState<null | "note" | "call" | "donation" | "event" | "yahrzeit">(
+    null,
+  );
   const [showAllGifts, setShowAllGifts] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -114,27 +140,44 @@ function PersonPage() {
       queryClient.invalidateQueries({ queryKey: ["person", personId] });
       queryClient.invalidateQueries({ queryKey: ["chip-options"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const { data, isLoading } = useQuery({
     queryKey: ["person", personId],
     queryFn: async () => {
-      const [person, interactions, donations, tasks, yahrzeits, registrations, sources, methods] = await Promise.all([
-        supabase.from("people").select("*, households(id, name, address, billing_address, phone)").eq("id", personId).maybeSingle(),
-        supabase.from("interactions").select("*").eq("person_id", personId).order("date", { ascending: false }),
-        supabase
-          .from("donations")
-          .select("*, campaigns(id, name), grants(id, name)")
-          .is("deleted_at", null)
-          .eq("person_id", personId)
-          .order("date", { ascending: false }),
-        supabase.from("tasks").select("*").is("deleted_at", null).eq("person_id", personId).order("due_date"),
-        supabase.from("yahrzeits").select("*").eq("person_id", personId),
-        supabase.from("registrations").select("id, status, events(id, name, date, program)").eq("person_id", personId),
-        supabase.from("field_sources").select("*").eq("person_id", personId),
-        fetchContactMethods(personId),
-      ]);
+      const [person, interactions, donations, tasks, yahrzeits, registrations, sources, methods] =
+        await Promise.all([
+          supabase
+            .from("people")
+            .select("*, households(id, name, address, billing_address, phone)")
+            .eq("id", personId)
+            .maybeSingle(),
+          supabase
+            .from("interactions")
+            .select("*")
+            .eq("person_id", personId)
+            .order("date", { ascending: false }),
+          supabase
+            .from("donations")
+            .select("*, campaigns(id, name), grants(id, name)")
+            .is("deleted_at", null)
+            .eq("person_id", personId)
+            .order("date", { ascending: false }),
+          supabase
+            .from("tasks")
+            .select("*")
+            .is("deleted_at", null)
+            .eq("person_id", personId)
+            .order("due_date"),
+          supabase.from("yahrzeits").select("*").eq("person_id", personId),
+          supabase
+            .from("registrations")
+            .select("id, status, events(id, name, date, program)")
+            .eq("person_id", personId),
+          supabase.from("field_sources").select("*").eq("person_id", personId),
+          fetchContactMethods(personId),
+        ]);
       const householdId = person.data?.household_id ?? null;
       const relatives = householdId
         ? await supabase
@@ -188,30 +231,41 @@ function PersonPage() {
     for (const [key, value] of Object.entries(patch)) {
       // Capitalisation is tidied on names and addresses; spelling is never changed.
       let next = value;
-      if (value && (key === "address" || key === "billing_address")) next = properCaseAddress(value);
-      else if (value && ["first_name", "last_name", "display_name", "school"].includes(key)) next = properCase(value);
+      if (value && (key === "address" || key === "billing_address"))
+        next = properCaseAddress(value);
+      else if (value && ["first_name", "last_name", "display_name", "school"].includes(key))
+        next = properCase(value);
       if ((householdKeys as readonly string[]).includes(key)) householdPatch[key] = next;
       else personPatch[key] = next;
     }
 
     if (Object.keys(personPatch).length) {
-      const { error } = await supabase.from("people").update(personPatch as never).eq("id", personId);
+      const { error } = await supabase
+        .from("people")
+        .update(personPatch as never)
+        .eq("id", personId);
       if (error) throw error;
     }
     if (Object.keys(householdPatch).length) {
       if (!householdId) throw new Error("Add this person to a household before saving an address");
-      const { error } = await supabase.from("households").update(householdPatch as never).eq("id", householdId);
+      const { error } = await supabase
+        .from("households")
+        .update(householdPatch as never)
+        .eq("id", householdId);
       if (error) throw error;
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    await supabase.from("field_sources").insert(
-      Object.keys(patch).map((field_name) => ({
-        person_id: personId,
-        field_name,
-        source: "Edited by staff",
-        recorded_date: today,
-      })),
+    await guard(
+      supabase.from("field_sources").insert(
+        Object.keys(patch).map((field_name) => ({
+          person_id: personId,
+          field_name,
+          source: "Edited by staff",
+          recorded_date: today,
+        })),
+      ),
+      { area: "people", action: "Record where the details came from" },
     );
 
     toast.success("Saved");
@@ -268,7 +322,9 @@ function PersonPage() {
     .filter((d) => (d.date ?? "").slice(0, 4) === String(currentYear))
     .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
   const giftSource = (d: (typeof gifts)[number]) =>
-    [d.source, d.campaigns?.name ?? d.campaign, d.grants?.name, d.method].filter(Boolean).join(" / ") || "Manual entry";
+    [d.source, d.campaigns?.name ?? d.campaign, d.grants?.name, d.method]
+      .filter(Boolean)
+      .join(" / ") || "Manual entry";
 
   return (
     <AppShell
@@ -335,7 +391,8 @@ function PersonPage() {
         onOpenChange={setMergeOpen}
         primaryId={personId}
         onMerged={(survivingId) => {
-          if (survivingId !== personId) navigate({ to: "/people/$personId", params: { personId: survivingId } });
+          if (survivingId !== personId)
+            navigate({ to: "/people/$personId", params: { personId: survivingId } });
         }}
       />
       <EditRecordDialog
@@ -404,22 +461,25 @@ function PersonPage() {
           <p className="font-heading font-semibold text-foreground">Growing up</p>
           {!p.birth_date ? (
             <p className="mt-1 text-muted-foreground">
-              No birth date on file, so we can't work out bar/bat mitzvah or adult age. We don't guess — ask the family
-              and add it.
+              No birth date on file, so we can't work out bar/bat mitzvah or adult age. We don't
+              guess — ask the family and add it.
             </p>
           ) : (
             <>
               {mAge === null && (
                 <p className="mt-1 text-muted-foreground">
-                  We don't have male or female on file, so bar/bat mitzvah age can't be worked out. Boys reach it at 13,
-                  girls at 12.
+                  We don't have male or female on file, so bar/bat mitzvah age can't be worked out.
+                  Boys reach it at 13, girls at 12.
                 </p>
               )}
               {mitzvah && (
                 <p className="mt-1 text-muted-foreground">
                   {mitzvahLabel(p.gender)} age ({mAge}) falls on {mitzvah.hebrewLabel} —{" "}
                   {formatDate(mitzvah.date.toISOString())}
-                  {mitzvah.days >= 0 ? `, in ${mitzvah.days} ${mitzvah.days === 1 ? "day" : "days"}` : " (already passed)"}.
+                  {mitzvah.days >= 0
+                    ? `, in ${mitzvah.days} ${mitzvah.days === 1 ? "day" : "days"}`
+                    : " (already passed)"}
+                  .
                 </p>
               )}
               {adultMilestone && (
@@ -441,9 +501,7 @@ function PersonPage() {
             {personInitials(p)}
           </span>
           <div className="min-w-0">
-            <h2 className="font-heading text-xl font-semibold">
-              {personName(p)}
-            </h2>
+            <h2 className="font-heading text-xl font-semibold">{personName(p)}</h2>
             <p className="text-sm text-muted-foreground">
               {p.households ? (
                 <Link
@@ -462,7 +520,9 @@ function PersonPage() {
               {since === null ? "No activity yet" : `last activity: ${since} days ago`}
             </p>
             <div className="mt-3">
-              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</p>
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Tags
+              </p>
               <ChipEditor
                 values={p.tags ?? []}
                 options={options?.tags ?? []}
@@ -473,7 +533,9 @@ function PersonPage() {
               />
             </div>
             <div className="mt-3">
-              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Programs</p>
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Programs
+              </p>
               <ChipEditor
                 values={p.programs ?? []}
                 options={options?.programs ?? []}
@@ -494,9 +556,7 @@ function PersonPage() {
           <EditableCard
             title="Contact info"
             values={{ phone: p.phone, email: p.email, address: p.households?.address }}
-            fields={[
-              { key: "address", label: "Address (shared with the household)", full: true },
-            ]}
+            fields={[{ key: "address", label: "Address (shared with the household)", full: true }]}
             onSave={savePersonFields}
             editHint="Phone numbers and emails save as soon as you add them. Other changes save with the button below."
             extraEditor={
@@ -513,18 +573,32 @@ function PersonPage() {
             <div className="border-b border-border pb-2">
               <p className="text-xs text-muted-foreground">Phone</p>
               <div className="mt-1">
-                <ContactMethodList kind="phone" rows={data?.methods ?? []} fallback={p.phone} emptyLabel="No phone number yet." />
+                <ContactMethodList
+                  kind="phone"
+                  rows={data?.methods ?? []}
+                  fallback={p.phone}
+                  emptyLabel="No phone number yet."
+                />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("phone")}</p>
             </div>
             <div className="border-b border-border py-2">
               <p className="text-xs text-muted-foreground">Email</p>
               <div className="mt-1">
-                <ContactMethodList kind="email" rows={data?.methods ?? []} fallback={p.email} emptyLabel="No email yet." />
+                <ContactMethodList
+                  kind="email"
+                  rows={data?.methods ?? []}
+                  fallback={p.email}
+                  emptyLabel="No email yet."
+                />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("email")}</p>
             </div>
-            <SourceRow label="Address" value={p.households?.address} source={sourceFor("address")} />
+            <SourceRow
+              label="Address"
+              value={p.households?.address}
+              source={sourceFor("address")}
+            />
           </EditableCard>
 
           <EditableCard
@@ -547,13 +621,14 @@ function PersonPage() {
             ]}
             onSave={savePersonFields}
           >
-            {p.households?.billing_address && p.households.billing_address !== p.households.address && (
-              <SourceRow
-                label="Billing address"
-                value={p.households.billing_address}
-                source={sourceFor("billing_address")}
-              />
-            )}
+            {p.households?.billing_address &&
+              p.households.billing_address !== p.households.address && (
+                <SourceRow
+                  label="Billing address"
+                  value={p.households.billing_address}
+                  source={sourceFor("billing_address")}
+                />
+              )}
             <SourceRow label="School" value={p.school} source={sourceFor("school")} />
             <SourceRow label="Notes" value={p.notes} source={sourceFor("notes")} />
             <SourceRow
@@ -571,14 +646,21 @@ function PersonPage() {
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {showAllGifts ? `All donations (${gifts.length})` : "Most recent donations"}
               </p>
-              {gifts.length === 0 && <p className="text-sm text-muted-foreground">No donations yet.</p>}
+              {gifts.length === 0 && (
+                <p className="text-sm text-muted-foreground">No donations yet.</p>
+              )}
               {(showAllGifts ? gifts : gifts.slice(0, 3)).map((d) => (
-                <div key={d.id} className="flex items-start justify-between gap-3 border-b border-border py-2 last:border-0">
+                <div
+                  key={d.id}
+                  className="flex items-start justify-between gap-3 border-b border-border py-2 last:border-0"
+                >
                   <div className="min-w-0">
                     <p className="text-sm text-foreground">{formatDate(d.date)}</p>
                     <p className="text-xs text-muted-foreground">{giftSource(d)}</p>
                   </div>
-                  <p className="shrink-0 font-heading text-sm font-semibold text-money">{currency(d.amount)}</p>
+                  <p className="shrink-0 font-heading text-sm font-semibold text-money">
+                    {currency(d.amount)}
+                  </p>
                 </div>
               ))}
               {gifts.length > 3 && (
@@ -615,19 +697,24 @@ function PersonPage() {
             }
           >
             <div className="border-b border-border pb-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Birthday</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Birthday
+              </p>
               {p.birth_date ? (
                 <>
                   <p className="text-sm text-foreground">{formatDate(p.birth_date)}</p>
                   <p className="text-sm text-primary">{hebrewDateFromEnglish(p.birth_date)}</p>
                   {bday && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Hebrew birthday {bday.hebrewLabel} — in {bday.days} {bday.days === 1 ? "day" : "days"}, which
-                      falls on {formatDate(bday.date.toISOString())} this year. It begins the evening of{" "}
+                      Hebrew birthday {bday.hebrewLabel} — in {bday.days}{" "}
+                      {bday.days === 1 ? "day" : "days"}, which falls on{" "}
+                      {formatDate(bday.date.toISOString())} this year. It begins the evening of{" "}
                       {formatDate(bday.eve.toISOString())}.
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-muted-foreground">Source: {sourceFor("birth_date")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Source: {sourceFor("birth_date")}
+                  </p>
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">No birthday on file.</p>
@@ -635,17 +722,21 @@ function PersonPage() {
             </div>
 
             <div className="border-b border-border py-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Anniversary</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Anniversary
+              </p>
               {p.anniversary_date ? (
                 <>
                   <p className="text-sm text-foreground">{formatDate(p.anniversary_date)}</p>
-                  <p className="text-sm text-primary">{hebrewDateFromEnglish(p.anniversary_date)}</p>
+                  <p className="text-sm text-primary">
+                    {hebrewDateFromEnglish(p.anniversary_date)}
+                  </p>
                   {anniversary && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       Hebrew anniversary {anniversary.hebrewLabel} — in {anniversary.days}{" "}
                       {anniversary.days === 1 ? "day" : "days"}, which falls on{" "}
-                      {formatDate(anniversary.date.toISOString())} this year. It begins the evening of{" "}
-                      {formatDate(anniversary.eve.toISOString())}.
+                      {formatDate(anniversary.date.toISOString())} this year. It begins the evening
+                      of {formatDate(anniversary.eve.toISOString())}.
                     </p>
                   )}
                 </>
@@ -654,7 +745,9 @@ function PersonPage() {
               )}
             </div>
 
-            <p className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Yahrzeits</p>
+            <p className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Yahrzeits
+            </p>
             {(data?.yahrzeits ?? []).length === 0 && (
               <p className="text-sm text-muted-foreground">No yahrzeits recorded.</p>
             )}
@@ -664,7 +757,8 @@ function PersonPage() {
                 <div key={y.id} className="border-b border-border py-2 last:border-0">
                   <p className="text-sm text-foreground">{y.deceased_name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {y.relationship ?? "Relative"} · {hebrewMonthName(y.hebrew_month)} {y.hebrew_day}
+                    {y.relationship ?? "Relative"} · {hebrewMonthName(y.hebrew_month)}{" "}
+                    {y.hebrew_day}
                   </p>
                   {next && (
                     <p className="text-xs text-primary">
@@ -686,27 +780,51 @@ function PersonPage() {
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("note")}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setDialog("note")}
+            >
               <Plus className="size-3.5" /> Note
             </Button>
-            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("call")}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setDialog("call")}
+            >
               <Plus className="size-3.5" /> Call
             </Button>
-            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("donation")}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setDialog("donation")}
+            >
               <Plus className="size-3.5" /> Donation
             </Button>
-            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setDialog("event")}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setDialog("event")}
+            >
               <Plus className="size-3.5" /> Event
             </Button>
           </div>
           <ol className="mt-4 space-y-4">
-            {timeline.length === 0 && <li className="text-sm text-muted-foreground">No activity yet.</li>}
+            {timeline.length === 0 && (
+              <li className="text-sm text-muted-foreground">No activity yet.</li>
+            )}
             {timeline.map((item) => {
               const meta = KIND_ICON[item.kind] ?? KIND_ICON["note"]!;
               const Icon = meta.icon;
               return (
                 <li key={item.key} className="flex gap-3">
-                  <span className={`grid size-8 shrink-0 place-items-center rounded-xl ${meta.className}`}>
+                  <span
+                    className={`grid size-8 shrink-0 place-items-center rounded-xl ${meta.className}`}
+                  >
                     <Icon className="size-4" />
                   </span>
                   <div className="min-w-0">
@@ -733,13 +851,14 @@ function PersonPage() {
               .map((t) => (
                 <div key={t.id} className="border-b border-border py-2 last:border-0">
                   <p className="text-sm text-foreground">{t.text}</p>
-                  <p className={`text-xs ${t.status === "overdue" ? "text-urgent" : "text-muted-foreground"}`}>
+                  <p
+                    className={`text-xs ${t.status === "overdue" ? "text-urgent" : "text-muted-foreground"}`}
+                  >
                     Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"}
                   </p>
                 </div>
               ))}
           </Card>
-
         </div>
       </div>
 
@@ -747,7 +866,8 @@ function PersonPage() {
       <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
         <h2 className="font-heading font-semibold text-foreground">Relatives</h2>
         <p className="text-xs text-muted-foreground">
-          Other people we have in {p.households?.name ?? "this household"} — tap to open their profile
+          Other people we have in {p.households?.name ?? "this household"} — tap to open their
+          profile
         </p>
         {(data?.relatives ?? []).length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">
@@ -766,7 +886,9 @@ function PersonPage() {
                   {personInitials(r)}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-foreground">{personName(r)}</span>
+                  <span className="block truncate text-sm font-medium text-foreground">
+                    {personName(r)}
+                  </span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {[r.role ?? "Adult", formatPhone(r.phone), r.email].filter(Boolean).join(" · ")}
                   </span>
@@ -806,7 +928,10 @@ function ActivityDialog({
     queryKey: ["events-mini"],
     enabled: kind === "event",
     queryFn: async () => {
-      const { data, error } = await supabase.from("events").select("id, name, date").order("date", { ascending: false });
+      const { data, error } = await supabase
+        .from("events")
+        .select("id, name, date")
+        .order("date", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -858,7 +983,7 @@ function ActivityDialog({
       setRelationship("");
       onClose();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const titles: Record<string, string> = {
@@ -889,11 +1014,21 @@ function ActivityDialog({
             <>
               <div>
                 <Label className="text-xs text-muted-foreground">Date</Label>
-                <Input className="mt-1 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input
+                  className="mt-1 text-base"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">What happened</Label>
-                <Textarea className="mt-1 text-base" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+                <Textarea
+                  className="mt-1 text-base"
+                  rows={4}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                />
               </div>
             </>
           )}
@@ -912,11 +1047,20 @@ function ActivityDialog({
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Date</Label>
-                <Input className="mt-1 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input
+                  className="mt-1 text-base"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Campaign</Label>
-                <Input className="mt-1 text-base" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+                <Input
+                  className="mt-1 text-base"
+                  value={campaign}
+                  onChange={(e) => setCampaign(e.target.value)}
+                />
               </div>
             </>
           )}
@@ -943,7 +1087,11 @@ function ActivityDialog({
             <>
               <div>
                 <Label className="text-xs text-muted-foreground">Name of deceased</Label>
-                <Input className="mt-1 text-base" value={deceased} onChange={(e) => setDeceased(e.target.value)} />
+                <Input
+                  className="mt-1 text-base"
+                  value={deceased}
+                  onChange={(e) => setDeceased(e.target.value)}
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Relationship</Label>
@@ -985,7 +1133,8 @@ function ActivityDialog({
                 const next = nextYahrzeit(Number(hMonth), Number(hDay));
                 return next ? (
                   <p className="text-xs text-primary">
-                    Next observance: {next.hebrew} — {formatDate(next.date.toISOString())} (in {next.days} days)
+                    Next observance: {next.hebrew} — {formatDate(next.date.toISOString())} (in{" "}
+                    {next.days} days)
                   </p>
                 ) : null;
               })()}
@@ -1009,7 +1158,15 @@ function ActivityDialog({
   );
 }
 
-function Card({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Card({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
@@ -1025,12 +1182,22 @@ function Stat({ label, value, money }: { label: string; value: string; money?: b
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border py-1.5 last:border-0">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`text-sm font-medium ${money ? "text-money" : "text-foreground"}`}>{value}</span>
+      <span className={`text-sm font-medium ${money ? "text-money" : "text-foreground"}`}>
+        {value}
+      </span>
     </div>
   );
 }
 
-function SourceRow({ label, value, source }: { label: string; value?: string | null | undefined; source: string }) {
+function SourceRow({
+  label,
+  value,
+  source,
+}: {
+  label: string;
+  value?: string | null | undefined;
+  source: string;
+}) {
   return (
     <div className="border-b border-border py-2 last:border-0">
       <p className="text-xs text-muted-foreground">{label}</p>

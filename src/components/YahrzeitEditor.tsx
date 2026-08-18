@@ -15,9 +15,19 @@ export type YahrzeitRow = {
   hebrew_day: number;
 };
 
-type Draft = { deceased_name: string; relationship: string; hebrew_month: string; hebrew_day: string };
+type Draft = {
+  deceased_name: string;
+  relationship: string;
+  hebrew_month: string;
+  hebrew_day: string;
+};
 
-const emptyDraft: Draft = { deceased_name: "", relationship: "", hebrew_month: "1", hebrew_day: "1" };
+const emptyDraft: Draft = {
+  deceased_name: "",
+  relationship: "",
+  hebrew_month: "1",
+  hebrew_day: "1",
+};
 
 /**
  * Add, edit and remove yahrzeits. Lives inside the Special dates card's edit mode,
@@ -123,13 +133,15 @@ export function YahrzeitEditor({
         const dirty = Boolean(edits[r.id]);
         return (
           <div key={r.id} className="rounded-xl border border-border p-3">
-            <DateFields
-              draft={d}
-              onChange={(patch) => setDraft(r.id, patch)}
-            />
+            <DateFields draft={d} onChange={(patch) => setDraft(r.id, patch)} />
             <div className="mt-3 flex flex-wrap gap-2">
               {dirty && (
-                <Button size="sm" className="min-h-11 rounded-xl" disabled={busy} onClick={() => saveExisting(r.id)}>
+                <Button
+                  size="sm"
+                  className="min-h-11 rounded-xl"
+                  disabled={busy}
+                  onClick={() => saveExisting(r.id)}
+                >
                   Save this yahrzeit
                 </Button>
               )}
@@ -149,7 +161,10 @@ export function YahrzeitEditor({
 
       {adding ? (
         <div className="rounded-xl border border-dashed border-border p-3">
-          <DateFields draft={adding} onChange={(patch) => setAdding((a) => ({ ...(a ?? emptyDraft), ...patch }))} />
+          <DateFields
+            draft={adding}
+            onChange={(patch) => setAdding((a) => ({ ...(a ?? emptyDraft), ...patch }))}
+          />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" className="min-h-11 rounded-xl" disabled={busy} onClick={addNew}>
               Save yahrzeit
@@ -179,7 +194,13 @@ export function YahrzeitEditor({
   );
 }
 
-function DateFields({ draft, onChange }: { draft: Draft; onChange: (patch: Partial<Draft>) => void }) {
+function DateFields({
+  draft,
+  onChange,
+}: {
+  draft: Draft;
+  onChange: (patch: Partial<Draft>) => void;
+}) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label="Name of the person remembered">
@@ -236,8 +257,8 @@ function DateFields({ draft, onChange }: { draft: Draft; onChange: (patch: Parti
         />
       </Field>
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        Observed on {hebrewMonthName(Number(draft.hebrew_month))} {draft.hebrew_day}. In a Hebrew leap year, an Adar
-        yahrzeit is observed in Adar II.
+        Observed on {hebrewMonthName(Number(draft.hebrew_month))} {draft.hebrew_day}. In a Hebrew
+        leap year, an Adar yahrzeit is observed in Adar II.
       </p>
     </div>
   );

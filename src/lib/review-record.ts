@@ -25,7 +25,13 @@ export type FullRecord = {
 };
 
 function methodRows(
-  rows: { kind: string; value: string; method_type: string | null; label: string | null; is_primary: boolean }[],
+  rows: {
+    kind: string;
+    value: string;
+    method_type: string | null;
+    label: string | null;
+    is_primary: boolean;
+  }[],
   kind: string,
   fallback: string | null,
 ) {
@@ -38,7 +44,11 @@ function methodRows(
 
 /** Load the complete stored record for one contact. */
 export async function fetchFullRecord(personId: string): Promise<FullRecord> {
-  const { data: person, error } = await supabase.from("people").select("*").eq("id", personId).single();
+  const { data: person, error } = await supabase
+    .from("people")
+    .select("*")
+    .eq("id", personId)
+    .single();
   if (error) throw error;
 
   const [methods, gifts, regs, notes] = await Promise.all([
@@ -70,7 +80,11 @@ export async function fetchFullRecord(personId: string): Promise<FullRecord> {
   let householdMembers: FullRecord["householdMembers"] = [];
   if (person.household_id) {
     const [{ data: h }, { data: members }] = await Promise.all([
-      supabase.from("households").select("id, name, address").eq("id", person.household_id).maybeSingle(),
+      supabase
+        .from("households")
+        .select("id, name, address")
+        .eq("id", person.household_id)
+        .maybeSingle(),
       supabase
         .from("people")
         .select("id, display_name, first_name, last_name, household_relationship")
@@ -80,7 +94,11 @@ export async function fetchFullRecord(personId: string): Promise<FullRecord> {
     household = h ? { id: h.id, name: h.name, address: h.address ?? null } : null;
     householdMembers = (members ?? [])
       .filter((m) => m.id !== personId)
-      .map((m) => ({ id: m.id, name: personName(m), relationship: m.household_relationship ?? null }));
+      .map((m) => ({
+        id: m.id,
+        name: personName(m),
+        relationship: m.household_relationship ?? null,
+      }));
   }
 
   const giftRows = (gifts.data ?? []).map((g) => ({

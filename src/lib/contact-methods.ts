@@ -31,14 +31,27 @@ export function methodKey(kind: MethodKind, value: string) {
 }
 
 /** A new phone or email being entered before it has been saved. */
-export type MethodDraft = { id?: string; kind: MethodKind; value: string; method_type: string; is_primary: boolean };
+export type MethodDraft = {
+  id?: string;
+  kind: MethodKind;
+  value: string;
+  method_type: string;
+  is_primary: boolean;
+};
 
 export function emptyDraft(kind: MethodKind, isPrimary = false): MethodDraft {
-  return { kind, value: "", method_type: kind === "phone" ? "Mobile" : "Personal", is_primary: isPrimary };
+  return {
+    kind,
+    value: "",
+    method_type: kind === "phone" ? "Mobile" : "Personal",
+    is_primary: isPrimary,
+  };
 }
 
 export function sortMethods(rows: readonly ContactMethod[]) {
-  return [...rows].sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.value.localeCompare(b.value));
+  return [...rows].sort(
+    (a, b) => Number(b.is_primary) - Number(a.is_primary) || a.value.localeCompare(b.value),
+  );
 }
 
 export async function fetchContactMethods(personId: string) {
@@ -100,9 +113,19 @@ export async function seedPrimaryMethods(
 ) {
   const drafts: MethodDraft[] = [];
   if ((values.phone ?? "").trim())
-    drafts.push({ kind: "phone", value: values.phone!.trim(), method_type: "Mobile", is_primary: true });
+    drafts.push({
+      kind: "phone",
+      value: values.phone!.trim(),
+      method_type: "Mobile",
+      is_primary: true,
+    });
   if ((values.email ?? "").trim())
-    drafts.push({ kind: "email", value: values.email!.trim(), method_type: "Personal", is_primary: true });
+    drafts.push({
+      kind: "email",
+      value: values.email!.trim(),
+      method_type: "Personal",
+      is_primary: true,
+    });
   if (drafts.length === 0) return;
   await addContactMethods(personId, drafts, { importBatchId: importBatchId ?? null, existing: [] });
 }

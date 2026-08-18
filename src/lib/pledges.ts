@@ -53,7 +53,10 @@ const MONTHS_PER: Record<PledgeFrequency, number> = {
 };
 
 /** What a recurring pledge is worth each month, so totals can be compared. */
-export function monthlyEquivalent(p: { amount: number | string; frequency: PledgeFrequency }): number {
+export function monthlyEquivalent(p: {
+  amount: number | string;
+  frequency: PledgeFrequency;
+}): number {
   const amount = Number(p.amount) || 0;
   const months = MONTHS_PER[p.frequency];
   return months === 0 ? 0 : amount / months;
@@ -122,7 +125,11 @@ export async function fetchPledgesForPerson(personId: string): Promise<PledgeWit
       .select("*")
       .eq("person_id", personId)
       .order("created_at", { ascending: false }),
-    supabase.from("donations").select("amount, date, pledge_id").eq("person_id", personId).is("deleted_at", null),
+    supabase
+      .from("donations")
+      .select("amount, date, pledge_id")
+      .eq("person_id", personId)
+      .is("deleted_at", null),
   ]);
   if (error) throw error;
   return ((pledges ?? []) as Pledge[]).map((p) => {
@@ -130,7 +137,11 @@ export async function fetchPledgesForPerson(personId: string): Promise<PledgeWit
     return {
       ...p,
       received: paid.reduce((n, g) => n + Number(g.amount ?? 0), 0),
-      lastGiftDate: paid.map((g) => g.date).sort().at(-1) ?? null,
+      lastGiftDate:
+        paid
+          .map((g) => g.date)
+          .sort()
+          .at(-1) ?? null,
     };
   });
 }

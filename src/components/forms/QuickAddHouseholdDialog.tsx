@@ -10,7 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/forms/fields";
 import { properCaseAddress } from "@/lib/proper-case";
 import { logChange } from "@/lib/session-log";
-import { createFindOutWhoTask, findHouseholdAtAddress, nameFromAddress } from "@/lib/address-household";
+import {
+  createFindOutWhoTask,
+  findHouseholdAtAddress,
+  nameFromAddress,
+} from "@/lib/address-household";
+import { showError, guard } from "@/lib/app-errors";
 
 const HINTS = [
   "Family with young kids",
@@ -112,11 +117,14 @@ export function QuickAddHouseholdDialog({
       if (error) throw error;
 
       if (noteLines.length) {
-        await supabase.from("interactions").insert({
-          household_id: data.id,
-          type: "note",
-          text: noteLines.join(" · "),
-        });
+        await guard(
+          supabase.from("interactions").insert({
+            household_id: data.id,
+            type: "note",
+            text: noteLines.join(" · "),
+          }),
+          { area: "households", action: "Add the timeline note" },
+        );
       }
       await createFindOutWhoTask(clean);
     },
@@ -127,7 +135,7 @@ export function QuickAddHouseholdDialog({
       reset();
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -138,7 +146,11 @@ export function QuickAddHouseholdDialog({
       description="For doorsteps and deliveries — the address is all you need."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -162,7 +174,13 @@ export function QuickAddHouseholdDialog({
             onChange={(e) => setAddress(e.target.value)}
           />
         </Field>
-        <Button type="button" variant="outline" className="rounded-xl" onClick={useMyLocation} disabled={locating}>
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-xl"
+          onClick={useMyLocation}
+          disabled={locating}
+        >
           {locating ? <Loader2 className="size-4 animate-spin" /> : <MapPin className="size-4" />}
           Use my current location
         </Button>
@@ -198,7 +216,11 @@ export function QuickAddHouseholdDialog({
         </div>
 
         <Field label="First name, if you got one">
-          <Input className="text-base" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+          <Input
+            className="text-base"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+          />
         </Field>
         <Field label="Phone, if you got one">
           <Input
@@ -246,7 +268,7 @@ export function LogHouseholdActivityDialog({
       setText("");
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -257,10 +279,18 @@ export function LogHouseholdActivityDialog({
       description="Visits and deliveries stay on this address's history."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button className="flex-1 rounded-xl sm:flex-none" onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
             Save
           </Button>
         </>
@@ -274,7 +304,9 @@ export function LogHouseholdActivityDialog({
               type="button"
               onClick={() => setKind(k)}
               className={`rounded-full border px-3 py-1.5 text-sm ${
-                kind === k ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+                kind === k
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground"
               }`}
             >
               {k}
@@ -282,10 +314,20 @@ export function LogHouseholdActivityDialog({
           ))}
         </div>
         <Field label="Date">
-          <Input className="text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </Field>
         <Field label="What happened">
-          <Textarea className="text-base" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>

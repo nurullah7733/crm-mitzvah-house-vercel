@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Plus, Users, Download, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { QueryError } from "@/components/ErrorState";
 import { AppShell, EmptyState, currency } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddHouseholdDialog } from "@/components/forms/AddDialogs";
@@ -13,6 +14,7 @@ import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { fetchAll } from "@/lib/fetch-all";
+import { RouteError } from "@/components/RouteError";
 
 type HouseholdRow = {
   id: string;
@@ -37,7 +39,11 @@ const NAME_STYLES = [
   { value: "household", label: "Household name", hint: "The Klein Household" },
   { value: "adult_firsts", label: "First names of the adults", hint: "Sarah & David Klein" },
   { value: "adults_full", label: "Full names of the adults", hint: "Sarah Klein, David Klein" },
-  { value: "all_members", label: "Everyone in the household", hint: "Sarah, David, Ari, Mia Klein" },
+  {
+    value: "all_members",
+    label: "Everyone in the household",
+    hint: "Sarah, David, Ari, Mia Klein",
+  },
 ] as const;
 type NameStyle = (typeof NAME_STYLES)[number]["value"];
 
@@ -101,7 +107,9 @@ function ExportHouseholdsDialog({
     setColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
   // Address-only households stay out of mailing exports unless deliberately included.
-  const exportable = includeAddressOnly ? households : households.filter((h) => h.status !== "address_only");
+  const exportable = includeAddressOnly
+    ? households
+    : households.filter((h) => h.status !== "address_only");
 
   function run() {
     const rows = exportable.map((h) => {
@@ -112,7 +120,10 @@ function ExportHouseholdsDialog({
       if (columns.includes("member_names"))
         row["Member names"] = h.people.map((p) => `${p.first_name} ${p.last_name}`).join("; ");
       if (columns.includes("emails"))
-        row["Member emails"] = h.people.map((p) => p.email).filter(Boolean).join("; ");
+        row["Member emails"] = h.people
+          .map((p) => p.email)
+          .filter(Boolean)
+          .join("; ");
       if (columns.includes("lifetime"))
         row["Lifetime giving"] = h.people.reduce((s, p) => s + Number(p.lifetime_giving ?? 0), 0);
       if (columns.includes("this_year"))
@@ -167,7 +178,10 @@ function ExportHouseholdsDialog({
           <p className="text-sm font-medium text-foreground">Include these columns</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {COLUMNS.map((c) => (
-              <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border p-3 text-sm">
+              <label
+                key={c.key}
+                className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border p-3 text-sm"
+              >
                 <input
                   type="checkbox"
                   className="size-4"
@@ -202,11 +216,18 @@ export const Route = createFileRoute("/_authenticated/households/")({
   head: () => ({
     meta: [
       { title: "Households | Mitzvah House CRM" },
-      { name: "description", content: "Households grouped for mailings, with the people who belong to each." },
+      {
+        name: "description",
+        content: "Households grouped for mailings, with the people who belong to each.",
+      },
       { property: "og:title", content: "Households | Mitzvah House CRM" },
-      { property: "og:description", content: "Households grouped for mailings, with the people who belong to each." },
+      {
+        property: "og:description",
+        content: "Households grouped for mailings, with the people who belong to each.",
+      },
     ],
   }),
+  errorComponent: RouteError,
   component: HouseholdsPage,
 });
 
@@ -216,13 +237,15 @@ function HouseholdsPage() {
   const [filter, setFilter] = useState<"all" | "address_only" | "established">("all");
   const selection = useSelection();
   const [exportOpen, setExportOpen] = useState(false);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["households-list"],
     queryFn: () =>
       fetchAll((f, t) =>
         supabase
           .from("households")
-          .select("*, people(id, first_name, last_name, role, email, phone, lifetime_giving, this_year_giving)")
+          .select(
+            "*, people(id, first_name, last_name, role, email, phone, lifetime_giving, this_year_giving)",
+          )
           .order("name")
           .order("id")
           .range(f, t),
@@ -231,7 +254,11 @@ function HouseholdsPage() {
 
   const all = (data ?? []) as HouseholdRow[];
   const rows = all.filter((h) =>
-    filter === "all" ? true : filter === "address_only" ? h.status === "address_only" : h.status !== "address_only",
+    filter === "all"
+      ? true
+      : filter === "address_only"
+        ? h.status === "address_only"
+        : h.status !== "address_only",
   );
 
   return (
@@ -256,8 +283,14 @@ function HouseholdsPage() {
         {(
           [
             ["all", `All (${all.length})`],
-            ["established", `Established (${all.filter((h) => h.status !== "address_only").length})`],
-            ["address_only", `Address only (${all.filter((h) => h.status === "address_only").length})`],
+            [
+              "established",
+              `Established (${all.filter((h) => h.status !== "address_only").length})`,
+            ],
+            [
+              "address_only",
+              `Address only (${all.filter((h) => h.status === "address_only").length})`,
+            ],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -265,7 +298,9 @@ function HouseholdsPage() {
             type="button"
             onClick={() => setFilter(value)}
             className={`rounded-full border px-3 py-1.5 text-sm ${
-              filter === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+              filter === value
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground"
             }`}
           >
             {label}
@@ -273,7 +308,8 @@ function HouseholdsPage() {
         ))}
       </div>
 
-      {isLoading && <EmptyState label="Loading households…" />}
+      <QueryError error={error} what="the households list" onRetry={() => void refetch()} />
+      {isLoading && !error && <EmptyState label="Loading households…" />}
       <SelectAllToggle
         visibleIds={rows.map((h) => h.id)}
         selectedIds={selection.ids}
@@ -284,8 +320,14 @@ function HouseholdsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {rows.map((h) => {
-          const lifetime = (h.people ?? []).reduce((sum, p) => sum + Number(p.lifetime_giving ?? 0), 0);
-          const thisYear = (h.people ?? []).reduce((sum, p) => sum + Number(p.this_year_giving ?? 0), 0);
+          const lifetime = (h.people ?? []).reduce(
+            (sum, p) => sum + Number(p.lifetime_giving ?? 0),
+            0,
+          );
+          const thisYear = (h.people ?? []).reduce(
+            (sum, p) => sum + Number(p.this_year_giving ?? 0),
+            0,
+          );
           return (
             <div
               key={h.id}
@@ -325,7 +367,7 @@ function HouseholdsPage() {
           );
         })}
       </div>
-      {!isLoading && rows.length === 0 && <EmptyState label="Nothing here yet." />}
+      {!isLoading && !error && rows.length === 0 && <EmptyState label="Nothing here yet." />}
       <AddHouseholdDialog open={addOpen} onOpenChange={setAddOpen} />
       <QuickAddHouseholdDialog open={quickOpen} onOpenChange={setQuickOpen} />
       <BulkRecordBar
@@ -337,11 +379,7 @@ function HouseholdsPage() {
         visibleIds={rows.map((h) => h.id)}
         onSelectAll={() => selection.selectAll(rows.map((h) => h.id))}
       />
-      <ExportHouseholdsDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        households={rows}
-      />
+      <ExportHouseholdsDialog open={exportOpen} onOpenChange={setExportOpen} households={rows} />
     </AppShell>
   );
 }

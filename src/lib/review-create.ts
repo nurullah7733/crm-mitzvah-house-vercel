@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
+import { guard, mustWrite } from "@/lib/app-errors";
 import {
   addressKey,
   composeAddress,
@@ -22,7 +23,12 @@ export function rowDisplayName(row: RowValues) {
   const n = splitName(row);
   const first = [n.first, n.middle].filter(Boolean).join(" ").trim();
   const last = [n.last, n.suffix].filter(Boolean).join(" ").trim();
-  return { first, last, surname: n.last.trim(), display: [first, last].filter(Boolean).join(" ").trim() };
+  return {
+    first,
+    last,
+    surname: n.last.trim(),
+    display: [first, last].filter(Boolean).join(" ").trim(),
+  };
 }
 
 /** The address written on an imported row, as one readable block. */
@@ -52,7 +58,13 @@ export async function ensureHouseholdAtAddress(
     const { data: existing } = await supabase.from("households").select("id, address").limit(1000);
     const hit = (existing ?? []).find((h) => addressKey(h.address) === key);
     if (hit) {
-      await supabase.from("households").update({ status: "active" } as never).eq("id", hit.id);
+      await mustWrite(
+        supabase
+          .from("households")
+          .update({ status: "active" } as never)
+          .eq("id", hit.id),
+        "The household couldn't be reopened.",
+      );
       return hit.id;
     }
   }
@@ -120,10 +132,21 @@ export async function createPersonFromRow(
     })),
   ];
   if (methods.length > 0)
-    await addContactMethods(personId, methods, { existing: [], ...(batchId ? { importBatchId: batchId } : {}) });
+    await addContactMethods(personId, methods, {
+      existing: [],
+      ...(batchId ? { importBatchId: batchId } : {}),
+    });
 
   const source = `${item.filename ?? "Import"} review, ${today()}`;
-  const fieldNames = ["email", "phone", "address", "birth_date", "anniversary_date", "school", "met_source"] as const;
+  const fieldNames = [
+    "email",
+    "phone",
+    "address",
+    "birth_date",
+    "anniversary_date",
+    "school",
+    "met_source",
+  ] as const;
   const sources = fieldNames
     .filter((f) => (f === "address" ? Boolean(rowAddress(row)) : Boolean(row[f])))
     .map((f) => ({
@@ -133,32 +156,49 @@ export async function createPersonFromRow(
       recorded_date: today(),
       import_batch_id: batchId,
     }));
-  if (sources.length > 0) await supabase.from("field_sources").insert(sources as never);
+  if (sources.length > 0)
+    await guard(supabase.from("field_sources").insert(sources as never), {
+      area: "import",
+      action: "Record where these details came from",
+      fallback: "The details saved, but we couldn't record where they came from.",
+    });
 
   const amount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
   if (Number.isFinite(amount) && amount > 0) {
     const giftDate = isoDate(row.date) ?? today();
-    await supabase.from("donations").insert({
-      person_id: personId,
-      amount,
-      date: giftDate,
-      campaign: row.campaign ?? null,
-      source,
-      notes: row.notes ?? null,
-      import_batch_id: batchId,
-      import_fingerprint: donationImportFingerprint(row, amount, giftDate),
-    } as never);
-  } else {
-    const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""].filter(Boolean).join(" · ");
-    if (noteText)
-      await supabase.from("interactions").insert({
+    await mustWrite(
+      supabase.from("donations").insert({
         person_id: personId,
-        type: "form",
-        date: today(),
-        text: noteText,
-        author: "Import review",
+        amount,
+        date: giftDate,
+        campaign: row.campaign ?? null,
+        source,
+        notes: row.notes ?? null,
         import_batch_id: batchId,
-      } as never);
+        import_fingerprint: donationImportFingerprint(row, amount, giftDate),
+      } as never),
+      "The gift couldn't be saved.",
+    );
+  } else {
+    const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    if (noteText)
+      await guard(
+        supabase.from("interactions").insert({
+          person_id: personId,
+          type: "form",
+          date: today(),
+          text: noteText,
+          author: "Import review",
+          import_batch_id: batchId,
+        } as never),
+        {
+          area: "import",
+          action: "Save the note",
+          fallback: "The contact saved, but the note didn't.",
+        },
+      );
   }
 
   const { error: logError } = await supabase.rpc("log_review_decision", {

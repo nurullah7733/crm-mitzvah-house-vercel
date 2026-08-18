@@ -45,7 +45,11 @@ export function useRenewalSettings() {
   return useQuery({
     queryKey: ["renewal-settings"],
     queryFn: async (): Promise<RenewalSettings> => {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "renewal_outreach").maybeSingle();
+      const { data } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "renewal_outreach")
+        .maybeSingle();
       const v = (data?.value ?? {}) as Partial<RenewalSettings>;
       return {
         min_total_giving: Number(v.min_total_giving ?? RENEWAL_DEFAULTS.min_total_giving),
@@ -76,7 +80,9 @@ export function useRenewalDonors(mode: RenewalMode, limit = 500) {
 
 /** The renewal ask, written as outreach about a gift — never as money owed. */
 export function renewalTaskText(d: RenewalDonor) {
-  const amount = d.last_gift_amount ? `$${Math.round(d.last_gift_amount).toLocaleString()}` : "a gift";
+  const amount = d.last_gift_amount
+    ? `$${Math.round(d.last_gift_amount).toLocaleString()}`
+    : "a gift";
   const year = d.last_gift_year ?? "a previous year";
   return `Renewal call — ${d.name ?? "this contact"}, last gave ${amount} in ${year}`;
 }
