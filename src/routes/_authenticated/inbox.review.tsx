@@ -319,7 +319,7 @@ function DataInbox() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-      toast.success("Skipped — it will come back next time you open this list");
+      toast.success("Set aside — find it under Past imports whenever you want it back");
     },
     onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
@@ -521,7 +521,7 @@ function DataInbox() {
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Nothing here is in Mitzvah House yet. For each one you can add the new details, keep both people, fix a
-            typo, or throw the row away. If you're unsure, skip it — it stays on this list.
+            typo, or throw the row away. If you're unsure, set it aside — it waits under Past imports.
           </p>
         </div>
       )}
@@ -963,7 +963,7 @@ function DataInbox() {
                           disabled={skip.isPending}
                           onClick={() => skip.mutate(r.id)}
                         >
-                          Skip for now
+                          Set aside for later
                         </button>
                       )}
                     </div>
