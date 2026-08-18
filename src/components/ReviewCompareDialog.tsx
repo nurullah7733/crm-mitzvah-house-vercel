@@ -381,7 +381,7 @@ export function ReviewCompareDialog({
           </p>
 
           <div className="rounded-xl border border-border p-3">
-            <Field label="Find a different contact">
+            <Field label="Merge with someone else — search any contact">
               <Input
                 className="text-base"
                 value={contactSearch}
