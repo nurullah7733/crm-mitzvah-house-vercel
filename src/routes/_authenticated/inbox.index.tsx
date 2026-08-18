@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, UserPlus, Users } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, UserPlus, Users, Check } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
@@ -1369,8 +1369,8 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                This file has an event column. Answering here is optional — anything you leave blank simply isn't linked
-                to an event, and the import still runs.
+                These are the event and campaign names in the file. Answering is optional — anything you leave blank
+                simply isn't linked to an event, and the import still runs. We never create an event without asking.
                 {unansweredEvents.length > 0
                   ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
                   : ""}
@@ -1382,11 +1382,37 @@ function ImportCenter() {
                     <div key={fe.key} className="rounded-xl border border-border p-3">
                       <p className="text-sm font-medium text-foreground">
                         “{fe.value}” — {fe.rows} row{fe.rows === 1 ? "" : "s"}
+                        {fe.origin === "campaign" && (
+                          <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                            from the campaign column
+                          </span>
+                        )}
                       </p>
                       {fe.matched ? (
-                        <p className="mt-1 text-sm text-money">
-                          Matches your event “{fe.matched.name}”. Those people will be added to it.
-                        </p>
+                        <div className="mt-1">
+                          <p className="text-sm text-money">
+                            Matches your event “{fe.matched.name}”. Those people will be marked as having attended
+                            {fe.origin === "campaign" ? ", and their gifts credited to it" : ""}.
+                          </p>
+                          <button
+                            type="button"
+                            className={`mt-2 rounded-xl border px-3 py-1.5 text-sm ${
+                              decision?.action === "ignore"
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-card text-foreground"
+                            }`}
+                            onClick={() =>
+                              setEventDecisions((d) => {
+                                const next = { ...d };
+                                if (next[fe.key]?.action === "ignore") delete next[fe.key];
+                                else next[fe.key] = { action: "ignore" };
+                                return next;
+                              })
+                            }
+                          >
+                            {decision?.action === "ignore" ? "Not linked — click to link again" : "Don't link this one"}
+                          </button>
+                        </div>
                       ) : (
                         <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr]">
                           <select
