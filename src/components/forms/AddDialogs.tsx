@@ -707,7 +707,9 @@ export function AddDonationDialog({
       setPickOther(false);
       onOpenChange(false);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      void friendlyDbError(e, "That donation didn't save.").then((why) => toast.error(why));
+    },
   });
 
   /**
@@ -715,6 +717,24 @@ export function AddDonationDialog({
    * that happened on this date? Dismissing it saves the gift unlinked.
    */
   async function handleSave() {
+    // Duplicate protection that doesn't rely on the donor being matched right:
+    // the same amount on the same day against a different contact is usually the
+    // same gift landing on a second record.
+    if (!elsewhereOk) {
+      const amount = Number(form.amount);
+      if (Number.isFinite(amount) && amount > 0) {
+        setChecking(true);
+        const found = await findGiftsOnOtherContacts(amount, form.date || todayISO(), [
+          personId ?? form.person_id,
+        ]);
+        setChecking(false);
+        if (found.length > 0) {
+          setElsewhere(found);
+          return;
+        }
+      }
+      setElsewhereOk(true);
+    }
     if (nearby === null) {
       setChecking(true);
       const found = await findEventsNearDate(form.date || todayISO());
