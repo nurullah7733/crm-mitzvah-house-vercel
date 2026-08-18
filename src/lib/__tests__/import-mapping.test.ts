@@ -309,7 +309,7 @@ describe("matching a row to existing contacts", () => {
       person({ email: null, phone: null }),
     ]);
     expect(r.status).toBe("ambiguous");
-    expect(r.reason).toBe("Same name, different address");
+    expect(r.reason).toBe("Same name, but a different address");
   });
 
   it("flags when two contacts share the email", () => {
@@ -364,5 +364,49 @@ describe("the same person twice inside one file", () => {
     expect(keys[0]).toBe("email:a@example.com");
     expect(keys).toContain("phone:4045550100");
     expect(keys).toContain("name:a b");
+  });
+});
+
+describe("duplicate matching only fires on real signals", () => {
+  const people = [
+    {
+      id: "p1",
+      first_name: "Sarah",
+      last_name: "Klein",
+      email: null,
+      phone: null,
+      birth_date: "1978-03-14",
+      household_id: null,
+      households: { name: "Klein", address: "12 Oak St" },
+    },
+  ];
+
+  it("does not flag an unrelated person who only shares being an adult", () => {
+    const r = matchRow({ first_name: "David", last_name: "Rosen", role: "Adult" }, people);
+    expect(r.status).toBe("new");
+  });
+
+  it("confirms a match when the name and birth date agree", () => {
+    const r = matchRow(
+      { first_name: "Sarah", last_name: "Klein", birth_date: "3/14/1978" },
+      people,
+    );
+    expect(r.status).toBe("matched");
+    expect(r.reason).toBe("Same name and same birth date");
+  });
+
+  it("rules out a same-name person with a different birth date", () => {
+    const r = matchRow(
+      { first_name: "Sarah", last_name: "Klein", birth_date: "1990-01-02" },
+      people,
+    );
+    expect(r.status).toBe("new");
+  });
+
+  it("treats a typo in the name as a signal only with an address or birth date", () => {
+    expect(matchRow({ first_name: "Sara", last_name: "Klein" }, people).status).toBe("ambiguous");
+    expect(
+      matchRow({ first_name: "Sara", last_name: "Klein", birth_date: "1990-01-02" }, people).status,
+    ).toBe("new");
   });
 });
