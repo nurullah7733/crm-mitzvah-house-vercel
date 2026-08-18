@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { parseImportDate } from "@/lib/import-dates";
 import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import { recordAttendance } from "@/lib/gift-events";
@@ -13,11 +14,7 @@ import {
   type ReviewPerson,
 } from "@/lib/review-merge";
 
-function isoDate(raw: string | undefined | null) {
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
+const isoDate = (raw: string | undefined | null) => parseImportDate(raw);
 
 const today = () => new Date().toISOString().slice(0, 10);
 

@@ -14,6 +14,7 @@ import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { parseImportDate } from "@/lib/import-dates";
 import { resolveCampaignId } from "@/lib/campaigns";
 import { useIsAdmin } from "@/lib/is-admin";
 import { AppShell, EmptyState } from "@/components/AppShell";
@@ -117,11 +118,8 @@ async function readFile(file: File): Promise<Sheet> {
   };
 }
 
-function isoDate(raw: string | undefined) {
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
+/** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
+const isoDate = (raw: string | undefined) => parseImportDate(raw);
 
 function splitList(raw: string | undefined) {
   return raw

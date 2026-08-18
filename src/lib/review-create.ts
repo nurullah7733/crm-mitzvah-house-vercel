@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { parseImportDate } from "@/lib/import-dates";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { guard, mustWrite } from "@/lib/app-errors";
 import { resolveCampaignId } from "@/lib/campaigns";
@@ -11,11 +12,7 @@ import {
   type RowValues,
 } from "@/lib/import-mapping";
 
-function isoDate(raw: string | undefined | null) {
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
+const isoDate = (raw: string | undefined | null) => parseImportDate(raw);
 
 const today = () => new Date().toISOString().slice(0, 10);
 
