@@ -25,6 +25,6 @@ describe("parseImportDate", () => {
   });
 
   it("reads Excel serial numbers", () => {
-    expect(parseImportDate("28564")).toBe("1978-03-14");
+    expect(parseImportDate("28563")).toBe("1978-03-14");
   });
 });
