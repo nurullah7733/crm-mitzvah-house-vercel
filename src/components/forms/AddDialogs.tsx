@@ -779,6 +779,18 @@ export function AddDonationDialog({
                 Yes, link it
               </Button>
             </>
+          ) : elsewhere && elsewhere.length > 0 ? (
+            <Button
+              className="flex-1 rounded-xl sm:flex-none"
+              disabled={save.isPending || checking}
+              onClick={() => {
+                setElsewhereOk(true);
+                setElsewhere(null);
+                void handleSave();
+              }}
+            >
+              It's a different gift — save it
+            </Button>
           ) : (
             <Button
               className="flex-1 rounded-xl sm:flex-none"
@@ -791,6 +803,18 @@ export function AddDonationDialog({
         </>
       }
     >
+      {elsewhere && elsewhere.length > 0 && (
+        <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+          <p className="text-sm font-medium text-foreground">
+            A ${Number(form.amount).toLocaleString()} gift on {form.date || todayISO()} is already recorded for{" "}
+            {elsewhere.map((g) => g.name).join(", ")}.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            If that's the same gift, this contact may be a duplicate of theirs — close this and merge the two contacts
+            instead. If it's genuinely a separate gift, save it.
+          </p>
+        </div>
+      )}
       {nearby && nearby.length > 0 && (
         <div className="mb-4 rounded-xl border border-suggestion/40 bg-suggestion/10 p-3">
           <p className="text-sm font-medium text-foreground">
