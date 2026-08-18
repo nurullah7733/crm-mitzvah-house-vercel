@@ -985,7 +985,6 @@ function ImportCenter() {
             if (!alreadyOn?.length) {
               await supabase
                 .from("registrations")
-                .insert({ event_id: targetEventId, person_id: personId, status: "Attended" });
                 .insert({ event_id: targetEventId, person_id: personId, status: "Attended", import_batch_id: batchId });
               // The attendance timeline entry is written by the database from the
               // registration, so removing the registration removes the entry too.
