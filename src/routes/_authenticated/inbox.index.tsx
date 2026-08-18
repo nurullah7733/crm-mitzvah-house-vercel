@@ -823,10 +823,14 @@ function ImportCenter() {
                 : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
                     (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
                   } in this file`,
-              (live.candidates.length
-                ? live.candidates.map((c) => c.id)
-                : item.match.candidates.map((c) => c.id)
-              ).concat(giftsElsewhere.map((g) => g.personId)),
+              [
+                ...new Set(
+                  (live.candidates.length
+                    ? live.candidates.map((c) => c.id)
+                    : item.match.candidates.map((c) => c.id)
+                  ).concat(giftsElsewhere.map((g) => g.personId)),
+                ),
+              ],
               groupInfo,
             );
             continue;
