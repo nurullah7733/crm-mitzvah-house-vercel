@@ -18,12 +18,9 @@ export type FieldKey =
   | "email_other"
   | "address"
   | "address_line2"
-  | "address_line3"
   | "city"
   | "state"
   | "postal_code"
-  | "county"
-  | "billing_address"
   | "household_name"
   | "birth_date"
   | "anniversary_date"
@@ -53,56 +50,159 @@ export type FieldKey =
   | "ignore";
 
 export const FIELD_LABELS: Record<FieldKey, string> = {
-  title: "Title (Mr, Mrs, Rabbi…)",
+  title: "Title",
   first_name: "First name",
   middle_name: "Middle name",
   last_name: "Last name",
-  suffix: "Suffix (Jr, MD…)",
+  suffix: "Suffix",
   full_name: "Full name",
   email: "Email",
   phone: "Phone",
-  phone_mobile: "Phone — mobile (repeatable)",
-  phone_home: "Phone — home (repeatable)",
-  phone_work: "Phone — work (repeatable)",
-  phone_other: "Phone — other (repeatable)",
-  email_work: "Email — work (repeatable)",
-  email_other: "Email — other (repeatable)",
+  phone_mobile: "Phone (mobile)",
+  phone_home: "Phone (home)",
+  phone_work: "Phone (work)",
+  phone_other: "Phone (other)",
+  email_work: "Email (work)",
+  email_other: "Email (other)",
   address: "Home address",
-  address_line2: "Address line 2 (apt, unit)",
-  address_line3: "Extra address line",
+  address_line2: "Apartment or unit number",
   city: "City",
   state: "State",
-  postal_code: "ZIP / postal code",
-  county: "County",
-  billing_address: "Billing address",
+  postal_code: "ZIP code",
   household_name: "Household name",
   birth_date: "Birth date",
   anniversary_date: "Anniversary",
   school: "School",
   person_notes: "Notes about this person",
-  role: "Adult / child (role)",
+  role: "Adult or child",
   age: "Age",
-  spouse_full_name: "Partner — full name",
-  spouse_first_name: "Partner — first name",
-  spouse_last_name: "Partner — last name",
-  spouse_email: "Partner — email",
-  spouse_phone: "Partner — phone",
-  child_name: "Child — name (repeatable)",
-  child_first_name: "Child — first name (repeatable)",
-  child_last_name: "Child — last name (repeatable)",
-  child_birth_date: "Child — birth date (repeatable)",
-  child_age: "Child — age (repeatable)",
-  child_school: "Child — school (repeatable)",
+  spouse_full_name: "Partner full name",
+  spouse_first_name: "Partner first name",
+  spouse_last_name: "Partner last name",
+  spouse_email: "Partner email",
+  spouse_phone: "Partner phone",
+  child_name: "Child name",
+  child_first_name: "Child first name",
+  child_last_name: "Child last name",
+  child_birth_date: "Child birth date",
+  child_age: "Child age",
+  child_school: "Child school",
   amount: "Donation amount",
   date: "Donation date",
   campaign: "Campaign",
-  notes: "Message / form note",
+  notes: "Message or form note",
   met_source: "Where we met",
   tags: "Tags",
   programs: "Programs",
   event_name: "Event attended",
   ignore: "Don't import",
 };
+
+/**
+ * The mapping dropdown, in the order staff think about a spreadsheet: the
+ * columns almost every file has first, then the rarer ones.
+ */
+export const FIELD_GROUPS: { title: string; fields: FieldKey[] }[] = [
+  {
+    title: "Essential",
+    fields: ["first_name", "last_name", "full_name", "email", "phone", "address", "city", "state", "postal_code"],
+  },
+  {
+    title: "Person details",
+    fields: [
+      "title",
+      "middle_name",
+      "suffix",
+      "birth_date",
+      "anniversary_date",
+      "role",
+      "age",
+      "school",
+      "person_notes",
+    ],
+  },
+  {
+    title: "Additional contact info",
+    fields: ["phone_mobile", "phone_home", "phone_work", "phone_other", "email_work", "email_other", "address_line2"],
+  },
+  {
+    title: "Family",
+    fields: [
+      "household_name",
+      "spouse_full_name",
+      "spouse_first_name",
+      "spouse_last_name",
+      "spouse_email",
+      "spouse_phone",
+      "child_name",
+      "child_first_name",
+      "child_last_name",
+      "child_birth_date",
+      "child_age",
+      "child_school",
+    ],
+  },
+  { title: "Donation", fields: ["amount", "date", "campaign"] },
+  { title: "Activity", fields: ["event_name", "programs", "tags", "met_source", "notes"] },
+  { title: "Skip", fields: ["ignore"] },
+];
+
+/** Plain-English explanation of what mapping a column to this field does. */
+export const FIELD_HINTS: Partial<Record<FieldKey, string>> = {
+  full_name: "Split into first and last name automatically.",
+  role: "Marks the contact as an adult or a child.",
+  age: "Used only to work out adult or child — the age itself isn't stored.",
+  person_notes: "Saved on the contact's profile.",
+  address_line2: "Apartment, unit, or suite. Joined onto the home address.",
+  household_name: "Groups people at this address into one household.",
+  spouse_full_name: "Creates a separate person record in the same household.",
+  spouse_first_name: "Creates a separate person record in the same household.",
+  spouse_last_name: "Part of the partner's separate person record.",
+  spouse_email: "Saved on the partner's own record.",
+  spouse_phone: "Saved on the partner's own record.",
+  child_name: "Creates a separate person record in the same household.",
+  child_first_name: "Creates a separate person record in the same household.",
+  child_last_name: "Part of the child's separate person record.",
+  child_birth_date: "Saved on the child's own record, with the Hebrew date.",
+  child_age: "Used only to mark the child's record as a child.",
+  child_school: "Saved on the child's own record.",
+  amount: "Creates a donation. Needs a donation date too.",
+  date: "The date of the donation in this row.",
+  campaign: "Links the donation to a campaign, and can record event attendance.",
+  event_name: "Records attendance at this event.",
+  tags: "Adds to the contact's tags. Separate several with a comma.",
+  programs: "Adds to the contact's programs. Separate several with a comma.",
+  notes: "Added to the contact's timeline as a note.",
+  met_source: "Where this contact came from.",
+  ignore: "This column is left out of the import.",
+};
+
+/** Columns whose meaning depends on another column being mapped too. */
+export const FIELD_PAIRS: { field: FieldKey; needs: FieldKey; message: string }[] = [
+  { field: "amount", needs: "date", message: "Donation amount is mapped but donation date isn't — gifts need a date." },
+  { field: "date", needs: "amount", message: "Donation date is mapped but donation amount isn't — no gifts will be created." },
+  { field: "child_birth_date", needs: "child_name", message: "Child birth date is mapped but no child name column is." },
+  { field: "child_age", needs: "child_name", message: "Child age is mapped but no child name column is." },
+  { field: "child_school", needs: "child_name", message: "Child school is mapped but no child name column is." },
+  { field: "spouse_email", needs: "spouse_full_name", message: "Partner email is mapped but no partner name column is." },
+  { field: "spouse_phone", needs: "spouse_full_name", message: "Partner phone is mapped but no partner name column is." },
+];
+
+/** What a usable file needs before it's worth importing. */
+export const ESSENTIAL_CHECKS: { label: string; fields: FieldKey[] }[] = [
+  { label: "Name", fields: ["first_name", "last_name", "full_name"] },
+  { label: "Email", fields: ["email", "email_work", "email_other"] },
+  { label: "Phone", fields: ["phone", "phone_mobile", "phone_home", "phone_work", "phone_other"] },
+  { label: "Address", fields: ["address", "city", "postal_code"] },
+];
+
+/** These create a person of their own, so mapping them changes how many records appear. */
+export const PERSON_CREATING_FIELDS: FieldKey[] = [
+  "child_name",
+  "child_first_name",
+  "spouse_full_name",
+  "spouse_first_name",
+];
 
 /** These may be mapped to more than one column (child 1, child 2, …). */
 export const REPEATABLE_FIELDS: FieldKey[] = [
