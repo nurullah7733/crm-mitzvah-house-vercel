@@ -41,11 +41,7 @@ export function BulkRecordBar({
   const remove = useMutation({
     mutationFn: async () => {
       if (soft) {
-        const { error } = await supabase
-          .from(table)
-          .update({ deleted_at: new Date().toISOString() } as never)
-          .in("id", selectedIds);
-        if (error) throw error;
+        await archiveRecords(table as ArchivableTable, selectedIds);
         return;
       }
       if (table === "households") {
