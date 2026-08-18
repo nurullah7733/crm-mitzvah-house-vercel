@@ -464,7 +464,7 @@ export function ReviewCompareDialog({
                       {conflicts.length} detail{conflicts.length === 1 ? "" : "s"} don't match — pick the right one
                     </h3>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("existing")}>
+                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAllConflicts("existing")}>
                         Keep what we have
                       </Button>
                       <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAllConflicts("incoming")}>
