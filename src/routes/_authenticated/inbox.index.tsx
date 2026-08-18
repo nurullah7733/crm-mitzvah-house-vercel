@@ -50,6 +50,7 @@ import {
   composeAddress,
   donationImportFingerprint,
   guessMapping,
+  namesAreClose,
   matchRowOnce,
   newRowIdentityRegistry,
   roleFromRow,
