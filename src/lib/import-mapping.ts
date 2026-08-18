@@ -1,3 +1,4 @@
+import { parseImportDate } from "@/lib/import-dates";
 import { fuzzyScore } from "@/lib/nl-search";
 
 /** Fields a spreadsheet column can be mapped to. */
@@ -643,7 +644,8 @@ export function roleFromRow(v: {
   const age = Number((v.age ?? "").replace(/[^0-9.]/g, ""));
   if (Number.isFinite(age) && age > 0) return age < 18 ? "Child" : "Adult";
   if (v.birth_date) {
-    const d = new Date(v.birth_date);
+    const parsed = parseImportDate(v.birth_date);
+    const d = parsed ? new Date(`${parsed}T00:00:00Z`) : new Date(NaN);
     if (!Number.isNaN(d.getTime())) {
       const years = (Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000);
       if (years > 0 && years < 18) return "Child";
@@ -761,7 +763,7 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
   const { first, last } = splitName(values);
   if (first || last) {
     const rowFull = [first, last].filter(Boolean).join(" ");
-    const rowBirth = (values.birth_date ?? "").trim().slice(0, 10);
+    const rowBirth = parseImportDate(values.birth_date) ?? "";
     const storedBirth = (p: ExistingPerson) => (p.birth_date ?? "").trim().slice(0, 10);
     /** A different birth date means a different person, full stop. */
     const birthRulesOut = (p: ExistingPerson) =>
