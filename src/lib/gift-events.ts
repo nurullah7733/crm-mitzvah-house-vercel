@@ -93,7 +93,7 @@ export async function attributeGiftToEvent({
     eventId,
     eventName: event?.name ?? "an event",
     eventDate: event?.date ?? null,
-    importBatchId,
+    ...(importBatchId !== undefined ? { importBatchId } : {}),
   });
 }
 
