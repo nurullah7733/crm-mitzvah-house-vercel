@@ -1290,6 +1290,10 @@ export type Database = {
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
       registration_status_rank: { Args: { _status: string }; Returns: number }
+      restore_records: {
+        Args: { _ids: string[]; _table: string }
+        Returns: number
+      }
       save_integration_credentials: {
         Args: { _credentials: Json; _primary_field: string; _provider: string }
         Returns: undefined
