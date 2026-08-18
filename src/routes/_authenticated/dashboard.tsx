@@ -585,7 +585,7 @@ function Panel({
   title: string;
   to: "/tasks" | "/donations" | "/events" | "/people" | "/grants" | "/renewals";
   linkLabel: string;
-  count?: string;
+  count?: string | undefined;
   children: React.ReactNode;
 }) {
   return (
