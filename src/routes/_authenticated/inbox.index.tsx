@@ -204,7 +204,7 @@ function ImportCenter() {
         supabase
           .from("people")
           .select(
-            "id, first_name, last_name, email, phone, household_id, households(name, address), contact_methods(kind, value)",
+            "id, first_name, last_name, email, phone, birth_date, household_id, households(name, address), contact_methods(kind, value)",
           )
           .is("deleted_at", null)
           .order("id")
@@ -580,6 +580,7 @@ function ImportCenter() {
         phone?: string | null;
         householdId?: string | null;
         address?: string | null;
+        birthDate?: string | null;
         methods?: { kind: string; value: string }[];
       }) {
         const existing = livePeople.find((p) => p.id === entry.id);
@@ -598,6 +599,7 @@ function ImportCenter() {
           last_name: entry.last,
           email: entry.email ?? null,
           phone: entry.phone ?? null,
+          birth_date: entry.birthDate ?? null,
           household_id: entry.householdId ?? null,
           households: entry.address ? { name: "", address: entry.address } : null,
           contact_methods: entry.methods ?? [],
@@ -726,14 +728,19 @@ function ImportCenter() {
 
           // The gift itself, not the person: the same amount on the same day sitting
           // on a contact we did NOT match to usually means a second record for one donor.
-          const giftsElsewhere =
+          // Only worth asking about when the other contact is plausibly the same
+          // human: a same-day, same-amount gift on an unrelated donor is a
+          // coincidence, not a duplicate, and must never reach the review queue.
+          const rowFullName = mainName(v).display;
+          const giftsElsewhere = (
             Number.isFinite(rowAmount) && rowAmount > 0
               ? await findGiftsOnOtherContacts(
                   rowAmount,
                   rowGiftDate,
                   live.candidates.map((c) => c.id),
                 )
-              : [];
+              : []
+          ).filter((g) => rowFullName && namesAreClose(rowFullName, g.name));
 
           // A flagged row is never written. It waits in the Data Inbox for a person.
           if (
@@ -760,7 +767,10 @@ function ImportCenter() {
                   (live.candidates.length
                     ? live.candidates.map((c) => c.id)
                     : item.match.candidates.map((c) => c.id)
-                  ).concat(giftsElsewhere.map((g) => g.personId)),
+                  ).concat(
+                    // Same-gift candidates are only offered when the name matched too.
+                    giftsElsewhere.map((g) => g.personId),
+                  ),
                 ),
               ],
               groupInfo,
