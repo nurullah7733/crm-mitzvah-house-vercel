@@ -150,8 +150,32 @@ function DataInbox() {
     },
   });
 
-  const pending = (data ?? []).filter((r) => r.status === "pending" || r.status === "skipped");
-  const handled = (data ?? []).filter((r) => r.status !== "pending" && r.status !== "skipped");
+  /** Only rows still waiting on a decision stay in the active Inbox. */
+  const allPending = (data ?? []).filter((r) => r.status === "pending");
+  const past = (data ?? []).filter((r) => r.status !== "pending");
+
+  /** One entry per upload, so staff can work through a single import at a time. */
+  const batchOptions = Array.from(
+    new Map(
+      allPending.map((r) => [r.batch_id ?? r.filename ?? "manual", r.filename ?? "Added by hand"] as const),
+    ).entries(),
+  );
+  const batchKey = (r: { batch_id: string | null; filename: string | null }) =>
+    r.batch_id ?? r.filename ?? "manual";
+  const pending = batchFilter ? allPending.filter((r) => batchKey(r) === batchFilter) : allPending;
+
+  /** Past uploads, gathered under the file they came from. */
+  const pastBatches = Array.from(
+    past
+      .reduce((map, r) => {
+        const key = batchKey(r);
+        const bucket = map.get(key) ?? { key, filename: r.filename ?? "Added by hand", rows: [] as typeof past };
+        bucket.rows.push(r);
+        map.set(key, bucket);
+        return map;
+      }, new Map<string, { key: string; filename: string; rows: typeof past }>())
+      .values(),
+  );
 
   /**
    * Everyone in an upload who shares one address, gathered onto a single card —
