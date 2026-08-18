@@ -32,11 +32,16 @@ see what changed rather than wondering whether it was quietly dropped.
 
 ## B. Data integrity
 
-6. **Soft delete is a per-query convention, not a constraint.** `deleted_at`
-   exists on `people`, `donations`, `events` and `tasks`; every read is expected to
-   add `deleted_at IS NULL`. There is no view or policy enforcing it, so one new
-   query that forgets the filter resurrects deleted records. Some server-side
-   paths (parts of `search_people`) still do not filter consistently.
+6. ~~Soft delete is a per-query convention~~ — **fixed 2026-08-19.** `people`,
+   `donations`, `events` and `tasks` now have split RLS policies: `SELECT` is
+   `USING (deleted_at IS NULL)`, while insert/update/delete are unchanged. A query
+   that forgets `deleted_at IS NULL` can no longer see removed rows, and the same
+   applies inside the `SECURITY INVOKER` report functions (`search_people`,
+   `lapsed_donors`, `find_duplicate_people`, `giving_total_mismatches`,
+   `tag_program_counts`). Restore still works because it is an `UPDATE`.
+   Remaining caveat: `SECURITY DEFINER` functions (`merge_people`,
+   `merge_households`, `recalc_person_totals`, triggers) bypass RLS by design and
+   must keep filtering explicitly.
 7. **Duplicate donations can still slip through as a *different person*.**
    Dedupe is now solid within a person: `donations.import_fingerprint` plus a
    unique index, and app-level checks in the import loop, quick-merge and review
@@ -58,19 +63,23 @@ see what changed rather than wondering whether it was quietly dropped.
     inside the bulk importer and `review-quick.ts` only skip when a row exists, so
     re-importing an attendee list over seeded RSVPs leaves people non-attended —
     and therefore missing from the timeline.
-11. **`merge_people` still loses information.** Duplicate registrations for the
-    same event are resolved by deleting the loser's row, discarding its `status`.
-    Household merging is a separate manual step (`merge_households` exists, but
-    merging two people does not consolidate their two households).
+11. ~~`merge_people` loses information~~ — **fixed 2026-08-19.** Duplicate
+    registrations for the same event now keep the stronger outcome via
+    `registration_status_rank()` (attended > no_show > registered) before the
+    loser's row is removed, so attendance survives a merge. When the two contacts
+    sit in different households, the merge dialog offers to combine those
+    households too (calls `merge_households` right after `merge_people`).
 12. **No unique constraints on identity fields.** `people.email` / `people.phone`
     are plain nullable text (deliberately — the unique email constraint blocked
     merges and was dropped). Duplicate prevention is entirely detection-based, so
     any path that skips detection can create duplicates.
-13. **Status/lifecycle fields are free text.** `tasks.status`,
-    `registrations.status`, `campaigns.status`, `grants.stage`, `interactions.type`,
-    `people.contact_type`, `people.role`, `households.status` are `text` with no
-    CHECK constraints. Only `app_role` is a real enum. A typo creates a silent
-    orphan state.
+13. ~~Status/lifecycle fields are free text~~ — **already constrained (verified
+    2026-08-19).** `tasks.status`, `registrations.status`, `campaigns.status`,
+    `grants.stage`, `interactions.type`, `people.contact_type`, `people.role` and
+    `households.status` all carry CHECK constraints, and every stored value is
+    valid. One app-side violation was found and fixed: the Renewals screen wrote
+    `tasks.status = 'open'`, which the constraint rejects, so bulk renewal task
+    creation failed outright; it now writes `upcoming`.
 14. **`field_sources` is not comprehensive.** Provenance is written by the import
     pipeline, the add forms and review merges. Later edits through profile edit
     mode land in `audit_log` only, so "where did this value come from" can be
