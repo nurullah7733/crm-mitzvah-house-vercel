@@ -11,6 +11,8 @@ import { currency } from "@/components/AppShell";
 import { personName } from "@/lib/names";
 import { logChange } from "@/lib/session-log";
 import { friendlyDbError } from "@/lib/db-errors";
+import { ExistingRecordPanel } from "@/components/ExistingRecordPanel";
+import { fetchFullRecord } from "@/lib/review-record";
 import {
   COMPARE_FIELDS,
   applyIncoming,
@@ -95,6 +97,12 @@ export function ReviewCompareDialog({
     queryKey: ["review-history", selectedExisting?.id],
     enabled: open && Boolean(selectedExisting?.id),
     queryFn: () => selectedExisting ? fetchHistory(selectedExisting.id) : Promise.resolve(null),
+  });
+
+  const { data: fullRecord } = useQuery({
+    queryKey: ["review-full-record", selectedExisting?.id],
+    enabled: open && Boolean(selectedExisting?.id),
+    queryFn: () => fetchFullRecord(selectedExisting!.id),
   });
 
   const { data: searchResults } = useQuery({
@@ -204,8 +212,15 @@ export function ReviewCompareDialog({
   });
 
   const busy = merge.isPending || keepBoth.isPending || discard.isPending || saveExistingEdits.isPending;
+  /** Assign one side as the winner for every field that has a value anywhere. */
   const pickAll = (side: Side) =>
-    setChoices(Object.fromEntries(conflicts.map((f) => [f.key, side])) as Partial<Record<CompareKey, Side>>);
+    setChoices(
+      Object.fromEntries(
+        fields.filter((f) => f.existing || f.incoming).map((f) => [f.key, side]),
+      ) as Partial<Record<CompareKey, Side>>,
+    );
+  const pickAllConflicts = (side: Side) =>
+    setChoices((c) => ({ ...c, ...(Object.fromEntries(conflicts.map((f) => [f.key, side])) as Partial<Record<CompareKey, Side>>) }));
 
   return (
     <ResponsiveModal
@@ -366,7 +381,7 @@ export function ReviewCompareDialog({
           </p>
 
           <div className="rounded-xl border border-border p-3">
-            <Field label="Find a different contact">
+            <Field label="Merge with someone else — search any contact">
               <Input
                 className="text-base"
                 value={contactSearch}
@@ -414,24 +429,48 @@ export function ReviewCompareDialog({
             </div>
           ) : (
             <>
-              {/* What history is attached to each record */}
+              {/* The whole contact we already have, next to the incoming row */}
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border border-border bg-muted/30 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{LEFT_LABEL}</p>
-                   <p className="font-heading font-semibold text-foreground">{personName(selectedExisting)}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {history
-                      ? `${history.donations} donation${history.donations === 1 ? "" : "s"} · ${currency(history.giving)} given · ${history.registrations} event registration${history.registrations === 1 ? "" : "s"} · ${history.notes} note${history.notes === 1 ? "" : "s"} · ${history.tasks} task${history.tasks === 1 ? "" : "s"}`
-                      : "Loading history…"}
-                  </p>
+                  <div className="mt-1">
+                    <ExistingRecordPanel record={fullRecord ?? null} />
+                  </div>
+                  {history && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {history.donations} donation{history.donations === 1 ? "" : "s"} · {currency(history.giving)} given ·{" "}
+                      {history.registrations} event registration{history.registrations === 1 ? "" : "s"} · {history.notes}{" "}
+                      note{history.notes === 1 ? "" : "s"} · {history.tasks} task{history.tasks === 1 ? "" : "s"}
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-2xl border border-border bg-muted/30 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{RIGHT_LABEL}</p>
-                  <p className="font-heading font-semibold text-foreground">
+                  <p className="font-heading text-base font-semibold text-foreground">
                     {showValue(incoming.display_name)}
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Just a row from a spreadsheet — no giving or history of its own yet.
+                  <dl className="mt-1 space-y-1">
+                    {fields
+                      .filter((f) => f.incoming)
+                      .map((f) => (
+                        <div key={f.key} className="flex gap-2 py-1 text-sm">
+                          <span className="w-24 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
+                            {f.label}
+                          </span>
+                          <span
+                            className={`min-w-0 break-words ${
+                              f.state === "conflict" ? "font-semibold text-urgent" : "text-foreground"
+                            }`}
+                          >
+                            {showValue(f.incoming)}
+                            {f.state === "conflict" && <span className="ml-2 text-xs text-urgent">differs</span>}
+                            {f.state === "fill" && <span className="ml-2 text-xs text-money">new</span>}
+                          </span>
+                        </div>
+                      ))}
+                  </dl>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    A row from {item.filename ?? "an upload"} — no giving or history of its own yet.
                   </p>
                 </div>
               </div>
@@ -449,10 +488,10 @@ export function ReviewCompareDialog({
                       {conflicts.length} detail{conflicts.length === 1 ? "" : "s"} don't match — pick the right one
                     </h3>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("existing")}>
+                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAllConflicts("existing")}>
                         Keep what we have
                       </Button>
-                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("incoming")}>
+                      <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAllConflicts("incoming")}>
                         Use the file's version
                       </Button>
                     </div>
@@ -551,36 +590,60 @@ export function ReviewCompareDialog({
                 </section>
               )}
 
-              {/* Full record view, side by side */}
+              {/* Pick a winner field by field, either side */}
               <section>
-                <h3 className="font-heading text-sm font-semibold text-foreground">Every field, side by side</h3>
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
-                  {(
-                    [
-                      ["existing", LEFT_LABEL],
-                      ["incoming", RIGHT_LABEL],
-                    ] as const
-                  ).map(([side, label]) => (
-                    <div key={side} className="rounded-2xl border border-border bg-card p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                      <dl className="mt-2 space-y-1">
-                        {fields.map((f: FieldComparison) => (
-                          <div key={f.key} className="flex gap-2 text-sm">
-                            <dt className="w-28 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
-                              {f.label}
-                            </dt>
-                            <dd
-                              className={`min-w-0 break-words ${
-                                f.state === "conflict" ? "font-medium text-foreground" : "text-muted-foreground"
-                              }`}
-                            >
-                              {showValue(side === "existing" ? f.existing : f.incoming)}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </div>
-                  ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-heading text-sm font-semibold text-foreground">Pick field by field</h3>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("existing")}>
+                      Use all from left
+                    </Button>
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => pickAll("incoming")}>
+                      Use all from right
+                    </Button>
+                    <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => setChoices({})}>
+                      Reset
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2 space-y-2">
+                  {fields
+                    .filter((f: FieldComparison) => f.existing || f.incoming)
+                    .map((f: FieldComparison) => (
+                      <div
+                        key={f.key}
+                        className={`rounded-xl border p-2 ${
+                          f.state === "conflict" ? "border-urgent/50 bg-urgent/5" : "border-border"
+                        }`}
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{f.label}</p>
+                        <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                          {(
+                            [
+                              ["existing", f.existing],
+                              ["incoming", f.incoming],
+                            ] as const
+                          ).map(([side, value]) => {
+                            const chosen = choices[f.key] === side || (!choices[f.key] && preview[f.key] === value);
+                            return (
+                              <button
+                                key={side}
+                                type="button"
+                                onClick={() => setChoices((c) => ({ ...c, [f.key]: side }))}
+                                className={`rounded-lg border p-2 text-left text-sm ${
+                                  chosen ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground"
+                                }`}
+                              >
+                                <span className="block text-[11px] uppercase tracking-wide">
+                                  {side === "existing" ? "Left — on file" : "Right — in the file"}
+                                </span>
+                                <span className="block break-words font-medium text-foreground">{showValue(value)}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </section>
 

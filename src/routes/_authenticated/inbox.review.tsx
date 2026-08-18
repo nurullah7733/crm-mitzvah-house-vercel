@@ -23,6 +23,9 @@ import { RELATIONSHIP_OPTIONS, rowGroup } from "@/lib/import-links";
 import { logChange } from "@/lib/session-log";
 import { Input } from "@/components/ui/input";
 import { selectClass } from "@/components/forms/fields";
+import { ResponsiveModal } from "@/components/ResponsiveModal";
+import { SelectAllToggle, SelectBox, useSelection } from "@/components/BulkPeopleActions";
+import { ChevronDown } from "lucide-react";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -109,6 +112,12 @@ function DataInbox() {
   const [choices, setChoices] = useState<Record<string, { action: GroupAction; relationship: string }>>({});
   const [chosenPeople, setChosenPeople] = useState<Record<string, ReviewPerson>>({});
   const [contactSearch, setContactSearch] = useState<{ rowId: string; query: string } | null>(null);
+  const [batchFilter, setBatchFilter] = useState("");
+  const [clearOpen, setClearOpen] = useState(false);
+  const [bulkDiscardOpen, setBulkDiscardOpen] = useState(false);
+  const [bulkReason, setBulkReason] = useState("");
+  const [showPast, setShowPast] = useState(false);
+  const selection = useSelection();
 
   const { data: contactSearchResults } = useQuery({
     queryKey: ["address-card-contact-search", contactSearch?.query.trim() ?? ""],
@@ -141,8 +150,32 @@ function DataInbox() {
     },
   });
 
-  const pending = (data ?? []).filter((r) => r.status === "pending" || r.status === "skipped");
-  const handled = (data ?? []).filter((r) => r.status !== "pending" && r.status !== "skipped");
+  /** Only rows still waiting on a decision stay in the active Inbox. */
+  const allPending = (data ?? []).filter((r) => r.status === "pending");
+  const past = (data ?? []).filter((r) => r.status !== "pending");
+
+  /** One entry per upload, so staff can work through a single import at a time. */
+  const batchOptions = Array.from(
+    new Map(
+      allPending.map((r) => [r.batch_id ?? r.filename ?? "manual", r.filename ?? "Added by hand"] as const),
+    ).entries(),
+  );
+  const batchKey = (r: { batch_id: string | null; filename: string | null }) =>
+    r.batch_id ?? r.filename ?? "manual";
+  const pending = batchFilter ? allPending.filter((r) => batchKey(r) === batchFilter) : allPending;
+
+  /** Past uploads, gathered under the file they came from. */
+  const pastBatches = Array.from(
+    past
+      .reduce((map, r) => {
+        const key = batchKey(r);
+        const bucket = map.get(key) ?? { key, filename: r.filename ?? "Added by hand", rows: [] as typeof past };
+        bucket.rows.push(r);
+        map.set(key, bucket);
+        return map;
+      }, new Map<string, { key: string; filename: string; rows: typeof past }>())
+      .values(),
+  );
 
   /**
    * Everyone in an upload who shares one address, gathered onto a single card —
@@ -162,7 +195,7 @@ function DataInbox() {
   }, [pending]);
 
   const groupedIds = new Set(addressCards.flatMap((c) => c.rows.map((r) => r.id)));
-  const reviewedCount = handled.length;
+  const reviewedCount = past.length;
   const totalCount = pending.length + reviewedCount;
 
   const candidateIds = Array.from(
@@ -286,7 +319,89 @@ function DataInbox() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-      toast.success("Skipped — it will come back next time you open this list");
+      toast.success("Set aside — find it under Past imports whenever you want it back");
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Bring a set-aside row back into the active list. */
+  const reopen = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("review_queue")
+        .update({ status: "pending", resolution_note: "Brought back from past imports" })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+      toast.success("Back on the list");
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Merge every selected row that has no disagreement with the contact on file. */
+  const bulkMerge = useMutation({
+    mutationFn: async () => {
+      let done = 0;
+      let skipped = 0;
+      for (const r of pending.filter((row) => selection.has(row.id))) {
+        const existing = personById((r.candidate_person_ids ?? [])[0]);
+        const fields = existing ? compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues)) : [];
+        if (!existing || (r.candidate_person_ids ?? []).length !== 1 || hasConflict(fields)) {
+          skipped += 1;
+          continue;
+        }
+        await quickMerge(
+          { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: (r.row_data ?? {}) as RowValues },
+          existing,
+          personName(existing),
+        );
+        done += 1;
+      }
+      return { done, skipped };
+    },
+    onSuccess: ({ done, skipped }) => {
+      queryClient.invalidateQueries();
+      selection.clear();
+      toast.success(`${done} merged${skipped ? ` · ${skipped} still need a decision` : ""}`);
+      logChange(`Merged ${done} imported rows with no conflicts`);
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Throw away every selected row, with one shared reason. */
+  const bulkDiscard = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) await discardRow(id, bulkReason.trim() || "Cleared out from the Data Inbox");
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries();
+      selection.clear();
+      setBulkDiscardOpen(false);
+      setClearOpen(false);
+      setBulkReason("");
+      toast.success(`${count} row${count === 1 ? "" : "s"} thrown away`);
+      logChange(`Discarded ${count} imported rows from the Data Inbox`);
+    },
+    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+  });
+
+  /** Set selected rows aside — they move to Past imports and can come back. */
+  const bulkDismiss = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase
+        .from("review_queue")
+        .update({ status: "skipped", resolution_note: "Dismissed from the Data Inbox" })
+        .in("id", ids);
+      if (error) throw error;
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries();
+      selection.clear();
+      toast.success(`${count} row${count === 1 ? "" : "s"} set aside — find them under Past imports`);
     },
     onError: async (e: Error) => toast.error(await friendlyDbError(e)),
   });
@@ -406,7 +521,7 @@ function DataInbox() {
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Nothing here is in Mitzvah House yet. For each one you can add the new details, keep both people, fix a
-            typo, or throw the row away. If you're unsure, skip it — it stays on this list.
+            typo, or throw the row away. If you're unsure, set it aside — it waits under Past imports.
           </p>
         </div>
       )}
@@ -420,6 +535,76 @@ function DataInbox() {
           <Button className="rounded-xl" disabled={approveSafe.isPending} onClick={() => approveSafe.mutate()}>
             {approveSafe.isPending ? "Merging…" : `Merge all ${safeRows.length} with no conflicts`}
           </Button>
+        </div>
+      )}
+
+      {allPending.length > 0 && (
+        <div className="mb-3 rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={selectClass}
+              aria-label="Which import are you working on?"
+              value={batchFilter}
+              onChange={(e) => {
+                setBatchFilter(e.target.value);
+                selection.clear();
+              }}
+            >
+              <option value="">All imports ({allPending.length} rows)</option>
+              {batchOptions.map(([key, name]) => (
+                <option key={key} value={key}>
+                  {name} ({allPending.filter((r) => batchKey(r) === key).length} rows)
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              className="rounded-xl border-urgent/40 text-urgent"
+              onClick={() => setClearOpen(true)}
+            >
+              Clear all {batchFilter ? "in this import" : ""}
+            </Button>
+          </div>
+          <SelectAllToggle
+            visibleIds={pending.map((r) => r.id)}
+            selectedIds={selection.ids}
+            onSelectAll={() => selection.selectAll(pending.map((r) => r.id))}
+            onClear={selection.clear}
+            noun="rows matching this filter"
+          />
+          {selection.count > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-3">
+              <span className="text-sm font-medium text-foreground">{selection.count} selected</span>
+              <Button
+                size="sm"
+                className="rounded-xl"
+                disabled={bulkMerge.isPending}
+                onClick={() => bulkMerge.mutate()}
+              >
+                {bulkMerge.isPending ? "Merging…" : "Merge all with no conflicts"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                disabled={bulkDismiss.isPending}
+                onClick={() => bulkDismiss.mutate(selection.ids)}
+              >
+                Dismiss all
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl border-urgent/40 text-urgent"
+                onClick={() => setBulkDiscardOpen(true)}
+              >
+                Discard all
+              </Button>
+              <Button size="sm" variant="ghost" className="rounded-xl" onClick={selection.clear}>
+                Clear selection
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -472,7 +657,14 @@ function DataInbox() {
                         const choice = choices[r.id];
                         return (
                           <div key={r.id} className="rounded-xl border border-border p-3">
-                            <p className="text-sm font-medium text-foreground">{name}</p>
+                            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              <SelectBox
+                                checked={selection.has(r.id)}
+                                onChange={() => selection.toggle(r.id)}
+                                label={name}
+                              />
+                              {name}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {[row.email, row.phone].filter(Boolean).join(" · ") || "No email or phone on the row"}
                               {selectedPerson ? ` · comparing with ${personName(selectedPerson)}, already on file` : ""}
@@ -610,7 +802,13 @@ function DataInbox() {
                   return (
                     <div key={r.id} className="rounded-2xl border border-suggestion/40 bg-card p-4 shadow-sm">
                       <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
+                        <div className="flex min-w-0 gap-2">
+                          <SelectBox
+                            checked={selection.has(r.id)}
+                            onChange={() => selection.toggle(r.id)}
+                            label="this row"
+                          />
+                          <div className="min-w-0">
                           <p className="font-heading font-semibold text-foreground">
                             {plainSummary(fileName, existing ? personName(existing) : null, conflicts.length)}
                           </p>
@@ -630,6 +828,7 @@ function DataInbox() {
                             {formatDate(r.created_at?.slice(0, 10))}
                             {r.status === "skipped" ? " · skipped earlier" : ""}
                           </p>
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {safe && existing && (
@@ -764,7 +963,7 @@ function DataInbox() {
                           disabled={skip.isPending}
                           onClick={() => skip.mutate(r.id)}
                         >
-                          Skip for now
+                          Set aside for later
                         </button>
                       )}
                     </div>
@@ -811,17 +1010,52 @@ function DataInbox() {
         </section>
       )}
 
-      {handled.length > 0 && (
+      {pastBatches.length > 0 && (
         <section className="mt-6">
-          <h2 className="font-heading font-semibold text-foreground">Already handled</h2>
-          <div className="mt-2 space-y-2">
-            {handled.map((r) => (
-              <div key={r.id} className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-                {r.reason} · {r.filename ?? "Manual"} · {r.status}
-                {r.resolution_note ? ` · ${r.resolution_note}` : ""}
-              </div>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowPast((s) => !s)}
+            className="flex w-full items-center justify-between rounded-2xl border border-border bg-card px-4 py-3 text-left"
+          >
+            <span>
+              <span className="font-heading font-semibold text-foreground">Past imports</span>
+              <span className="ml-2 text-sm text-muted-foreground">
+                {pastBatches.length} finished upload{pastBatches.length === 1 ? "" : "s"} · {past.length} row
+                {past.length === 1 ? "" : "s"} settled
+              </span>
+            </span>
+            <ChevronDown className={`size-4 transition ${showPast ? "rotate-180" : ""}`} />
+          </button>
+          {showPast && (
+            <div className="mt-2 space-y-2">
+              {pastBatches.map((b) => (
+                <div key={b.key} className="rounded-2xl border border-border bg-card p-4">
+                  <p className="text-sm font-medium text-foreground">
+                    {b.filename} · {b.rows.length} row{b.rows.length === 1 ? "" : "s"}
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {b.rows.map((r) => (
+                      <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>
+                          {r.reason} · {r.status}
+                          {r.resolution_note ? ` · ${r.resolution_note}` : ""}
+                        </span>
+                        {(r.status === "skipped" || r.status === "dismissed") && (
+                          <button
+                            type="button"
+                            className="text-primary underline"
+                            onClick={() => reopen.mutate(r.id)}
+                          >
+                            Put back on the list
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -833,6 +1067,79 @@ function DataInbox() {
         {...(mergeFor?.[0] ? { primaryId: mergeFor[0] } : {})}
         suggestedIds={mergeFor?.slice(1) ?? []}
       />
+
+      <ResponsiveModal
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title={`Clear ${pending.length} row${pending.length === 1 ? "" : "s"} out of the Inbox?`}
+        description="Nothing already in Mitzvah House is touched — only these unreviewed rows are thrown away."
+        footer={
+          <>
+            <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setClearOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 rounded-xl bg-urgent text-primary-foreground hover:bg-urgent/90 sm:flex-none"
+              disabled={bulkDiscard.isPending}
+              onClick={() => bulkDiscard.mutate(pending.map((r) => r.id))}
+            >
+              {bulkDiscard.isPending ? "Clearing…" : "Yes, discard them"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm text-foreground">
+          <p>This will discard:</p>
+          <ul className="list-disc pl-5 text-muted-foreground">
+            {batchOptions
+              .filter(([key]) => !batchFilter || key === batchFilter)
+              .map(([key, name]) => (
+                <li key={key}>
+                  {name} — {pending.filter((r) => batchKey(r) === key).length} row
+                  {pending.filter((r) => batchKey(r) === key).length === 1 ? "" : "s"}
+                </li>
+              ))}
+          </ul>
+          <Input
+            className="text-base"
+            placeholder="Why are you clearing these? (saved in the change history)"
+            value={bulkReason}
+            onChange={(e) => setBulkReason(e.target.value)}
+          />
+        </div>
+      </ResponsiveModal>
+
+      <ResponsiveModal
+        open={bulkDiscardOpen}
+        onOpenChange={setBulkDiscardOpen}
+        title={`Discard ${selection.count} selected row${selection.count === 1 ? "" : "s"}?`}
+        description="They leave the Inbox for good. Contacts already in Mitzvah House are untouched."
+        footer={
+          <>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => setBulkDiscardOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 rounded-xl bg-urgent text-primary-foreground hover:bg-urgent/90 sm:flex-none"
+              disabled={bulkDiscard.isPending}
+              onClick={() => bulkDiscard.mutate(selection.ids)}
+            >
+              {bulkDiscard.isPending ? "Discarding…" : "Yes, discard"}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          className="text-base"
+          placeholder="Why are you discarding these?"
+          value={bulkReason}
+          onChange={(e) => setBulkReason(e.target.value)}
+        />
+      </ResponsiveModal>
 
       {reviewItem && (
         <ReviewCompareDialog
