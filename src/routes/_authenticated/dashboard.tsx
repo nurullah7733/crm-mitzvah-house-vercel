@@ -155,6 +155,18 @@ function Dashboard() {
 
   // Lapsed donors are computed live from the gift ledger, so this card is right
   // on January 1 too. Ranked by consistency plus total giving.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  // Only eight at a time, overdue first then soonest due, so a big import
+  // doesn't bury the dashboard. The count beside the title shows the real total.
+  const urgentTasks = [...(data?.overdue ?? [])]
+    .sort((a, b) => {
+      const rank = (d: string | null) => (d && d < todayStr ? 0 : d ? 1 : 2);
+      const diff = rank(a.due_date) - rank(b.due_date);
+      if (diff !== 0) return diff;
+      return (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999");
+    })
+    .slice(0, 8);
+
   const { data: lapsed } = useQuery({
     queryKey: ["dashboard-renewals"],
     queryFn: () => fetchRenewalDonors("lapsed", 5),
