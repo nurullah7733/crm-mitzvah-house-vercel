@@ -3,6 +3,7 @@ import { formatPhone } from "@/lib/phone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { logChange } from "@/lib/session-log";
+import { FREQUENCY_SHORT, type PledgeFrequency } from "@/lib/pledges";
 import { Plus, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
@@ -589,6 +590,7 @@ export function AddDonationDialog({
     date: todayISO(),
     campaign_id: "",
     grant_id: "",
+    pledge_id: "",
     method: "",
     source: "",
     notes: "",
@@ -637,6 +639,23 @@ export function AddDonationDialog({
   });
   const campaignName = (campaigns ?? []).find((c) => c.id === form.campaign_id)?.name ?? "";
 
+  // Pledges this donor has made, so a payment can be credited against the promise.
+  const donorId = personId ?? form.person_id;
+  const { data: donorPledges } = useQuery({
+    queryKey: ["pledges-picker", donorId],
+    enabled: Boolean(donorId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pledges")
+        .select("id, amount, frequency, status")
+        .eq("person_id", donorId)
+        .in("status", ["active", "paused"])
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const save = useMutation({
     mutationFn: async (link: { eventId: string; attended: boolean } | null) => {
       const pid = personId ?? form.person_id;
@@ -653,6 +672,7 @@ export function AddDonationDialog({
         campaign_id: form.campaign_id || null,
         campaign: campaignName || null,
         grant_id: form.grant_id || null,
+        pledge_id: form.pledge_id || null,
         method: form.method.trim() || null,
         source: form.source.trim() || null,
         notes: form.notes.trim() || null,
@@ -698,7 +718,7 @@ export function AddDonationDialog({
       toast.success("Donation logged");
       logChange("Logged a donation");
       refresh();
-      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", method: "", source: "", notes: "" });
+      setForm({ person_id: personId ?? "", amount: "", date: todayISO(), campaign_id: "", grant_id: "", pledge_id: "", method: "", source: "", notes: "" });
       setThankYouSent(false);
       setReceiptSent(false);
       setNearby(null);
@@ -922,6 +942,22 @@ export function AddDonationDialog({
             ))}
           </select>
         </Field>
+        {(donorPledges ?? []).length > 0 && (
+          <Field
+            label="Pays toward a pledge (optional)"
+            hint="Links this gift to what they promised, without counting the money twice."
+            className="sm:col-span-2"
+          >
+            <select value={form.pledge_id} onChange={(e) => set("pledge_id", e.target.value)} className={selectClass}>
+              <option value="">Not a pledge payment</option>
+              {(donorPledges ?? []).map((pl) => (
+                <option key={pl.id} value={pl.id}>
+                  ${Number(pl.amount).toLocaleString()} {FREQUENCY_SHORT[pl.frequency as PledgeFrequency]} pledge
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Grant payment (optional)" className="sm:col-span-2">
           <select value={form.grant_id} onChange={(e) => set("grant_id", e.target.value)} className={selectClass}>
             <option value="">Not a grant payment</option>
