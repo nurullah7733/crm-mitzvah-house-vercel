@@ -60,6 +60,8 @@ export function ReviewCompareDialog({
   const [choices, setChoices] = useState<Partial<Record<CompareKey, Side>>>({});
   const [reason, setReason] = useState("");
   const [showSame, setShowSame] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
+  const [selectedExisting, setSelectedExisting] = useState<ReviewPerson | null>(existing);
 
   useEffect(() => {
     if (open) {
@@ -70,14 +72,16 @@ export function ReviewCompareDialog({
       setChoices({});
       setReason("");
       setShowSame(false);
+      setContactSearch("");
+      setSelectedExisting(existing);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, item.id]);
 
   const incoming = useMemo(() => incomingPerson(edited), [edited]);
   const fields = useMemo(
-    () => (existing ? compareRecords(existing, incoming) : []),
-    [existing, incoming],
+    () => (selectedExisting ? compareRecords(selectedExisting, incoming) : []),
+    [selectedExisting, incoming],
   );
   const conflicts = fields.filter((f) => f.state === "conflict");
   const kept = fields.filter((f) => f.state === "fill" || (f.state === "same" && !f.incoming && f.existing));
@@ -88,9 +92,27 @@ export function ReviewCompareDialog({
   const source = `${item.filename ?? "Import"} review`;
 
   const { data: history } = useQuery({
-    queryKey: ["review-history", existing?.id],
-    enabled: open && Boolean(existing?.id),
-    queryFn: () => fetchHistory(existing!.id),
+    queryKey: ["review-history", selectedExisting?.id],
+    enabled: open && Boolean(selectedExisting?.id),
+    queryFn: () => selectedExisting ? fetchHistory(selectedExisting.id) : Promise.resolve(null),
+  });
+
+  const { data: searchResults } = useQuery({
+    queryKey: ["review-contact-search", contactSearch.trim()],
+    enabled: open && contactSearch.trim().length >= 2,
+    queryFn: async () => {
+      const { data: hits, error: searchError } = await supabase.rpc("search_people", {
+        _q: contactSearch.trim(),
+        _limit: 8,
+      });
+      if (searchError) throw searchError;
+      const ids = (hits ?? []).map((hit) => hit.person_id);
+      if (ids.length === 0) return [] as ReviewPerson[];
+      const { data: people, error } = await supabase.from("people").select("*").in("id", ids).is("deleted_at", null);
+      if (error) throw error;
+      const byId = new Map((people ?? []).map((person) => [person.id, person]));
+      return ids.map((id) => byId.get(id)).filter((person): person is ReviewPerson => Boolean(person));
+    },
   });
 
   const finish = async (decision: "merged" | "kept_both" | "discarded", personId: string | null) => {
@@ -105,19 +127,19 @@ export function ReviewCompareDialog({
 
   const merge = useMutation({
     mutationFn: async () => {
-      if (!existing) throw new Error("There is no existing contact to combine this with.");
+      if (!selectedExisting) throw new Error("Choose an existing contact to combine this with.");
       if (undecided.length > 0) throw new Error(`Pick the right ${undecided[0]!.label.toLowerCase()} first.`);
-      const before = { ...existing };
-      const changed = await applyIncoming(existing.id, fields, choices, source, item.batch_id ?? null);
+      const before = { ...selectedExisting };
+      const changed = await applyIncoming(selectedExisting.id, fields, choices, source, item.batch_id ?? null);
       await supabase.rpc("log_import_review_merge", {
         _item_id: item.id,
-        _person_id: existing.id,
+        _person_id: selectedExisting.id,
         _existing_before: before as never,
         _incoming: edited as never,
         _surviving_after: preview as never,
         _choices: choices as never,
       });
-      await finish("merged", existing.id);
+      await finish("merged", selectedExisting.id);
       return changed;
     },
     onSuccess: (changed) => {
@@ -136,7 +158,7 @@ export function ReviewCompareDialog({
 
   const keepBoth = useMutation({
     mutationFn: async () => {
-      const id = await createFromIncoming(incoming, existing?.household_id ?? null, source, item.batch_id ?? null);
+      const id = await createFromIncoming(incoming, selectedExisting?.household_id ?? null, source, item.batch_id ?? null);
       await finish("kept_both", id);
     },
     onSuccess: () => {
@@ -152,7 +174,7 @@ export function ReviewCompareDialog({
   const discard = useMutation({
     mutationFn: async () => {
       if (!reason.trim()) throw new Error("Write a few words about why you're throwing this row away.");
-      await finish("discarded", existing?.id ?? null);
+      await finish("discarded", selectedExisting?.id ?? null);
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
@@ -166,8 +188,8 @@ export function ReviewCompareDialog({
 
   const saveExistingEdits = useMutation({
     mutationFn: async () => {
-      if (!existing) return;
-      await updateExistingFields(existing.id, editedExisting);
+      if (!selectedExisting) return;
+      await updateExistingFields(selectedExisting.id, editedExisting);
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
@@ -195,7 +217,7 @@ export function ReviewCompareDialog({
       }
       description={
         mode === "compare"
-          ? existing
+            ? selectedExisting
             ? "The person we already have is on the left, the spreadsheet row is on the right. You only have to choose where they don't match."
             : "We didn't find anyone like this. You can save them as a new contact, fix a typo first, or throw the row away."
           : mode === "edit"
@@ -233,13 +255,13 @@ export function ReviewCompareDialog({
           </>
         ) : (
           <div className="grid w-full gap-2 sm:grid-cols-4">
-            {existing && (
+            {selectedExisting && (
               <Button className="rounded-xl" disabled={busy} onClick={() => merge.mutate()}>
                 {merge.isPending ? "Combining…" : "Same person — combine"}
               </Button>
             )}
             <Button variant="outline" className="rounded-xl" disabled={busy} onClick={() => keepBoth.mutate()}>
-              {existing ? "Different people — keep both" : "Save as a new contact"}
+              {selectedExisting ? "Different people — keep both" : "Save as a new contact"}
             </Button>
             <Button variant="outline" className="rounded-xl" disabled={busy} onClick={() => setMode("edit")}>
               Fix a typo
@@ -269,7 +291,7 @@ export function ReviewCompareDialog({
 
       {mode === "edit" && (
         <div className="space-y-3">
-          {existing && (
+          {selectedExisting && (
             <div className="flex gap-2">
               {(
                 [
@@ -291,13 +313,13 @@ export function ReviewCompareDialog({
             </div>
           )}
 
-          {existing && editSide === "existing" ? (
+          {selectedExisting && editSide === "existing" ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {COMPARE_FIELDS.map((f) => (
                 <Field key={f.key} label={f.label}>
                   <Input
                     className="text-base"
-                    value={editedExisting[f.key] ?? (existing[f.key] as string | null) ?? ""}
+                    value={editedExisting[f.key] ?? (selectedExisting[f.key] as string | null) ?? ""}
                     onChange={(e) => setEditedExisting((v) => ({ ...v, [f.key]: e.target.value }))}
                   />
                 </Field>
@@ -337,10 +359,47 @@ export function ReviewCompareDialog({
         <div className="space-y-4">
           <p className="rounded-xl bg-suggestion/10 px-3 py-2 text-xs text-foreground">
             {item.reason}
-            {existing ? ` · possible match: ${personName(existing)}` : ""}
+            {selectedExisting ? ` · comparing with: ${personName(selectedExisting)}` : ""}
           </p>
 
-          {!existing ? (
+          <div className="rounded-xl border border-border p-3">
+            <Field label="Find a different contact">
+              <Input
+                className="text-base"
+                value={contactSearch}
+                placeholder="Search by name, email, phone, tag, or program"
+                onChange={(event) => setContactSearch(event.target.value)}
+              />
+            </Field>
+            {contactSearch.trim().length >= 2 && (
+              <div className="mt-2 max-h-44 space-y-1 overflow-y-auto">
+                {(searchResults ?? []).map((person) => (
+                  <Button
+                    key={person.id}
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-start rounded-lg"
+                    onClick={() => {
+                      setSelectedExisting(person);
+                      setChoices({});
+                      setEditedExisting({});
+                      setContactSearch("");
+                    }}
+                  >
+                    {personName(person)}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {[person.email, person.phone].filter(Boolean).join(" · ") || "No email or phone"}
+                    </span>
+                  </Button>
+                ))}
+                {searchResults?.length === 0 && (
+                  <p className="px-2 py-1 text-sm text-muted-foreground">No matching contacts found.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {!selectedExisting ? (
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{RIGHT_LABEL}</p>
               {COMPARE_FIELDS.map((f) => (
@@ -356,7 +415,7 @@ export function ReviewCompareDialog({
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border border-border bg-muted/30 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{LEFT_LABEL}</p>
-                  <p className="font-heading font-semibold text-foreground">{personName(existing)}</p>
+                   <p className="font-heading font-semibold text-foreground">{personName(selectedExisting)}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {history
                       ? `${history.donations} donation${history.donations === 1 ? "" : "s"} · ${currency(history.giving)} given · ${history.registrations} event registration${history.registrations === 1 ? "" : "s"} · ${history.notes} note${history.notes === 1 ? "" : "s"} · ${history.tasks} task${history.tasks === 1 ? "" : "s"}`
