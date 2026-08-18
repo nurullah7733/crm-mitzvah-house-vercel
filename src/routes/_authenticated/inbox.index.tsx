@@ -728,7 +728,6 @@ function ImportCenter() {
       async function ensureHousehold(
         name: string,
         parts: HouseParts,
-        billing: string | null,
         allowAddressLink = true,
       ): Promise<string | null> {
         const key = allowAddressLink ? addressKey(parts.address) : null;
@@ -858,7 +857,7 @@ function ImportCenter() {
 
           if (match.status === "new") {
             if (hasFamily) {
-              householdId = await ensureHousehold(householdName, addressParts, null, allowAddressLink);
+              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
             }
             const { data: created, error: createError } = await supabase
               .from("people")
@@ -932,7 +931,7 @@ function ImportCenter() {
 
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
-              householdId = await ensureHousehold(householdName, addressParts, null, allowAddressLink);
+              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
               if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
             } else if (householdId && fullAddress) {
               const housePatch: {
