@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { MergeHouseholdsDialog } from "@/components/MergeHouseholdsDialog";
+import { archiveRecords, type ArchivableTable } from "@/lib/archive";
 
 type BulkTable = "donations" | "events" | "households" | "grants" | "tasks" | "campaigns";
 

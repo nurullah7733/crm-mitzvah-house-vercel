@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass } from "@/components/forms/fields";
 import { logChange } from "@/lib/session-log";
 import { friendlyDbError } from "@/lib/db-errors";
+import { archiveRecords, type ArchivableTable } from "@/lib/archive";
 
 export type EditableTable = "people" | "donations" | "events" | "tasks";
 
@@ -82,11 +83,7 @@ export function EditRecordDialog({
 
   const softDelete = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from(table)
-        .update({ deleted_at: new Date().toISOString() } as never)
-        .eq("id", id);
-      if (error) throw error;
+      await archiveRecords(table as ArchivableTable, [id]);
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
