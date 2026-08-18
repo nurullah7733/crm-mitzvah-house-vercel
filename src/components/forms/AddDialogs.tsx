@@ -705,6 +705,8 @@ export function AddDonationDialog({
       setLinkEventId("");
       setAttended("yes");
       setPickOther(false);
+      setElsewhere(null);
+      setElsewhereOk(false);
       onOpenChange(false);
     },
     onError: (e: Error) => {
