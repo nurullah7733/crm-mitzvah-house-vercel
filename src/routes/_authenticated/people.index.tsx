@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChevronDown, Download, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { QueryError } from "@/components/ErrorState";
 import { AppShell, EmptyState, currency, daysSince, initials } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,13 +12,24 @@ import { AddPersonDialog } from "@/components/forms/AddDialogs";
 import { Field } from "@/components/forms/fields";
 import { Label } from "@/components/ui/label";
 import { nextHebrewAnniversary, nextYahrzeit, hebrewMilestone } from "@/lib/hebrew";
-import { approachingMitzvah, useLifecycleSettings, LIFECYCLE_DEFAULTS, isChild } from "@/lib/lifecycle";
+import {
+  approachingMitzvah,
+  useLifecycleSettings,
+  LIFECYCLE_DEFAULTS,
+  isChild,
+} from "@/lib/lifecycle";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personInitials, personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { fuzzyScoreAny } from "@/lib/nl-search";
 import { LabelChips } from "@/components/LabelChips";
-import { BulkPeopleBar, SelectBox, SelectAllToggle, useSelection } from "@/components/BulkPeopleActions";
+import {
+  BulkPeopleBar,
+  SelectBox,
+  SelectAllToggle,
+  useSelection,
+} from "@/components/BulkPeopleActions";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/_authenticated/people/")({
   validateSearch: (
@@ -25,18 +37,28 @@ export const Route = createFileRoute("/_authenticated/people/")({
   ): { q?: string | undefined; tag?: string | undefined; program?: string | undefined } => ({
     q: typeof search["q"] === "string" && search["q"] ? (search["q"] as string) : undefined,
     tag: typeof search["tag"] === "string" && search["tag"] ? (search["tag"] as string) : undefined,
-    program: typeof search["program"] === "string" && search["program"] ? (search["program"] as string) : undefined,
+    program:
+      typeof search["program"] === "string" && search["program"]
+        ? (search["program"] as string)
+        : undefined,
   }),
   head: () => ({
     meta: [
       { title: "People | Mitzvah House CRM" },
-      { name: "description", content: "Every person Mitzvah House knows, with giving and activity at a glance." },
+      {
+        name: "description",
+        content: "Every person Mitzvah House knows, with giving and activity at a glance.",
+      },
       { property: "og:title", content: "People | Mitzvah House CRM" },
-      { property: "og:description", content: "Every person Mitzvah House knows, with giving and activity at a glance." },
+      {
+        property: "og:description",
+        content: "Every person Mitzvah House knows, with giving and activity at a glance.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: PeoplePage,
 });
 
@@ -92,7 +114,7 @@ function PeoplePage() {
     },
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["people-list"],
     queryFn: () =>
       fetchAll((from, to) =>
@@ -135,8 +157,12 @@ function PeoplePage() {
 
   const people = rows
     .filter((p) => {
-      if (activeTag && !(p.tags ?? []).some((t) => t.toLowerCase() === activeTag.toLowerCase())) return false;
-      if (activeProgram && !(p.programs ?? []).some((t) => t.toLowerCase() === activeProgram.toLowerCase()))
+      if (activeTag && !(p.tags ?? []).some((t) => t.toLowerCase() === activeTag.toLowerCase()))
+        return false;
+      if (
+        activeProgram &&
+        !(p.programs ?? []).some((t) => t.toLowerCase() === activeProgram.toLowerCase())
+      )
         return false;
 
       // Typo-tolerant filter: every word typed must match something on the record.
@@ -159,12 +185,15 @@ function PeoplePage() {
       }
 
       if (chip === "Donors" && Number(p.lifetime_giving ?? 0) <= 0) return false;
-      if (chip === "Recently updated" && !(p.sinceActivity !== null && p.sinceActivity <= 30)) return false;
-      if (chip === "No recent activity" && !(p.sinceActivity === null || p.sinceActivity > 90)) return false;
+      if (chip === "Recently updated" && !(p.sinceActivity !== null && p.sinceActivity <= 30))
+        return false;
+      if (chip === "No recent activity" && !(p.sinceActivity === null || p.sinceActivity > 90))
+        return false;
       if (chip === "Upcoming important date" && !(p.nextImportant <= 60)) return false;
       if (chip === "Approaching bar/bat mitzvah" && !approachingMitzvah(p, lifecycle)) return false;
       if (chip === "Children approaching adult age" && !nearAdult(p)) return false;
-      if (chip === "Children with no birth date" && !(isChild(p.role) && !p.birth_date)) return false;
+      if (chip === "Children with no birth date" && !(isChild(p.role) && !p.birth_date))
+        return false;
 
       const md = monthDay(p.birth_date);
       const from = monthDay(bFrom ? `2000-${bFrom}` : null) ?? monthDay(bFrom);
@@ -176,7 +205,9 @@ function PeoplePage() {
       } else if (from && md !== null && md < from) return false;
       else if (to && md !== null && md > to) return false;
 
-      const amount = Number((giveBasis === "lifetime" ? p.lifetime_giving : p.this_year_giving) ?? 0);
+      const amount = Number(
+        (giveBasis === "lifetime" ? p.lifetime_giving : p.this_year_giving) ?? 0,
+      );
       if (giveMin && amount < Number(giveMin)) return false;
       if (giveMax && amount > Number(giveMax)) return false;
       return true;
@@ -245,7 +276,11 @@ function PeoplePage() {
             Showing everyone with {activeTag ? "tag" : "program"}{" "}
             <strong>{activeTag ?? activeProgram}</strong>
           </span>
-          <Link to="/people" search={{}} className="ml-auto text-xs font-medium text-primary hover:underline">
+          <Link
+            to="/people"
+            search={{}}
+            className="ml-auto text-xs font-medium text-primary hover:underline"
+          >
             Clear filter
           </Link>
         </div>
@@ -285,19 +320,37 @@ function PeoplePage() {
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Collapsible open={bdayOpen} onToggle={() => setBdayOpen((o) => !o)} label="Search by birthday range">
+        <Collapsible
+          open={bdayOpen}
+          onToggle={() => setBdayOpen((o) => !o)}
+          label="Search by birthday range"
+        >
           <p className="text-xs text-muted-foreground">Month and day only — the year is ignored.</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <Field label="From (MM-DD)">
-              <Input className="text-base" placeholder="03-01" value={bFrom} onChange={(e) => setBFrom(e.target.value)} />
+              <Input
+                className="text-base"
+                placeholder="03-01"
+                value={bFrom}
+                onChange={(e) => setBFrom(e.target.value)}
+              />
             </Field>
             <Field label="To (MM-DD)">
-              <Input className="text-base" placeholder="04-15" value={bTo} onChange={(e) => setBTo(e.target.value)} />
+              <Input
+                className="text-base"
+                placeholder="04-15"
+                value={bTo}
+                onChange={(e) => setBTo(e.target.value)}
+              />
             </Field>
           </div>
         </Collapsible>
 
-        <Collapsible open={giveOpen} onToggle={() => setGiveOpen((o) => !o)} label="Search by giving amount">
+        <Collapsible
+          open={giveOpen}
+          onToggle={() => setGiveOpen((o) => !o)}
+          label="Search by giving amount"
+        >
           <div className="flex gap-1 rounded-xl border border-border p-1">
             {(["lifetime", "this_year"] as const).map((b) => (
               <button
@@ -313,10 +366,22 @@ function PeoplePage() {
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <Field label="Min">
-              <Input className="text-base" type="number" inputMode="numeric" value={giveMin} onChange={(e) => setGiveMin(e.target.value)} />
+              <Input
+                className="text-base"
+                type="number"
+                inputMode="numeric"
+                value={giveMin}
+                onChange={(e) => setGiveMin(e.target.value)}
+              />
             </Field>
             <Field label="Max">
-              <Input className="text-base" type="number" inputMode="numeric" value={giveMax} onChange={(e) => setGiveMax(e.target.value)} />
+              <Input
+                className="text-base"
+                type="number"
+                inputMode="numeric"
+                value={giveMax}
+                onChange={(e) => setGiveMax(e.target.value)}
+              />
             </Field>
           </div>
         </Collapsible>
@@ -328,7 +393,9 @@ function PeoplePage() {
           onToggle={() => setBrowseOpen((o) => !o)}
           label="Browse all tags and programs"
         >
-          {(labels ?? []).length === 0 && <p className="text-xs text-muted-foreground">No tags or programs yet.</p>}
+          {(labels ?? []).length === 0 && (
+            <p className="text-xs text-muted-foreground">No tags or programs yet.</p>
+          )}
           {(["tag", "program"] as const).map((kind) => {
             const list = (labels ?? []).filter((l) => l.kind === kind);
             if (list.length === 0) return null;
@@ -344,7 +411,9 @@ function PeoplePage() {
                       to="/people"
                       search={kind === "tag" ? { tag: l.label } : { program: l.label }}
                       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] transition hover:ring-1 hover:ring-primary/40 ${
-                        kind === "tag" ? "bg-secondary text-secondary-foreground" : "bg-primary/10 text-primary"
+                        kind === "tag"
+                          ? "bg-secondary text-secondary-foreground"
+                          : "bg-primary/10 text-primary"
                       }`}
                     >
                       {l.label}
@@ -358,8 +427,17 @@ function PeoplePage() {
         </Collapsible>
       </div>
 
-      {isLoading && <div className="mt-5"><EmptyState label="Loading people…" /></div>}
-      {!isLoading && people.length === 0 && <div className="mt-5"><EmptyState label="No people match those filters." /></div>}
+      <QueryError error={error} what="the people list" onRetry={() => void refetch()} />
+      {isLoading && !error && (
+        <div className="mt-5">
+          <EmptyState label="Loading people…" />
+        </div>
+      )}
+      {!isLoading && !error && people.length === 0 && (
+        <div className="mt-5">
+          <EmptyState label="No people match those filters." />
+        </div>
+      )}
 
       <SelectAllToggle
         visibleIds={people.map((p) => p.id)}
@@ -395,7 +473,11 @@ function PeoplePage() {
                     />
                   </td>
                   <td className="px-4 py-3">
-                    <Link to="/people/$personId" params={{ personId: p.id }} className="font-medium text-primary">
+                    <Link
+                      to="/people/$personId"
+                      params={{ personId: p.id }}
+                      className="font-medium text-primary"
+                    >
                       {personName(p)}
                     </Link>
                     <span className="ml-2 text-xs text-muted-foreground">
@@ -404,9 +486,15 @@ function PeoplePage() {
                     <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.households?.name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{p.email ?? (formatPhone(p.phone) || "—")}</td>
-                  <td className="px-4 py-3 font-medium text-money">{currency(p.lifetime_giving)}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{currency(p.this_year_giving)}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {p.email ?? (formatPhone(p.phone) || "—")}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-money">
+                    {currency(p.lifetime_giving)}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {currency(p.this_year_giving)}
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {p.sinceActivity === null ? "—" : `${p.sinceActivity} days ago`}
                   </td>
@@ -422,30 +510,37 @@ function PeoplePage() {
         {people.map((p) => (
           <div key={p.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-start gap-2">
-              <SelectBox checked={selection.has(p.id)} onChange={() => selection.toggle(p.id)} label={personName(p)} />
-              <Link to="/people/$personId" params={{ personId: p.id }} className="block min-w-0 flex-1">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
-                  {personInitials(p)}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate font-heading font-semibold">
-                    {personName(p)}
-                  </p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {p.households?.name ?? "No household"} · {p.email ?? (formatPhone(p.phone) || "No contact")}
-                  </p>
+              <SelectBox
+                checked={selection.has(p.id)}
+                onChange={() => selection.toggle(p.id)}
+                label={personName(p)}
+              />
+              <Link
+                to="/people/$personId"
+                params={{ personId: p.id }}
+                className="block min-w-0 flex-1"
+              >
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
+                      {personInitials(p)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-heading font-semibold">{personName(p)}</p>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {p.households?.name ?? "No household"} ·{" "}
+                        {p.email ?? (formatPhone(p.phone) || "No contact")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-semibold text-money">{currency(p.lifetime_giving)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {p.sinceActivity === null ? "No activity" : `${p.sinceActivity}d ago`}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="font-semibold text-money">{currency(p.lifetime_giving)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {p.sinceActivity === null ? "No activity" : `${p.sinceActivity}d ago`}
-                </p>
-              </div>
-            </div>
-            </Link>
+              </Link>
             </div>
             <LabelChips tags={p.tags ?? []} programs={p.programs ?? []} />
           </div>
@@ -477,9 +572,14 @@ function Collapsible({
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
-      <button onClick={onToggle} className="flex w-full items-center justify-between gap-2 text-sm font-medium">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-2 text-sm font-medium"
+      >
         {label}
-        <ChevronDown className={`size-4 text-muted-foreground transition ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          className={`size-4 text-muted-foreground transition ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && <div className="mt-3">{children}</div>}
     </div>

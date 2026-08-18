@@ -19,12 +19,19 @@ import { fetchAll } from "@/lib/fetch-all";
 import { CalendarHeart } from "lucide-react";
 import { giftReminders, quietReminders, type EngagementReminder } from "@/lib/engagement";
 import { fetchMissedPledgePayments, missedPledgeReminders } from "@/lib/pledges";
-import { lifecycleItems, useLifecycleSettings, LIFECYCLE_DEFAULTS, type LifecycleItem } from "@/lib/lifecycle";
+import {
+  lifecycleItems,
+  useLifecycleSettings,
+  LIFECYCLE_DEFAULTS,
+  type LifecycleItem,
+} from "@/lib/lifecycle";
 import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyDbError } from "@/lib/db-errors";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
+import { RouteError } from "@/components/RouteError";
+import { showError } from "@/lib/app-errors";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   head: () => ({
@@ -32,9 +39,13 @@ export const Route = createFileRoute("/_authenticated/tasks")({
       { title: "Tasks | Mitzvah House CRM" },
       { name: "description", content: "What to do next, with the person each task belongs to." },
       { property: "og:title", content: "Tasks | Mitzvah House CRM" },
-      { property: "og:description", content: "What to do next, with the person each task belongs to." },
+      {
+        property: "og:description",
+        content: "What to do next, with the person each task belongs to.",
+      },
     ],
   }),
+  errorComponent: RouteError,
   component: TasksPage,
 });
 
@@ -156,7 +167,7 @@ function TasksPage() {
       toast.success("Task added");
       queryClient.invalidateQueries({ queryKey: ["tasks-list"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const addReminderTask = useMutation({
@@ -175,7 +186,7 @@ function TasksPage() {
       toast.success("Task added");
       queryClient.invalidateQueries({ queryKey: ["tasks-list"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const reminders = [
@@ -264,7 +275,7 @@ function TasksPage() {
     return d.toISOString().slice(0, 10);
   })();
   const done = tasks.filter(
-    (t) => t.group === "done" && ((t.completed_at ?? t.created_at) ?? "").slice(0, 10) >= weekStart,
+    (t) => t.group === "done" && (t.completed_at ?? t.created_at ?? "").slice(0, 10) >= weekStart,
   );
 
   function Row({ t }: { t: (typeof tasks)[number] }) {
@@ -289,18 +300,30 @@ function TasksPage() {
           t.group === "overdue" ? "border-urgent/40" : "border-border"
         }`}
       >
-        <SelectBox checked={selection.has(t.id)} onChange={() => selection.toggle(t.id)} label="this task" />
+        <SelectBox
+          checked={selection.has(t.id)}
+          onChange={() => selection.toggle(t.id)}
+          label="this task"
+        />
         <TaskCheckbox
           done={isDone}
           onClick={() => {
-            if (!isDone) setCompleting({ id: t.id, text: t.text, person_id: t.person_id, owner: t.owner });
+            if (!isDone)
+              setCompleting({ id: t.id, text: t.text, person_id: t.person_id, owner: t.owner });
             else void reopen();
           }}
         />
         <div className="min-w-0">
-          <p className={`text-sm ${isDone ? "text-muted-foreground line-through" : "text-foreground"}`}>{t.text}</p>
-          <p className={`mt-1 text-xs ${t.group === "overdue" ? "text-urgent" : "text-muted-foreground"}`}>
-            Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"} · {t.priority ?? "Normal"} priority
+          <p
+            className={`text-sm ${isDone ? "text-muted-foreground line-through" : "text-foreground"}`}
+          >
+            {t.text}
+          </p>
+          <p
+            className={`mt-1 text-xs ${t.group === "overdue" ? "text-urgent" : "text-muted-foreground"}`}
+          >
+            Due {formatDate(t.due_date)} · {t.owner ?? "Unassigned"} · {t.priority ?? "Normal"}{" "}
+            priority
           </p>
           {t.people && (
             <Link
@@ -311,9 +334,15 @@ function TasksPage() {
               {personName(t.people)}
             </Link>
           )}
-          {t.completion_note && <p className="mt-1 text-xs text-muted-foreground">{t.completion_note}</p>}
+          {t.completion_note && (
+            <p className="mt-1 text-xs text-muted-foreground">{t.completion_note}</p>
+          )}
           {isDone && (
-            <button type="button" className="mt-2 block text-xs text-primary hover:underline" onClick={() => void reopen()}>
+            <button
+              type="button"
+              className="mt-2 block text-xs text-primary hover:underline"
+              onClick={() => void reopen()}
+            >
               Reopen this task
             </button>
           )}
@@ -356,14 +385,21 @@ function TasksPage() {
             </h2>
             <div className="mt-3 space-y-3">
               {reminders.map((r) => (
-                <div key={r.key} className="flex gap-3 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 shadow-sm">
+                <div
+                  key={r.key}
+                  className="flex gap-3 rounded-2xl border border-suggestion/50 bg-suggestion/10 p-4 shadow-sm"
+                >
                   <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-suggestion/25 text-suggestion-foreground">
                     <CalendarHeart className="size-4" />
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm text-foreground">
                       Reach out to{" "}
-                      <Link to="/people/$personId" params={{ personId: r.personId }} className="text-primary hover:underline">
+                      <Link
+                        to="/people/$personId"
+                        params={{ personId: r.personId }}
+                        className="text-primary hover:underline"
+                      >
                         {r.name}
                       </Link>
                     </p>

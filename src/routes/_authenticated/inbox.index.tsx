@@ -1,7 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, UserPlus, Users, Check } from "lucide-react";
+import {
+  UploadCloud,
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertTriangle,
+  UserPlus,
+  Users,
+  Check,
+} from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
@@ -54,6 +62,8 @@ import {
 
 import { buildRowValues, mainName } from "@/lib/import-rows";
 import { FieldPicker } from "@/components/import/FieldPicker";
+import { RouteError } from "@/components/RouteError";
+import { guard } from "@/lib/app-errors";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -61,17 +71,20 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
       { title: "Import Center | Mitzvah House CRM" },
       {
         name: "description",
-        content: "Upload a spreadsheet, review the proposed matches and column mapping, then approve the import.",
+        content:
+          "Upload a spreadsheet, review the proposed matches and column mapping, then approve the import.",
       },
       { property: "og:title", content: "Import Center | Mitzvah House CRM" },
       {
         property: "og:description",
-        content: "Upload a spreadsheet, review the proposed matches and column mapping, then approve the import.",
+        content:
+          "Upload a spreadsheet, review the proposed matches and column mapping, then approve the import.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: ImportCenter,
 });
 
@@ -93,7 +106,8 @@ async function readFile(file: File): Promise<Sheet> {
     table = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: "" });
   }
   const [headerRow, ...rest] = table;
-  if (!headerRow || rest.length === 0) throw new Error("We need a header row plus at least one row of data.");
+  if (!headerRow || rest.length === 0)
+    throw new Error("We need a header row plus at least one row of data.");
   return {
     name: file.name,
     headers: headerRow.map((h) => String(h ?? "").trim()),
@@ -108,7 +122,12 @@ function isoDate(raw: string | undefined) {
 }
 
 function splitList(raw: string | undefined) {
-  return raw ? raw.split(/[;,|]/).map((t) => t.trim()).filter(Boolean) : [];
+  return raw
+    ? raw
+        .split(/[;,|]/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
 }
 
 /** Same date, shifted by whole days — used for the one-day event window. */
@@ -135,7 +154,9 @@ function ImportCenter() {
   /** One answer per group of people sharing an address. */
   const [addressDecisions, setAddressDecisions] = useState<Record<string, AddressDecision>>({});
   /** One answer per event whose date matches gifts in this file. */
-  const [giftEventDecisions, setGiftEventDecisions] = useState<Record<string, "attended" | "gift_only" | "skip">>({});
+  const [giftEventDecisions, setGiftEventDecisions] = useState<
+    Record<string, "attended" | "gift_only" | "skip">
+  >({});
   /** Set when staff confirm they really do want to import a file already imported before. */
   const [reimportConfirmed, setReimportConfirmed] = useState(false);
   /** Blocks a double-tap or a browser retry from running the same import twice. */
@@ -282,7 +303,9 @@ function ImportCenter() {
       label: c.label,
       ok: c.fields.some((f) => mapped.has(f)),
     }));
-    const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map((p) => p.message);
+    const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map(
+      (p) => p.message,
+    );
     return { checklist, warnings, mapped };
   }, [mapping]);
 
@@ -316,7 +339,10 @@ function ImportCenter() {
 
   // Campaign names are only a maybe, so they never hold up an import.
   const unansweredEvents = fileEvents.filter(
-    (e) => e.origin === "event" && !e.matched && (eventDecisions[e.key]?.action ?? undefined) === undefined,
+    (e) =>
+      e.origin === "event" &&
+      !e.matched &&
+      (eventDecisions[e.key]?.action ?? undefined) === undefined,
   );
 
   /** How each row will be linked, so the preview can be exact. */
@@ -445,7 +471,9 @@ function ImportCenter() {
     if (!sheet) return;
     if (runningRef.current || busy) return;
     if ((priorImports ?? []).length > 0 && !reimportConfirmed) {
-      toast.error("This file was imported before. Tick the box to confirm you want to import it again.");
+      toast.error(
+        "This file was imported before. Tick the box to confirm you want to import it again.",
+      );
       return;
     }
     runningRef.current = true;
@@ -486,15 +514,17 @@ function ImportCenter() {
       let queued = 0;
 
       const existingGiftFingerprints = new Set(
-        (await fetchAll<{ import_fingerprint: string | null }>((f, t) =>
-          supabase
-            .from("donations")
-            .select("import_fingerprint")
-            .not("import_fingerprint", "is", null)
-            .is("deleted_at", null)
-            .order("id")
-            .range(f, t),
-        ))
+        (
+          await fetchAll<{ import_fingerprint: string | null }>((f, t) =>
+            supabase
+              .from("donations")
+              .select("import_fingerprint")
+              .not("import_fingerprint", "is", null)
+              .is("deleted_at", null)
+              .order("id")
+              .range(f, t),
+          )
+        )
           .map((gift) => gift.import_fingerprint)
           .filter((value): value is string => Boolean(value)),
       );
@@ -507,23 +537,28 @@ function ImportCenter() {
         group: { key: string; address: string } | null,
       ) {
         queued += 1;
-        await supabase.from("review_queue").insert({
-          batch_id: batchId,
-          filename: sheet!.name,
-          reason,
-          row_data: {
-            ...(values as unknown as Record<string, unknown>),
-            ...(group ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address } : {}),
-          } as unknown as Record<string, string>,
-          candidate_person_ids: candidateIds,
-          status: "pending",
-        });
+        await guard(
+          supabase.from("review_queue").insert({
+            batch_id: batchId,
+            filename: sheet!.name,
+            reason,
+            row_data: {
+              ...(values as unknown as Record<string, unknown>),
+              ...(group
+                ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address }
+                : {}),
+            } as unknown as Record<string, string>,
+            candidate_person_ids: candidateIds,
+            status: "pending",
+          }),
+          { area: "import", action: "Save an imported detail" },
+        );
       }
 
       // Existing households, so people at the same address join one household
       // instead of each row creating a fresh duplicate.
-      const existingHouses = (await fetchAll<{ id: string; name: string; address: string | null }>((f, t) =>
-        supabase.from("households").select("id, name, address").order("id").range(f, t),
+      const existingHouses = (await fetchAll<{ id: string; name: string; address: string | null }>(
+        (f, t) => supabase.from("households").select("id, name, address").order("id").range(f, t),
       )) as { id: string; name: string; address: string | null }[];
       const houseByKey = new Map<string, string>();
       for (const h of existingHouses) {
@@ -551,7 +586,10 @@ function ImportCenter() {
         if (existing) {
           existing.email = existing.email ?? entry.email ?? null;
           existing.phone = existing.phone ?? entry.phone ?? null;
-          existing.contact_methods = [...(existing.contact_methods ?? []), ...(entry.methods ?? [])];
+          existing.contact_methods = [
+            ...(existing.contact_methods ?? []),
+            ...(entry.methods ?? []),
+          ];
           return;
         }
         livePeople.push({
@@ -592,7 +630,10 @@ function ImportCenter() {
       );
 
       // Answers to the shared-address questions, looked up by row.
-      const decisionByRow = new Map<number, { action: AddressDecision["action"]; relationship: string }>();
+      const decisionByRow = new Map<
+        number,
+        { action: AddressDecision["action"]; relationship: string }
+      >();
       for (const group of addressGroups) {
         const decision = addressDecisions[group.key];
         if (!decision) continue;
@@ -620,7 +661,8 @@ function ImportCenter() {
       ): Promise<string | null> {
         const key = allowAddressLink ? addressKey(parts.address) : null;
         const nameKey = `name:${name.trim().toLowerCase()}`;
-        const found = (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
+        const found =
+          (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
         if (found) {
           // Fill in any address details the stored household is missing.
           const patch: Partial<HouseParts> = {};
@@ -630,10 +672,13 @@ function ImportCenter() {
           if (parts.state) patch.state = parts.state;
           if (parts.postal_code) patch.postal_code = parts.postal_code;
           // People are joining this address, so an address-only record becomes a real household.
-          await supabase
-            .from("households")
-            .update({ ...patch, status: "active" } as never)
-            .eq("id", found);
+          await guard(
+            supabase
+              .from("households")
+              .update({ ...patch, status: "active" } as never)
+              .eq("id", found),
+            { area: "import", action: "Save an imported detail" },
+          );
           return found;
         }
         const { data: household } = await supabase
@@ -675,13 +720,19 @@ function ImportCenter() {
           const rowAmount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
           const rowGiftDate = isoDate(v.date) ?? importDate;
           const giftFingerprint = donationImportFingerprint(v, rowAmount, rowGiftDate);
-          const giftAlreadyImported = Boolean(giftFingerprint && existingGiftFingerprints.has(giftFingerprint));
+          const giftAlreadyImported = Boolean(
+            giftFingerprint && existingGiftFingerprints.has(giftFingerprint),
+          );
 
           // The gift itself, not the person: the same amount on the same day sitting
           // on a contact we did NOT match to usually means a second record for one donor.
           const giftsElsewhere =
             Number.isFinite(rowAmount) && rowAmount > 0
-              ? await findGiftsOnOtherContacts(rowAmount, rowGiftDate, live.candidates.map((c) => c.id))
+              ? await findGiftsOnOtherContacts(
+                  rowAmount,
+                  rowGiftDate,
+                  live.candidates.map((c) => c.id),
+                )
               : [];
 
           // A flagged row is never written. It waits in the Data Inbox for a person.
@@ -698,12 +749,12 @@ function ImportCenter() {
               giftAlreadyImported
                 ? "This gift appears to have already been imported"
                 : flaggedByPreview || live.status === "ambiguous"
-                ? reason
-                : giftsElsewhere.length > 0
-                ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
-                : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
-                    (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
-                  } in this file`,
+                  ? reason
+                  : giftsElsewhere.length > 0
+                    ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
+                    : `Shares an address with ${(shared?.names.length ?? 1) - 1} other ${
+                        (shared?.names.length ?? 2) - 1 === 1 ? "person" : "people"
+                      } in this file`,
               [
                 ...new Set(
                   (live.candidates.length
@@ -735,7 +786,11 @@ function ImportCenter() {
             postal_code: v.postal_code ?? null,
           };
           const hasFamily = Boolean(
-            v.children?.length || v.spouse_full_name || v.spouse_first_name || v.household_name || fullAddress,
+            v.children?.length ||
+            v.spouse_full_name ||
+            v.spouse_first_name ||
+            v.household_name ||
+            fullAddress,
           );
           const householdName = v.household_name ?? `${surname || first || "New"} household`;
           // Only group people by address when the reviewer confirmed they're family.
@@ -804,7 +859,8 @@ function ImportCenter() {
             if (v.met_source) patch["met_source"] = v.met_source;
             if (v.school) patch["school"] = v.school;
             if (v.person_notes) patch["notes"] = v.person_notes;
-            if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
+            if (Object.keys(patch).length > 0)
+              await supabase.from("people").update(patch).eq("id", personId);
             remember({
               id: personId,
               first,
@@ -820,7 +876,11 @@ function ImportCenter() {
             // Existing person, new family details on the row: attach a household if they don't have one.
             if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
               householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
-              if (householdId) await supabase.from("people").update({ household_id: householdId }).eq("id", personId);
+              if (householdId)
+                await supabase
+                  .from("people")
+                  .update({ household_id: householdId })
+                  .eq("id", personId);
             } else if (householdId && fullAddress) {
               const housePatch: {
                 address?: string;
@@ -837,14 +897,23 @@ function ImportCenter() {
                 if (v.postal_code) housePatch["postal_code"] = v.postal_code;
               }
               if (Object.keys(housePatch).length > 0)
-                await supabase.from("households").update(housePatch).eq("id", householdId);
+                await guard(supabase.from("households").update(housePatch).eq("id", householdId), {
+                  area: "import",
+                  action: "Save an imported detail",
+                });
             }
           }
 
           if (!personId) continue;
 
           if (relationship) {
-            await supabase.from("people").update({ household_relationship: relationship }).eq("id", personId);
+            await guard(
+              supabase
+                .from("people")
+                .update({ household_relationship: relationship })
+                .eq("id", personId),
+              { area: "import", action: "Save an imported detail" },
+            );
           }
 
           // Link this contact to the event named on the row, or to the event the
@@ -889,7 +958,8 @@ function ImportCenter() {
               if (!list.some((t) => normalizeLabel(t) === normalizeLabel(bulkTarget.tag)))
                 patch.tags = [...list, bulkTarget.tag];
             }
-            if (Object.keys(patch).length > 0) await supabase.from("people").update(patch).eq("id", personId);
+            if (Object.keys(patch).length > 0)
+              await supabase.from("people").update(patch).eq("id", personId);
           }
 
           // Every phone and email on the row is stored, with anything already on
@@ -924,7 +994,12 @@ function ImportCenter() {
           // Only people already in this household count as "already there", so a
           // common first name elsewhere in the database never swallows a real person.
           const houseMembers = householdId
-            ? ((await supabase.from("people").select("first_name, last_name").eq("household_id", householdId)).data ?? [])
+            ? ((
+                await supabase
+                  .from("people")
+                  .select("first_name, last_name")
+                  .eq("household_id", householdId)
+              ).data ?? [])
             : [];
           const inHousehold = (f: string, l: string) =>
             houseMembers.some(
@@ -938,26 +1013,39 @@ function ImportCenter() {
               const { data: spouse } = await supabase
                 .from("people")
                 .insert({
-                first_name: spouseName.first || null,
-                last_name: spouseLast || null,
-                display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
-                email: v.spouse_email ?? null,
-                phone: v.spouse_phone ?? null,
-                household_id: householdId,
-                role: "Adult",
-                met_source: v.met_source ?? null,
-                import_batch_id: batchId,
+                  first_name: spouseName.first || null,
+                  last_name: spouseLast || null,
+                  display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
+                  email: v.spouse_email ?? null,
+                  phone: v.spouse_phone ?? null,
+                  household_id: householdId,
+                  role: "Adult",
+                  met_source: v.met_source ?? null,
+                  import_batch_id: batchId,
                 })
                 .select("id")
                 .single();
               if (spouse?.id) {
                 const spouseMethods: MethodDraft[] = [];
                 if (v.spouse_phone)
-                  spouseMethods.push({ kind: "phone", value: v.spouse_phone, method_type: "Mobile", is_primary: true });
+                  spouseMethods.push({
+                    kind: "phone",
+                    value: v.spouse_phone,
+                    method_type: "Mobile",
+                    is_primary: true,
+                  });
                 if (v.spouse_email)
-                  spouseMethods.push({ kind: "email", value: v.spouse_email, method_type: "Personal", is_primary: true });
+                  spouseMethods.push({
+                    kind: "email",
+                    value: v.spouse_email,
+                    method_type: "Personal",
+                    is_primary: true,
+                  });
                 if (spouseMethods.length)
-                  await addContactMethods(spouse.id, spouseMethods, { importBatchId: batchId, existing: [] });
+                  await addContactMethods(spouse.id, spouseMethods, {
+                    importBatchId: batchId,
+                    existing: [],
+                  });
                 remember({
                   id: spouse.id,
                   first: spouseName.first || "",
@@ -978,18 +1066,22 @@ function ImportCenter() {
             const childLast = (child.last ?? "").trim() || last;
             if (!childFirst && !childLast) continue;
             if (inHousehold(childFirst, childLast)) continue;
-            const { data: childRow } = await supabase.from("people").insert({
-              first_name: childFirst || null,
-              last_name: childLast || null,
-              display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
-              household_id: householdId,
-              role: "Child",
-              birth_date: isoDate(child.birth_date),
-              school: child.school ?? null,
-              met_source: v.met_source ?? null,
-              programs: splitList(v.programs),
-              import_batch_id: batchId,
-            }).select("id").single();
+            const { data: childRow } = await supabase
+              .from("people")
+              .insert({
+                first_name: childFirst || null,
+                last_name: childLast || null,
+                display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
+                household_id: householdId,
+                role: "Child",
+                birth_date: isoDate(child.birth_date),
+                school: child.school ?? null,
+                met_source: v.met_source ?? null,
+                programs: splitList(v.programs),
+                import_batch_id: batchId,
+              })
+              .select("id")
+              .single();
             if (childRow?.id)
               remember({
                 id: childRow.id,
@@ -1034,32 +1126,36 @@ function ImportCenter() {
                 .eq("amount", amount)
                 .eq("date", giftDate)
                 .is("deleted_at", null);
-              const { data: existingGift } = await (v.campaign
-                ? dupeCheck.eq("campaign", v.campaign)
-                : dupeCheck.is("campaign", null)
+              const { data: existingGift } = await (
+                v.campaign ? dupeCheck.eq("campaign", v.campaign) : dupeCheck.is("campaign", null)
               ).limit(1);
               if (!existingGift?.length) {
                 const { data: newGift } = await supabase
                   .from("donations")
                   .insert({
-                  person_id: personId,
-                  amount,
-                  date: giftDate,
-                  campaign: v.campaign ?? null,
-                  source,
-                  notes: v.notes ?? null,
-                  import_batch_id: batch.id,
-                  import_fingerprint: fingerprint,
+                    person_id: personId,
+                    amount,
+                    date: giftDate,
+                    campaign: v.campaign ?? null,
+                    source,
+                    notes: v.notes ?? null,
+                    import_batch_id: batch.id,
+                    import_fingerprint: fingerprint,
                   })
                   .select("id")
                   .single();
 
                 // Apply the reviewer's one decision about gifts made on an event date.
                 const giftEvent = giftEventGroups.find(
-                  (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+                  (g) =>
+                    g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
                 );
                 const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
-                if (newGift?.id && giftEvent && (decision === "attended" || decision === "gift_only")) {
+                if (
+                  newGift?.id &&
+                  giftEvent &&
+                  (decision === "attended" || decision === "gift_only")
+                ) {
                   await attributeGiftToEvent({
                     donationId: newGift.id,
                     personId,
@@ -1083,18 +1179,25 @@ function ImportCenter() {
             }
           }
 
-          const noteParts = [v.notes, v.person_notes ? `Note: ${v.person_notes}` : "", v.school ? `School: ${v.school}` : ""]
+          const noteParts = [
+            v.notes,
+            v.person_notes ? `Note: ${v.person_notes}` : "",
+            v.school ? `School: ${v.school}` : "",
+          ]
             .filter(Boolean)
             .join(" · ");
           if (noteParts && !v.amount) {
-            await supabase.from("interactions").insert({
-              person_id: personId,
-              type: "form",
-              date: importDate,
-              text: noteParts,
-              author: "Import",
-              import_batch_id: batch.id,
-            });
+            await guard(
+              supabase.from("interactions").insert({
+                person_id: personId,
+                type: "form",
+                date: importDate,
+                text: noteParts,
+                author: "Import",
+                import_batch_id: batch.id,
+              }),
+              { area: "import", action: "Save an imported detail" },
+            );
           }
         } catch (rowError) {
           failures += 1;
@@ -1113,7 +1216,10 @@ function ImportCenter() {
 
       if (fieldSources.length > 0) {
         for (let i = 0; i < fieldSources.length; i += 500) {
-          await supabase.from("field_sources").insert(fieldSources.slice(i, i + 500));
+          await guard(supabase.from("field_sources").insert(fieldSources.slice(i, i + 500)), {
+            area: "import",
+            action: "Save an imported detail",
+          });
         }
       }
 
@@ -1125,7 +1231,10 @@ function ImportCenter() {
         {
           duration: 12000,
           ...(queued > 0
-            ? { description: "The rows that need a person to look at them are waiting in the Data Inbox." }
+            ? {
+                description:
+                  "The rows that need a person to look at them are waiting in the Data Inbox.",
+              }
             : {}),
         },
       );
@@ -1158,8 +1267,9 @@ function ImportCenter() {
           <UploadCloud className="mx-auto size-8 text-primary" />
           <p className="mt-3 font-heading font-semibold text-foreground">Upload a spreadsheet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            CSV or Excel exports from Donorbox, Constant Contact, Cognito Forms, QuickBooks, Salesforce or Google
-            Sheets. Names can be split, combined, or last name only — you can set that in the mapping.
+            CSV or Excel exports from Donorbox, Constant Contact, Cognito Forms, QuickBooks,
+            Salesforce or Google Sheets. Names can be split, combined, or last name only — you can
+            set that in the mapping.
           </p>
           <label className="mt-4 inline-block">
             <input
@@ -1178,7 +1288,11 @@ function ImportCenter() {
         </div>
       )}
 
-      {error && <p className="mt-4 rounded-2xl border border-urgent/40 bg-urgent/10 p-4 text-sm text-urgent">{error}</p>}
+      {error && (
+        <p className="mt-4 rounded-2xl border border-urgent/40 bg-urgent/10 p-4 text-sm text-urgent">
+          {error}
+        </p>
+      )}
 
       {sheet && (
         <div className="space-y-5">
@@ -1186,23 +1300,36 @@ function ImportCenter() {
             <h2 className="font-heading font-semibold text-foreground">{sheet.name}</h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-4">
               <Stat icon={Users} label="Rows found" value={counts.total} tone="text-foreground" />
-              <Stat icon={CheckCircle2} label="Match existing people" value={counts.matched} tone="text-money" />
+              <Stat
+                icon={CheckCircle2}
+                label="Match existing people"
+                value={counts.matched}
+                tone="text-money"
+              />
               <Stat icon={UserPlus} label="Look new" value={counts.new} tone="text-primary" />
-              <Stat icon={AlertTriangle} label="Need review" value={plan.review} tone="text-suggestion" />
+              <Stat
+                icon={AlertTriangle}
+                label="Need review"
+                value={plan.review}
+                tone="text-suggestion"
+              />
             </div>
             {counts.extraPeople > 0 && (
               <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm text-foreground">
-                {counts.extraPeople} family member{counts.extraPeople === 1 ? "" : "s"} on these rows (partners and
-                children) will each get their own contact, linked to the same household.
+                {counts.extraPeople} family member{counts.extraPeople === 1 ? "" : "s"} on these
+                rows (partners and children) will each get their own contact, linked to the same
+                household.
               </p>
             )}
             <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm text-foreground">
-              <strong>{plan.importNow}</strong> row{plan.importNow === 1 ? "" : "s"} will be imported straight away.
+              <strong>{plan.importNow}</strong> row{plan.importNow === 1 ? "" : "s"} will be
+              imported straight away.
               {plan.review > 0 ? (
                 <>
                   {" "}
-                  <strong>{plan.review}</strong> row{plan.review === 1 ? "" : "s"} that need a person to look at them go
-                  to the Data Inbox — you don't have to sort them out now, and they'll wait there until you do.
+                  <strong>{plan.review}</strong> row{plan.review === 1 ? "" : "s"} that need a
+                  person to look at them go to the Data Inbox — you don't have to sort them out now,
+                  and they'll wait there until you do.
                 </>
               ) : null}
             </p>
@@ -1211,11 +1338,14 @@ function ImportCenter() {
                 <div className="h-2 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full bg-primary transition-all"
-                    style={{ width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%` }}
+                    style={{
+                      width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%`,
+                    }}
                   />
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {busy ? "Importing" : "Finished"} {progress.done} of {progress.total} rows — keep this tab open.
+                  {busy ? "Importing" : "Finished"} {progress.done} of {progress.total} rows — keep
+                  this tab open.
                 </p>
               </div>
             )}
@@ -1225,8 +1355,9 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                These are the event and campaign names in the file. Answering is optional — anything you leave blank
-                simply isn't linked to an event, and the import still runs. We never create an event without asking.
+                These are the event and campaign names in the file. Answering is optional — anything
+                you leave blank simply isn't linked to an event, and the import still runs. We never
+                create an event without asking.
                 {unansweredEvents.length > 0
                   ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
                   : ""}
@@ -1247,7 +1378,8 @@ function ImportCenter() {
                       {fe.matched ? (
                         <div className="mt-1">
                           <p className="text-sm text-money">
-                            Matches your event “{fe.matched.name}”. Those people will be marked as having attended
+                            Matches your event “{fe.matched.name}”. Those people will be marked as
+                            having attended
                             {fe.origin === "campaign" ? ", and their gifts credited to it" : ""}.
                           </p>
                           <button
@@ -1266,7 +1398,9 @@ function ImportCenter() {
                               })
                             }
                           >
-                            {decision?.action === "ignore" ? "Not linked — click to link again" : "Don't link this one"}
+                            {decision?.action === "ignore"
+                              ? "Not linked — click to link again"
+                              : "Don't link this one"}
                           </button>
                         </div>
                       ) : (
@@ -1314,7 +1448,9 @@ function ImportCenter() {
 
           {giftEventGroups.length > 0 && (
             <section className="rounded-2xl border border-money/40 bg-money/5 p-5 shadow-sm">
-              <h2 className="font-heading font-semibold text-foreground">Gifts made on an event date</h2>
+              <h2 className="font-heading font-semibold text-foreground">
+                Gifts made on an event date
+              </h2>
               <p className="text-sm text-muted-foreground">
                 One answer covers the whole file — we won't ask row by row.
               </p>
@@ -1324,8 +1460,8 @@ function ImportCenter() {
                   return (
                     <div key={g.event.id} className="rounded-xl border border-border bg-card p-3">
                       <p className="text-sm text-foreground">
-                        These {g.rows} {g.rows === 1 ? "gift" : "gifts"} were made on the date of “{g.event.name}” (
-                        {g.event.date}) — link them to that event?
+                        These {g.rows} {g.rows === 1 ? "gift" : "gifts"} were made on the date of “
+                        {g.event.name}” ({g.event.date}) — link them to that event?
                       </p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {(
@@ -1359,7 +1495,9 @@ function ImportCenter() {
           )}
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <h2 className="font-heading font-semibold text-foreground">Add everyone in this file to…</h2>
+            <h2 className="font-heading font-semibold text-foreground">
+              Add everyone in this file to…
+            </h2>
             <p className="text-sm text-muted-foreground">
               Optional. Use this when a whole file belongs to one event, program or list.
             </p>
@@ -1411,19 +1549,22 @@ function ImportCenter() {
               <div className="mt-3 space-y-1 rounded-xl bg-primary/10 p-3 text-sm text-foreground">
                 {eventLinkPlan.totals.map((t) => (
                   <p key={t.name}>
-                    {t.count} {t.count === 1 ? "person" : "people"} will be marked as attending “{t.name}”.
+                    {t.count} {t.count === 1 ? "person" : "people"} will be marked as attending “
+                    {t.name}”.
                   </p>
                 ))}
                 {bulkTarget.program && (
                   <p>
-                    {counts.matched + counts.new} {counts.matched + counts.new === 1 ? "person" : "people"} will be added
-                    to the {bulkTarget.program} program.
+                    {counts.matched + counts.new}{" "}
+                    {counts.matched + counts.new === 1 ? "person" : "people"} will be added to the{" "}
+                    {bulkTarget.program} program.
                   </p>
                 )}
                 {bulkTarget.tag && (
                   <p>
-                    {counts.matched + counts.new} {counts.matched + counts.new === 1 ? "person" : "people"} will get the
-                    “{bulkTarget.tag}” tag.
+                    {counts.matched + counts.new}{" "}
+                    {counts.matched + counts.new === 1 ? "person" : "people"} will get the “
+                    {bulkTarget.tag}” tag.
                   </p>
                 )}
               </div>
@@ -1432,10 +1573,13 @@ function ImportCenter() {
 
           {addressGroups.length > 0 && (
             <section className="rounded-2xl border border-suggestion/40 bg-suggestion/5 p-5 shadow-sm">
-              <h2 className="font-heading font-semibold text-foreground">Same address, different last names</h2>
+              <h2 className="font-heading font-semibold text-foreground">
+                Same address, different last names
+              </h2>
               <p className="text-sm text-muted-foreground">
-                We won't guess. Answer here if you know, or leave it — anyone you don't answer for goes to the Data
-                Inbox as one card per address, so you can decide later without holding up the import.
+                We won't guess. Answer here if you know, or leave it — anyone you don't answer for
+                goes to the Data Inbox as one card per address, so you can decide later without
+                holding up the import.
               </p>
               <div className="mt-3 space-y-3">
                 {addressGroups.map((group) => {
@@ -1443,7 +1587,9 @@ function ImportCenter() {
                   return (
                     <div key={group.key} className="rounded-xl border border-border bg-card p-3">
                       <p className="text-sm font-medium text-foreground">{group.address}</p>
-                      <p className="text-sm text-muted-foreground">{group.rows.map((r) => r.name).join(", ")}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {group.rows.map((r) => r.name).join(", ")}
+                      </p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {(
                           [
@@ -1463,7 +1609,10 @@ function ImportCenter() {
                             onClick={() =>
                               setAddressDecisions((d) => ({
                                 ...d,
-                                [group.key]: { action, relationships: d[group.key]?.relationships ?? {} },
+                                [group.key]: {
+                                  action,
+                                  relationships: d[group.key]?.relationships ?? {},
+                                },
                               }))
                             }
                           >
@@ -1512,27 +1661,40 @@ function ImportCenter() {
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="font-heading font-semibold text-foreground">Proposed column mapping</h2>
+                <h2 className="font-heading font-semibold text-foreground">
+                  Proposed column mapping
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  Check anything marked medium or low. Child, phone and email fields can be used more than once — map
-                  "Child 1", "Child 2" and so on all to the same child field.
+                  Check anything marked medium or low. Child, phone and email fields can be used
+                  more than once — map "Child 1", "Child 2" and so on all to the same child field.
                 </p>
               </div>
-              <Button variant="outline" className="rounded-xl" onClick={() => setAdjusting((a) => !a)}>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => setAdjusting((a) => !a)}
+              >
                 {adjusting ? "Done adjusting" : "Adjust mapping"}
               </Button>
             </div>
             <div className="mt-4 space-y-2">
               {mapping.map((m, i) => (
-                <div key={`${m.header}-${i}`} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
-                  <p className="truncate text-sm font-medium text-foreground">{m.header || `Column ${i + 1}`}</p>
+                <div
+                  key={`${m.header}-${i}`}
+                  className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center"
+                >
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {m.header || `Column ${i + 1}`}
+                  </p>
                   {adjusting ? (
                     <FieldPicker
                       value={m.field}
                       label={m.header || `Column ${i + 1}`}
                       onChange={(field) =>
                         setMapping((prev) =>
-                          prev.map((row, ri) => (ri === i ? { ...row, field, confidence: "high" } : row)),
+                          prev.map((row, ri) =>
+                            ri === i ? { ...row, field, confidence: "high" } : row,
+                          ),
                         )
                       }
                     />
@@ -1566,7 +1728,9 @@ function ImportCenter() {
               ))}
             </div>
             <div className="mt-5 rounded-xl border border-border bg-background p-3">
-              <p className="text-sm font-medium text-foreground">Does this file have what we need?</p>
+              <p className="text-sm font-medium text-foreground">
+                Does this file have what we need?
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {mappingReview.checklist.map((c) => (
                   <span
@@ -1575,14 +1739,19 @@ function ImportCenter() {
                       c.ok ? "bg-money/15 text-money" : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    {c.ok ? <Check className="size-3.5" /> : <span className="text-base leading-none">–</span>}
+                    {c.ok ? (
+                      <Check className="size-3.5" />
+                    ) : (
+                      <span className="text-base leading-none">–</span>
+                    )}
                     {c.label}
                     {c.ok ? "" : " not mapped"}
                   </span>
                 ))}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                A name is all we truly need. Anything missing here just means we'll know less about these contacts.
+                A name is all we truly need. Anything missing here just means we'll know less about
+                these contacts.
               </p>
             </div>
             {mappingReview.warnings.length > 0 && (
@@ -1600,10 +1769,17 @@ function ImportCenter() {
               <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr>
-                    <th className="border-b border-border pb-2 pr-5 text-xs text-muted-foreground">Status</th>
-                    <th className="border-b border-border pb-2 pr-5 text-xs text-muted-foreground">Will create</th>
+                    <th className="border-b border-border pb-2 pr-5 text-xs text-muted-foreground">
+                      Status
+                    </th>
+                    <th className="border-b border-border pb-2 pr-5 text-xs text-muted-foreground">
+                      Will create
+                    </th>
                     {sheet.headers.map((h, i) => (
-                      <th key={i} className="whitespace-nowrap border-b border-border pb-2 pr-5 text-xs text-muted-foreground">
+                      <th
+                        key={i}
+                        className="whitespace-nowrap border-b border-border pb-2 pr-5 text-xs text-muted-foreground"
+                      >
                         {h || `Column ${i + 1}`}
                       </th>
                     ))}
@@ -1635,7 +1811,10 @@ function ImportCenter() {
                           .join(" + ")}
                       </td>
                       {sheet.headers.map((_, ci) => (
-                        <td key={ci} className="whitespace-nowrap border-b border-border py-2 pr-5 text-foreground">
+                        <td
+                          key={ci}
+                          className="whitespace-nowrap border-b border-border py-2 pr-5 text-foreground"
+                        >
                           {a.row[ci] ?? ""}
                         </td>
                       ))}
@@ -1645,7 +1824,9 @@ function ImportCenter() {
               </table>
             </div>
             {analysed.length > 15 && (
-              <p className="mt-3 text-xs text-muted-foreground">Showing the first 15 of {analysed.length} rows.</p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Showing the first 15 of {analysed.length} rows.
+              </p>
             )}
           </section>
 
@@ -1661,18 +1842,30 @@ function ImportCenter() {
                 <span>
                   A file named <strong>{sheet.name}</strong> was already imported
                   {priorImports![0]?.import_date ? ` on ${priorImports![0]!.import_date}` : ""}
-                  {(priorImports ?? []).length > 1 ? ` (${priorImports!.length} times)` : ""}. Tick this box if you
-                  really want to import it again.
+                  {(priorImports ?? []).length > 1 ? ` (${priorImports!.length} times)` : ""}. Tick
+                  this box if you really want to import it again.
                 </span>
               </label>
             )}
             <Button className="rounded-xl" disabled={busy} onClick={() => void approve()}>
-              {busy ? `Importing… ${progress?.done ?? 0}/${progress?.total ?? 0}` : "Approve & import"}
+              {busy
+                ? `Importing… ${progress?.done ?? 0}/${progress?.total ?? 0}`
+                : "Approve & import"}
             </Button>
-            <Button variant="outline" className="rounded-xl" onClick={() => setAdjusting(true)} disabled={busy}>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setAdjusting(true)}
+              disabled={busy}
+            >
               Adjust mapping
             </Button>
-            <Button variant="ghost" className="rounded-xl text-urgent" onClick={reset} disabled={busy}>
+            <Button
+              variant="ghost"
+              className="rounded-xl text-urgent"
+              onClick={reset}
+              disabled={busy}
+            >
               Cancel
             </Button>
           </div>
@@ -1731,11 +1924,15 @@ function ImportHistory() {
     <section className="mt-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
       <h2 className="font-heading font-semibold text-foreground">Past imports</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        Undoing an import removes only the records that import created. Anything you added or edited by hand stays.
+        Undoing an import removes only the records that import created. Anything you added or edited
+        by hand stays.
       </p>
       <div className="mt-3 space-y-2">
         {batches.map((b) => (
-          <div key={b.id} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div
+            key={b.id}
+            className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_auto] sm:items-center"
+          >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-foreground">{b.filename}</p>
               <p className="text-xs text-muted-foreground">
@@ -1754,7 +1951,11 @@ function ImportHistory() {
                 disabled={undoing === b.id || !isAdmin}
                 onClick={() => void undo(b.id)}
               >
-                {undoing === b.id ? "Undoing…" : isAdmin ? "Undo this import" : "Undo (admins only)"}
+                {undoing === b.id
+                  ? "Undoing…"
+                  : isAdmin
+                    ? "Undo this import"
+                    : "Undo (admins only)"}
               </Button>
             )}
           </div>

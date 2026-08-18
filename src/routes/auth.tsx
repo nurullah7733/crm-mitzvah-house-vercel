@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -11,15 +12,18 @@ export const Route = createFileRoute("/auth")({
       { title: "Staff Sign In | Mitzvah House CRM" },
       {
         name: "description",
-        content: "Sign in to the Mitzvah House CRM to manage people, donations, events and follow-ups.",
+        content:
+          "Sign in to the Mitzvah House CRM to manage people, donations, events and follow-ups.",
       },
       { property: "og:title", content: "Staff Sign In | Mitzvah House CRM" },
       {
         property: "og:description",
-        content: "Sign in to the Mitzvah House CRM to manage people, donations, events and follow-ups.",
+        content:
+          "Sign in to the Mitzvah House CRM to manage people, donations, events and follow-ups.",
       },
     ],
   }),
+  errorComponent: RouteError,
   component: AuthPage,
 });
 

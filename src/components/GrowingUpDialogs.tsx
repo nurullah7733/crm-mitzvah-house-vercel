@@ -10,6 +10,7 @@ import { fetchAll } from "@/lib/fetch-all";
 import { reportDbError } from "@/lib/db-errors";
 import { logChange } from "@/lib/session-log";
 import { properCase } from "@/lib/proper-case";
+import { showError, guard } from "@/lib/app-errors";
 
 type PersonLite = {
   id: string;
@@ -24,7 +25,14 @@ function useHouseholds() {
   return useQuery({
     queryKey: ["households-mini"],
     queryFn: () =>
-      fetchAll((f, t) => supabase.from("households").select("id, name, address").order("name").order("id").range(f, t)),
+      fetchAll((f, t) =>
+        supabase
+          .from("households")
+          .select("id, name, address")
+          .order("name")
+          .order("id")
+          .range(f, t),
+      ),
   });
 }
 
@@ -52,7 +60,9 @@ export function BecomeAdultDialog({
 
   useEffect(() => {
     if (open) {
-      setMailing((person.mailing_preference === "own" ? "own" : "household") as "household" | "own");
+      setMailing(
+        (person.mailing_preference === "own" ? "own" : "household") as "household" | "own",
+      );
       setPhone(person.phone ?? "");
       setEmail(person.email ?? "");
     }
@@ -65,17 +75,21 @@ export function BecomeAdultDialog({
         mailing_preference: mailing,
       };
       if (phone.trim() && phone.trim() !== (person.phone ?? "")) patch["phone"] = phone.trim();
-      if (email.trim() && email.trim().toLowerCase() !== (person.email ?? "")) patch["email"] = email.trim().toLowerCase();
+      if (email.trim() && email.trim().toLowerCase() !== (person.email ?? ""))
+        patch["email"] = email.trim().toLowerCase();
       const { error } = await supabase.from("people").update(patch).eq("id", person.id);
       if (error) throw error;
-      await supabase.from("interactions").insert({
-        person_id: person.id,
-        type: "note",
-        date: todayISO(),
-        text: `Reviewed and confirmed as an adult. Mailings: ${
-          mailing === "own" ? "their own mailings" : "stays on the household mailing"
-        }. Household unchanged.`,
-      });
+      await guard(
+        supabase.from("interactions").insert({
+          person_id: person.id,
+          type: "note",
+          date: todayISO(),
+          text: `Reviewed and confirmed as an adult. Mailings: ${
+            mailing === "own" ? "their own mailings" : "stays on the household mailing"
+          }. Household unchanged.`,
+        }),
+        { area: "people", action: "Add the timeline note" },
+      );
     },
     onSuccess: async () => {
       logChange(`Confirmed ${name} as an adult`);
@@ -85,7 +99,7 @@ export function BecomeAdultDialog({
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: unknown) => reportDbError(e, toast.error),
+    onError: (e: unknown) => void showError(e),
   });
 
   const missingContact = !person.phone && !person.email;
@@ -98,7 +112,11 @@ export function BecomeAdultDialog({
       description="Their role changes to Adult. They keep their household, and all their history stays with them."
       footer={
         <>
-          <Button className="rounded-xl" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
+          <Button
+            className="rounded-xl"
+            disabled={confirm.isPending}
+            onClick={() => confirm.mutate()}
+          >
             {confirm.isPending ? "Saving…" : "Yes, make them an adult"}
           </Button>
           <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
@@ -135,20 +153,33 @@ export function BecomeAdultDialog({
 
         {missingContact && (
           <p className="rounded-xl border border-suggestion/50 bg-suggestion/10 p-3 text-xs text-foreground">
-            We have no phone or email for {name}. Children often have neither — a good moment to ask.
+            We have no phone or email for {name}. Children often have neither — a good moment to
+            ask.
           </p>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Their own phone">
-            <Input className="text-base" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input
+              className="text-base"
+              type="tel"
+              inputMode="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
           </Field>
           <Field label="Their own email">
-            <Input className="text-base" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input
+              className="text-base"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </Field>
         </div>
         <p className="text-xs text-muted-foreground">
-          From now on they can have their own donations and their own communications. Moving out of the household is a
-          separate decision — use “Move to new household” whenever that actually happens.
+          From now on they can have their own donations and their own communications. Moving out of
+          the household is a separate decision — use “Move to new household” whenever that actually
+          happens.
         </p>
       </div>
     </ResponsiveModal>
@@ -206,15 +237,24 @@ export function MoveHouseholdDialog({
         targetId = data.id;
       }
       if (!targetId) throw new Error("Pick a household to move them to.");
-      const { error: upErr } = await supabase.from("people").update({ household_id: targetId }).eq("id", personId);
+      const { error: upErr } = await supabase
+        .from("people")
+        .update({ household_id: targetId })
+        .eq("id", personId);
       if (upErr) throw upErr;
-      const to = mode === "new" ? newName.trim() : (households ?? []).find((h) => h.id === targetId)?.name ?? "a household";
-      await supabase.from("interactions").insert({
-        person_id: personId,
-        type: "note",
-        date: todayISO(),
-        text: `Moved household: ${currentHouseholdName ?? "no household"} → ${to}. All history stayed with them.`,
-      });
+      const to =
+        mode === "new"
+          ? newName.trim()
+          : ((households ?? []).find((h) => h.id === targetId)?.name ?? "a household");
+      await guard(
+        supabase.from("interactions").insert({
+          person_id: personId,
+          type: "note",
+          date: todayISO(),
+          text: `Moved household: ${currentHouseholdName ?? "no household"} → ${to}. All history stayed with them.`,
+        }),
+        { area: "people", action: "Add the timeline note" },
+      );
       return to;
     },
     onSuccess: async (to) => {
@@ -226,7 +266,7 @@ export function MoveHouseholdDialog({
       onOpenChange(false);
       onDone?.();
     },
-    onError: (e: unknown) => reportDbError(e, toast.error),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -273,15 +313,27 @@ export function MoveHouseholdDialog({
         {mode === "new" ? (
           <div className="grid gap-3">
             <Field label="New household name">
-              <Input className="text-base" value={newName} onChange={(e) => setNewName(e.target.value)} />
+              <Input
+                className="text-base"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
             </Field>
             <Field label="Address (optional)">
-              <Input className="text-base" value={newAddress} onChange={(e) => setNewAddress(e.target.value)} />
+              <Input
+                className="text-base"
+                value={newAddress}
+                onChange={(e) => setNewAddress(e.target.value)}
+              />
             </Field>
           </div>
         ) : (
           <Field label="Household">
-            <select className={selectClass} value={householdId} onChange={(e) => setHouseholdId(e.target.value)}>
+            <select
+              className={selectClass}
+              value={householdId}
+              onChange={(e) => setHouseholdId(e.target.value)}
+            >
               <option value="">Choose a household</option>
               {(households ?? [])
                 .filter((h) => h.id !== currentHouseholdId)

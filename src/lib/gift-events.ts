@@ -60,7 +60,9 @@ export async function attributeGiftToEvent({
     .eq("id", eventId)
     .maybeSingle();
 
-  const patch: { event_id: string; campaign_id?: string; campaign?: string } = { event_id: eventId };
+  const patch: { event_id: string; campaign_id?: string; campaign?: string } = {
+    event_id: eventId,
+  };
 
   // Default the designation to the event's own campaign, or failing that its
   // program, so an event gift stops reading as "General".
@@ -121,7 +123,10 @@ export async function recordAttendance({
   if (row) {
     // The stored statuses are lower-case ("registered" / "attended" / "no_show").
     if (!isAttended(row.status)) {
-      const { error } = await supabase.from("registrations").update({ status: "attended" }).eq("id", row.id);
+      const { error } = await supabase
+        .from("registrations")
+        .update({ status: "attended" })
+        .eq("id", row.id);
       if (error) throw error;
     }
   } else {

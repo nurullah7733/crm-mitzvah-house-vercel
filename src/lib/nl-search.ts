@@ -171,13 +171,20 @@ export function parseQuery(
     }
   }
 
-  if (/(haven'?t|has ?n'?t|have not|no|not)\s+(given|donated|gift)/.test(q) && /this year/.test(q)) {
+  if (
+    /(haven'?t|has ?n'?t|have not|no|not)\s+(given|donated|gift)/.test(q) &&
+    /this year/.test(q)
+  ) {
     intents.push({ kind: "no_gift_this_year" });
   } else if (/lapsed/.test(q)) {
     intents.push({ kind: "no_gift_this_year" });
   }
 
-  if (/going cold|gone cold|\bcold\b|no recent activity|no activity|not heard from|falling off/.test(q)) {
+  if (
+    /going cold|gone cold|\bcold\b|no recent activity|no activity|not heard from|falling off/.test(
+      q,
+    )
+  ) {
     const days = num(q.match(/(\d+)\+?\s*days?/)?.[1]) ?? 60;
     intents.push({ kind: "cold", days });
   }
@@ -271,7 +278,9 @@ function daysSinceISO(value: string | null | undefined) {
   if (!y || !m || !d) return null;
   const t = new Date();
   return Math.round(
-    (new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime() - new Date(y, m - 1, d).getTime()) / 86400000,
+    (new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime() -
+      new Date(y, m - 1, d).getTime()) /
+      86400000,
   );
 }
 
@@ -294,7 +303,8 @@ export function runIntents(intents: Intent[], people: SearchPerson[]) {
           break;
         }
         case "no_gift_this_year":
-          if (Number(p.this_year_giving ?? 0) > 0 || Number(p.lifetime_giving ?? 0) <= 0) ok = false;
+          if (Number(p.this_year_giving ?? 0) > 0 || Number(p.lifetime_giving ?? 0) <= 0)
+            ok = false;
           break;
         case "cold": {
           const since = daysSinceISO(p.last_activity_date);
@@ -359,11 +369,7 @@ export function runIntents(intents: Intent[], people: SearchPerson[]) {
   }
 
   return scored
-    .sort(
-      (a, b) =>
-        a.score - b.score ||
-        sortKey(a.person).localeCompare(sortKey(b.person)),
-    )
+    .sort((a, b) => a.score - b.score || sortKey(a.person).localeCompare(sortKey(b.person)))
     .map((s) => s.person);
 }
 

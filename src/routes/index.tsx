@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -8,15 +9,18 @@ export const Route = createFileRoute("/")({
       { title: "Mitzvah House CRM" },
       {
         name: "description",
-        content: "Internal relationship management for Mitzvah House staff: people, donations, events and follow-ups.",
+        content:
+          "Internal relationship management for Mitzvah House staff: people, donations, events and follow-ups.",
       },
       { property: "og:title", content: "Mitzvah House CRM" },
       {
         property: "og:description",
-        content: "Internal relationship management for Mitzvah House staff: people, donations, events and follow-ups.",
+        content:
+          "Internal relationship management for Mitzvah House staff: people, donations, events and follow-ups.",
       },
     ],
   }),
+  errorComponent: RouteError,
   component: Index,
 });
 

@@ -96,9 +96,21 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
       { name: "twitter:title", content: "Mitzvah House CRM" },
-      { name: "twitter:description", content: "Internal relationship management for Mitzvah House staff: people, donations, events and follow-ups." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/14f534c37477956b0a8a07b4785a152f/id-preview-ffb5a0d8--f52cbbc1-98d0-4547-ae96-5aa57ec4647e.lovable.app-1786589057173.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/14f534c37477956b0a8a07b4785a152f/id-preview-ffb5a0d8--f52cbbc1-98d0-4547-ae96-5aa57ec4647e.lovable.app-1786589057173.png" },
+      {
+        name: "twitter:description",
+        content:
+          "Internal relationship management for Mitzvah House staff: people, donations, events and follow-ups.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/14f534c37477956b0a8a07b4785a152f/id-preview-ffb5a0d8--f52cbbc1-98d0-4547-ae96-5aa57ec4647e.lovable.app-1786589057173.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/14f534c37477956b0a8a07b4785a152f/id-preview-ffb5a0d8--f52cbbc1-98d0-4547-ae96-5aa57ec4647e.lovable.app-1786589057173.png",
+      },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },

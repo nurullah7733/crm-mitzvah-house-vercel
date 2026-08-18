@@ -44,7 +44,9 @@ export function ResponsiveModal({
             {description ? <DrawerDescription>{description}</DrawerDescription> : null}
           </DrawerHeader>
           <div className="overflow-y-auto px-4 pb-4">{children}</div>
-          {footer ? <div className="flex gap-2 border-t border-border p-4 pb-8">{footer}</div> : null}
+          {footer ? (
+            <div className="flex gap-2 border-t border-border p-4 pb-8">{footer}</div>
+          ) : null}
         </DrawerContent>
       </Drawer>
     );

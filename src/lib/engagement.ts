@@ -53,7 +53,12 @@ export type ReminderDonation = {
   date: string;
   campaign?: string | null;
   source?: string | null;
-  people?: { id: string; display_name?: string | null; first_name?: string | null; last_name?: string | null } | null;
+  people?: {
+    id: string;
+    display_name?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+  } | null;
 };
 
 /** Quiet-contact and lapsed-donor reminders, one per person at the longest gap reached. */

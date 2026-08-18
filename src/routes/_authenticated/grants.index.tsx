@@ -3,22 +3,31 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { QueryError } from "@/components/ErrorState";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddGrantDialog } from "@/components/forms/CampaignGrantDialogs";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { GRANT_STAGES, personName } from "@/lib/names";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/_authenticated/grants/")({
   head: () => ({
     meta: [
       { title: "Grants | Mitzvah House CRM" },
-      { name: "description", content: "Institutional funding tracked through every stage and deadline." },
+      {
+        name: "description",
+        content: "Institutional funding tracked through every stage and deadline.",
+      },
       { property: "og:title", content: "Grants | Mitzvah House CRM" },
-      { property: "og:description", content: "Institutional funding tracked through every stage and deadline." },
+      {
+        property: "og:description",
+        content: "Institutional funding tracked through every stage and deadline.",
+      },
     ],
   }),
+  errorComponent: RouteError,
   component: GrantsPage,
 });
 
@@ -26,7 +35,7 @@ function GrantsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const selection = useSelection();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["grants-list"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -51,8 +60,9 @@ function GrantsPage() {
         </Button>
       }
     >
-      {isLoading && <EmptyState label="Loading grants…" />}
-      {!isLoading && grants.length === 0 && <EmptyState label="No grants yet." />}
+      <QueryError error={error} what="the grants list" onRetry={() => void refetch()} />
+      {isLoading && !error && <EmptyState label="Loading grants…" />}
+      {!isLoading && !error && grants.length === 0 && <EmptyState label="No grants yet." />}
 
       <SelectAllToggle
         visibleIds={grants.map((g) => g.id)}
@@ -97,13 +107,21 @@ function GrantsPage() {
                           {g.campaigns ? ` · ${g.campaigns.name}` : ""}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {g.application_deadline ? `Application due ${formatDate(g.application_deadline)}` : ""}
-                          {g.report_deadline ? ` · Report due ${formatDate(g.report_deadline)}` : ""}
+                          {g.application_deadline
+                            ? `Application due ${formatDate(g.application_deadline)}`
+                            : ""}
+                          {g.report_deadline
+                            ? ` · Report due ${formatDate(g.report_deadline)}`
+                            : ""}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-heading font-semibold text-money">{currency(g.amount_awarded)}</p>
-                        <p className="text-xs text-muted-foreground">requested {currency(g.amount_requested)}</p>
+                        <p className="font-heading font-semibold text-money">
+                          {currency(g.amount_awarded)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          requested {currency(g.amount_requested)}
+                        </p>
                       </div>
                     </div>
                   </div>

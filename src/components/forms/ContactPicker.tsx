@@ -9,6 +9,7 @@ import { Field, selectClass } from "@/components/forms/fields";
 import { personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
 import { logChange } from "@/lib/session-log";
+import { showError } from "@/lib/app-errors";
 
 type ContactType = "individual" | "organization" | "foundation";
 
@@ -60,7 +61,12 @@ export function ContactPicker({
   const { data: contacts } = useContactsByType(types);
   const [creating, setCreating] = useState(false);
   const individual = types.includes("individual");
-  const [draft, setDraft] = useState({ first_name: "", last_name: "", org_name: "", contact_type: types[0] ?? "individual" });
+  const [draft, setDraft] = useState({
+    first_name: "",
+    last_name: "",
+    org_name: "",
+    contact_type: types[0] ?? "individual",
+  });
 
   const create = useMutation({
     mutationFn: async () => {
@@ -93,12 +99,17 @@ export function ContactPicker({
       queryClient.invalidateQueries({ queryKey: ["contacts-by-type"] });
       queryClient.invalidateQueries({ queryKey: ["people-mini"] });
       onChange(id);
-      setDraft({ first_name: "", last_name: "", org_name: "", contact_type: types[0] ?? "individual" });
+      setDraft({
+        first_name: "",
+        last_name: "",
+        org_name: "",
+        contact_type: types[0] ?? "individual",
+      });
       setCreating(false);
       logChange("Added a contact");
       toast.success("Contact created and selected");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -112,7 +123,12 @@ export function ContactPicker({
             </option>
           ))}
         </select>
-        <Button type="button" variant="outline" className="shrink-0 rounded-xl" onClick={() => setCreating((c) => !c)}>
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0 rounded-xl"
+          onClick={() => setCreating((c) => !c)}
+        >
           <Plus className="size-4" /> {newLabel}
         </Button>
       </div>
@@ -145,7 +161,9 @@ export function ContactPicker({
                 className={selectClass}
                 value={draft.contact_type}
                 aria-label="Contact type"
-                onChange={(e) => setDraft((d) => ({ ...d, contact_type: e.target.value as ContactType }))}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, contact_type: e.target.value as ContactType }))
+                }
               >
                 {types.map((t) => (
                   <option key={t} value={t}>
@@ -164,12 +182,18 @@ export function ContactPicker({
             >
               <Check className="size-4" /> Create and use
             </Button>
-            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setCreating(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setCreating(false)}
+            >
               Cancel
             </Button>
           </div>
           <p className="text-xs text-muted-foreground sm:col-span-2">
-            Only the name is needed now — phone, email and the rest can be filled in on their profile later.
+            Only the name is needed now — phone, email and the rest can be filled in on their
+            profile later.
           </p>
         </div>
       )}

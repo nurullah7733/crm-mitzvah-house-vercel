@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "@/lib/current-staff";
+import { showError } from "@/lib/app-errors";
 import logoAsset from "@/assets/mitzvah-house-logo.png.asset.json";
 
 const NAV = [
@@ -60,7 +61,13 @@ export function AppShell({
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error)
+      await showError(error, {
+        area: "auth",
+        action: "Sign out",
+        fallback: "Signing out didn't finish.",
+      });
     navigate({ to: "/auth", replace: true });
   }
 
@@ -165,8 +172,12 @@ export function AppShell({
           <div className="mx-auto max-w-5xl">
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div className="min-w-0">
-                <h1 className="truncate font-heading text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
-                {subtitle ? <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p> : null}
+                <h1 className="truncate font-heading text-xl font-semibold text-foreground sm:text-2xl">
+                  {title}
+                </h1>
+                {subtitle ? (
+                  <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p>
+                ) : null}
               </div>
               {action ? (
                 <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end [&>*]:min-h-11 sm:[&>*]:min-h-0">
@@ -233,5 +244,7 @@ export function daysSince(value: string | null | undefined) {
   if (!y || !m || !d) return null;
   const then = new Date(y, m - 1, d).getTime();
   const today = new Date();
-  return Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - then) / 86400000);
+  return Math.round(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - then) / 86400000,
+  );
 }

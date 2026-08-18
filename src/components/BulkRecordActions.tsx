@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { MergeHouseholdsDialog } from "@/components/MergeHouseholdsDialog";
 import { archiveRecords, type ArchivableTable } from "@/lib/archive";
+import { showError } from "@/lib/app-errors";
 
 type BulkTable = "donations" | "events" | "households" | "grants" | "tasks" | "campaigns";
 
@@ -64,7 +65,7 @@ export function BulkRecordBar({
       setConfirm(false);
       onClear();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   if (selectedIds.length === 0) return null;
@@ -82,7 +83,12 @@ export function BulkRecordBar({
           )}
           <div className="ml-auto flex items-center gap-2">
             {table === "households" && selectedIds.length === 2 && (
-              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMergeOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => setMergeOpen(true)}
+              >
                 <Merge className="size-4" /> Merge
               </Button>
             )}
@@ -94,7 +100,13 @@ export function BulkRecordBar({
             >
               <Trash2 className="size-4" /> Delete
             </Button>
-            <Button variant="ghost" size="sm" className="rounded-xl" onClick={onClear} aria-label="Clear selection">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-xl"
+              onClick={onClear}
+              aria-label="Clear selection"
+            >
               <X className="size-4" />
             </Button>
           </div>
@@ -112,7 +124,11 @@ export function BulkRecordBar({
         }
         footer={
           <>
-            <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setConfirm(false)}>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => setConfirm(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -133,7 +149,12 @@ export function BulkRecordBar({
       </ResponsiveModal>
 
       {table === "households" && selectedIds.length === 2 && (
-        <MergeHouseholdsDialog open={mergeOpen} onOpenChange={setMergeOpen} ids={selectedIds} onMerged={onClear} />
+        <MergeHouseholdsDialog
+          open={mergeOpen}
+          onOpenChange={setMergeOpen}
+          ids={selectedIds}
+          onMerged={onClear}
+        />
       )}
     </>
   );

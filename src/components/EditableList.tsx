@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { showError } from "@/lib/app-errors";
 
 type ListTable = "met_source_options" | "program_options" | "tag_options";
 
@@ -49,7 +50,9 @@ export function EditableList({
   const add = useMutation({
     mutationFn: async (label: string) => {
       if (table === "tag_options") {
-        const { error } = await supabase.from("tag_options").insert({ label, category: category ?? "general" });
+        const { error } = await supabase
+          .from("tag_options")
+          .insert({ label, category: category ?? "general" });
         if (error) throw error;
         return;
       }
@@ -61,7 +64,7 @@ export function EditableList({
       refresh();
       toast.success("Added");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const rename = useMutation({
@@ -70,7 +73,7 @@ export function EditableList({
       if (error) throw error;
     },
     onSuccess: refresh,
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const remove = useMutation({
@@ -82,7 +85,7 @@ export function EditableList({
       refresh();
       toast.success("Removed");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -113,7 +116,9 @@ export function EditableList({
             </Button>
           </div>
         ))}
-        {(data ?? []).length === 0 && <p className="text-sm text-muted-foreground">Nothing here yet.</p>}
+        {(data ?? []).length === 0 && (
+          <p className="text-sm text-muted-foreground">Nothing here yet.</p>
+        )}
       </div>
       <div className="flex gap-2">
         <Input

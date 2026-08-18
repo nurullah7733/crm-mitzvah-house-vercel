@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { showError } from "@/lib/app-errors";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, selectClass } from "@/components/forms/fields";
@@ -75,14 +75,21 @@ export function EditableCard({
       await onSave(patch);
       setEditing(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "That didn't save — nothing was lost, try again.");
+      // The draft stays on screen, so nothing typed is lost.
+      await showError(e, {
+        area: "profile",
+        action: "Save a section",
+        fallback: "That didn't save — nothing was lost, try again.",
+      });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <section className={`rounded-2xl border border-border bg-card p-5 shadow-sm ${className ?? ""}`}>
+    <section
+      className={`rounded-2xl border border-border bg-card p-5 shadow-sm ${className ?? ""}`}
+    >
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <h2 className="truncate font-heading font-semibold text-foreground">{title}</h2>
         <div className="flex shrink-0 items-center gap-2">
@@ -130,7 +137,15 @@ export function EditableCard({
                   <Input
                     className="text-base"
                     type={f.type ?? "text"}
-                    inputMode={f.type === "tel" ? "tel" : f.type === "email" ? "email" : f.type === "number" ? "decimal" : undefined}
+                    inputMode={
+                      f.type === "tel"
+                        ? "tel"
+                        : f.type === "email"
+                          ? "email"
+                          : f.type === "number"
+                            ? "decimal"
+                            : undefined
+                    }
                     placeholder={f.placeholder ?? ""}
                     value={draft[f.key] ?? ""}
                     onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
@@ -139,12 +154,19 @@ export function EditableCard({
               </Field>
             ))}
           </div>
-          {extraEditor ? <div className="mt-4 border-t border-border pt-4">{extraEditor}</div> : null}
+          {extraEditor ? (
+            <div className="mt-4 border-t border-border pt-4">{extraEditor}</div>
+          ) : null}
           <div className="mt-4 flex gap-2">
             <Button className="rounded-xl" disabled={saving} onClick={save}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
-            <Button variant="outline" className="rounded-xl" disabled={saving} onClick={() => setEditing(false)}>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+            >
               Cancel
             </Button>
           </div>

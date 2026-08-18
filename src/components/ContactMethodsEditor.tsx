@@ -59,9 +59,13 @@ export function ContactMethodList({
           >
             {kind === "phone" ? formatPhone(m.value) : m.value}
           </a>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{m.method_type}</span>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            {m.method_type}
+          </span>
           {m.is_primary && (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Main</span>
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+              Main
+            </span>
           )}
         </li>
       ))}
@@ -88,7 +92,8 @@ export function ContactMethodsEditor({
   const [adding, setAdding] = useState<MethodDraft | null>(null);
   const [edits, setEdits] = useState<Record<string, { value: string; method_type: string }>>({});
 
-  const draftFor = (m: ContactMethod) => edits[m.id] ?? { value: m.value, method_type: m.method_type };
+  const draftFor = (m: ContactMethod) =>
+    edits[m.id] ?? { value: m.value, method_type: m.method_type };
 
   async function run(work: () => PromiseLike<{ error: { message: string } | null }>, done: string) {
     setBusy(true);
@@ -112,10 +117,18 @@ export function ContactMethodsEditor({
       return;
     }
     const ok = await run(
-      () => supabase.from("contact_methods").update({ value, method_type: d.method_type }).eq("id", m.id),
+      () =>
+        supabase
+          .from("contact_methods")
+          .update({ value, method_type: d.method_type })
+          .eq("id", m.id),
       "Saved",
     );
-    if (ok) setEdits((e) => ({ ...e, [m.id]: undefined as unknown as { value: string; method_type: string } }));
+    if (ok)
+      setEdits((e) => ({
+        ...e,
+        [m.id]: undefined as unknown as { value: string; method_type: string },
+      }));
   }
 
   async function addRow() {
@@ -156,20 +169,27 @@ export function ContactMethodsEditor({
             const d = draftFor(m);
             const dirty = d.value !== m.value || d.method_type !== m.method_type;
             return (
-              <div key={m.id} className="grid gap-2 rounded-xl border border-border p-2 sm:grid-cols-[1fr_9rem_auto]">
+              <div
+                key={m.id}
+                className="grid gap-2 rounded-xl border border-border p-2 sm:grid-cols-[1fr_9rem_auto]"
+              >
                 <Input
                   className="text-base"
                   type={kind === "phone" ? "tel" : "email"}
                   inputMode={kind === "phone" ? "tel" : "email"}
                   aria-label={`${label} value`}
                   value={d.value}
-                  onChange={(e) => setEdits((s) => ({ ...s, [m.id]: { ...d, value: e.target.value } }))}
+                  onChange={(e) =>
+                    setEdits((s) => ({ ...s, [m.id]: { ...d, value: e.target.value } }))
+                  }
                 />
                 <select
                   className={selectClass}
                   aria-label={`${label} type`}
                   value={d.method_type}
-                  onChange={(e) => setEdits((s) => ({ ...s, [m.id]: { ...d, method_type: e.target.value } }))}
+                  onChange={(e) =>
+                    setEdits((s) => ({ ...s, [m.id]: { ...d, method_type: e.target.value } }))
+                  }
                 >
                   {typesFor(kind).map((t) => (
                     <option key={t} value={t}>
@@ -179,7 +199,12 @@ export function ContactMethodsEditor({
                 </select>
                 <div className="flex items-center gap-1">
                   {dirty && (
-                    <Button size="sm" className="rounded-xl" disabled={busy} onClick={() => void saveRow(m)}>
+                    <Button
+                      size="sm"
+                      className="rounded-xl"
+                      disabled={busy}
+                      onClick={() => void saveRow(m)}
+                    >
                       Save
                     </Button>
                   )}
@@ -192,7 +217,11 @@ export function ContactMethodsEditor({
                       disabled={busy}
                       onClick={() =>
                         void run(
-                          () => supabase.from("contact_methods").update({ is_primary: true }).eq("id", m.id),
+                          () =>
+                            supabase
+                              .from("contact_methods")
+                              .update({ is_primary: true })
+                              .eq("id", m.id),
                           "Set as the main one",
                         )
                       }
@@ -201,7 +230,9 @@ export function ContactMethodsEditor({
                     </Button>
                   )}
                   {m.is_primary && (
-                    <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">Main</span>
+                    <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                      Main
+                    </span>
                   )}
                   <Button
                     size="sm"
@@ -210,7 +241,10 @@ export function ContactMethodsEditor({
                     title="Remove"
                     disabled={busy}
                     onClick={() =>
-                      void run(() => supabase.from("contact_methods").delete().eq("id", m.id), "Removed")
+                      void run(
+                        () => supabase.from("contact_methods").delete().eq("id", m.id),
+                        "Removed",
+                      )
                     }
                   >
                     <Trash2 className="size-3.5" />
@@ -245,10 +279,20 @@ export function ContactMethodsEditor({
                 ))}
               </select>
               <div className="flex items-center gap-1">
-                <Button size="sm" className="rounded-xl" disabled={busy} onClick={() => void addRow()}>
+                <Button
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={busy}
+                  onClick={() => void addRow()}
+                >
                   Add
                 </Button>
-                <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => setAdding(null)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-xl"
+                  onClick={() => setAdding(null)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -260,7 +304,8 @@ export function ContactMethodsEditor({
               className="rounded-xl"
               onClick={() => setAdding(emptyDraft(kind))}
             >
-              <Plus className="size-3.5" /> Add another {kind === "phone" ? "phone number" : "email"}
+              <Plus className="size-3.5" /> Add another{" "}
+              {kind === "phone" ? "phone number" : "email"}
             </Button>
           )}
         </div>

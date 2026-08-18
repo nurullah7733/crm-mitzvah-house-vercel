@@ -18,6 +18,7 @@ import {
   type MergeField,
   type Side,
 } from "@/components/MergeCompare";
+import { showError } from "@/lib/app-errors";
 
 type Person = {
   id: string;
@@ -59,7 +60,9 @@ const FIELDS: MergeField[] = [
 /** Households are shown by name; the id is put back when saving. */
 function toCompareRecord(p: Person, houseNames: Map<string, string>) {
   const rec: Record<string, unknown> = { ...p };
-  rec["household_id"] = p.household_id ? (houseNames.get(p.household_id) ?? "Household on file") : null;
+  rec["household_id"] = p.household_id
+    ? (houseNames.get(p.household_id) ?? "Household on file")
+    : null;
   return rec;
 }
 
@@ -130,7 +133,8 @@ export function MergeContactsDialog({
 
   const houseNames = useMemo(() => {
     const map = new Map<string, string>();
-    for (const p of people ?? []) if (p.household_id && p.households?.name) map.set(p.household_id, p.households.name);
+    for (const p of people ?? [])
+      if (p.household_id && p.households?.name) map.set(p.household_id, p.households.name);
     return map;
   }, [people]);
 
@@ -159,7 +163,9 @@ export function MergeContactsDialog({
       if (chosenHouse !== undefined) {
         const name = String(chosenHouse);
         const id =
-          [left, right].find((p) => p.household_id && (houseNames.get(p.household_id) ?? "") === name)?.household_id ??
+          [left, right].find(
+            (p) => p.household_id && (houseNames.get(p.household_id) ?? "") === name,
+          )?.household_id ??
           survivor.household_id ??
           loser.household_id ??
           null;
@@ -179,7 +185,9 @@ export function MergeContactsDialog({
       let housesMerged = false;
       if (twoHouseholds && mergeHouses) {
         const survivingHouse = String(fieldValues["household_id"] ?? survivor.household_id ?? "");
-        const otherHouse = [survivor.household_id, loser.household_id].find((id) => id && id !== survivingHouse);
+        const otherHouse = [survivor.household_id, loser.household_id].find(
+          (id) => id && id !== survivingHouse,
+        );
         if (survivingHouse && otherHouse) {
           const { error: hErr } = await supabase.rpc("merge_households", {
             _surviving_id: survivingHouse,
@@ -199,11 +207,15 @@ export function MergeContactsDialog({
           ? "Contacts merged, and their two households combined into one"
           : "Contacts merged — all history kept on the surviving record",
       );
-      logChange(housesMerged ? "Merged two duplicate contacts and their households" : "Merged two duplicate contacts");
+      logChange(
+        housesMerged
+          ? "Merged two duplicate contacts and their households"
+          : "Merged two duplicate contacts",
+      );
       onOpenChange(false);
       onMerged?.(id);
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
@@ -214,7 +226,11 @@ export function MergeContactsDialog({
       description="Choose which record survives and which value to keep for each field. All donations, notes, event history and tasks move to the surviving record."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -241,7 +257,11 @@ export function MergeContactsDialog({
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Contact A">
-                <select className={selectClass} value={leftId} onChange={(e) => setLeftId(e.target.value)}>
+                <select
+                  className={selectClass}
+                  value={leftId}
+                  onChange={(e) => setLeftId(e.target.value)}
+                >
                   <option value="">Choose a contact</option>
                   {options.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -251,7 +271,11 @@ export function MergeContactsDialog({
                 </select>
               </Field>
               <Field label="Contact B (the possible duplicate)">
-                <select className={selectClass} value={rightId} onChange={(e) => setRightId(e.target.value)}>
+                <select
+                  className={selectClass}
+                  value={rightId}
+                  onChange={(e) => setRightId(e.target.value)}
+                >
                   <option value="">Choose a contact</option>
                   {options.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -282,7 +306,11 @@ export function MergeContactsDialog({
               picks={picks}
               onPick={(key, side) => setPicks((p) => ({ ...p, [key]: side }))}
               onUseAll={(side) =>
-                setPicks(Object.fromEntries(rows.filter((r) => r.state === "conflict").map((r) => [r.key, side])))
+                setPicks(
+                  Object.fromEntries(
+                    rows.filter((r) => r.state === "conflict").map((r) => [r.key, side]),
+                  ),
+                )
               }
               leftLabel={personName(left)}
               rightLabel={personName(right)}
@@ -290,9 +318,9 @@ export function MergeContactsDialog({
             />
 
             <p className="rounded-xl bg-suggestion/10 px-3 py-2 text-xs text-foreground">
-              Every donation, note, event, task, special date and source moves to the surviving record. Merging
-              cannot be undone automatically, but each merge is recorded with a full copy of the record that was
-              merged away.
+              Every donation, note, event, task, special date and source moves to the surviving
+              record. Merging cannot be undone automatically, but each merge is recorded with a full
+              copy of the record that was merged away.
             </p>
 
             {twoHouseholds && (
@@ -306,8 +334,8 @@ export function MergeContactsDialog({
                 <span>
                   These two contacts are in different households (
                   {houseNames.get(left.household_id!) ?? "one household"} and{" "}
-                  {houseNames.get(right.household_id!) ?? "another household"}). Combine those two households into
-                  one as well, so we don't leave a near-identical household behind.
+                  {houseNames.get(right.household_id!) ?? "another household"}). Combine those two
+                  households into one as well, so we don't leave a near-identical household behind.
                 </span>
               </label>
             )}

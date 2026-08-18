@@ -4,22 +4,31 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Download, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { QueryError } from "@/components/ErrorState";
 import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { AddEventDialog } from "@/components/forms/AddDialogs";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { downloadCsv, stamp } from "@/lib/csv";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/_authenticated/events/")({
   head: () => ({
     meta: [
       { title: "Events | Mitzvah House CRM" },
-      { name: "description", content: "Upcoming and past Mitzvah House events, filtered by program." },
+      {
+        name: "description",
+        content: "Upcoming and past Mitzvah House events, filtered by program.",
+      },
       { property: "og:title", content: "Events | Mitzvah House CRM" },
-      { property: "og:description", content: "Upcoming and past Mitzvah House events, filtered by program." },
+      {
+        property: "og:description",
+        content: "Upcoming and past Mitzvah House events, filtered by program.",
+      },
     ],
   }),
+  errorComponent: RouteError,
   component: EventsPage,
 });
 
@@ -28,7 +37,7 @@ function EventsPage() {
   const selection = useSelection();
   const [addOpen, setAddOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["events-list"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -41,7 +50,9 @@ function EventsPage() {
     },
   });
 
-  const programs = Array.from(new Set((data ?? []).map((e) => e.program).filter(Boolean) as string[]));
+  const programs = Array.from(
+    new Set((data ?? []).map((e) => e.program).filter(Boolean) as string[]),
+  );
   const events = (data ?? []).filter((e) => !program || e.program === program);
 
   return (
@@ -103,7 +114,8 @@ function EventsPage() {
       />
 
       <div className="mt-5 space-y-3">
-        {isLoading && <EmptyState label="Loading events…" />}
+        <QueryError error={error} what="the events list" onRetry={() => void refetch()} />
+        {isLoading && !error && <EmptyState label="Loading events…" />}
         {events.map((e) => (
           <div
             key={e.id}
@@ -152,7 +164,9 @@ function EventsPage() {
             </div>
           </div>
         ))}
-        {!isLoading && events.length === 0 && <EmptyState label="No events for that program." />}
+        {!isLoading && !error && events.length === 0 && (
+          <EmptyState label="No events for that program." />
+        )}
       </div>
       <AddEventDialog open={addOpen} onOpenChange={setAddOpen} />
       <BulkRecordBar

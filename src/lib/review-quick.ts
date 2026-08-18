@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import { recordAttendance } from "@/lib/gift-events";
+import { guard } from "@/lib/app-errors";
 import {
   applyIncoming,
   compareRecords,
@@ -39,7 +40,12 @@ export type QuickMergeResult = {
  * a gift, or a written note — to a contact we already have. Anything already
  * on file is skipped, so the same row can never add the same thing twice.
  */
-async function addRowActivity(personId: string, row: RowValues, source: string, batchId: string | null) {
+async function addRowActivity(
+  personId: string,
+  row: RowValues,
+  source: string,
+  batchId: string | null,
+) {
   const created: Pick<
     QuickMergeResult,
     "donationId" | "registrationId" | "upgradedRegistration" | "interactionIds" | "addedActivity"
@@ -51,7 +57,10 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
   };
 
   if ((row.event_name ?? "").trim()) {
-    const { data: events } = await supabase.from("events").select("id, name, date").is("deleted_at", null);
+    const { data: events } = await supabase
+      .from("events")
+      .select("id, name, date")
+      .is("deleted_at", null);
     const match = matchEventByName(row.event_name!, (events ?? []) as EventOption[]);
     if (match) {
       const { data: before } = await supabase
@@ -99,12 +108,16 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
         .eq("amount", amount)
         .eq("date", giftDate)
         .is("deleted_at", null);
-      const { data: existingGift } = await (row.campaign
-        ? check.eq("campaign", row.campaign)
-        : check.is("campaign", null)
+      const { data: existingGift } = await (
+        row.campaign ? check.eq("campaign", row.campaign) : check.is("campaign", null)
       ).limit(1);
       const { data: fingerprintGift } = fingerprint
-        ? await supabase.from("donations").select("id").eq("import_fingerprint", fingerprint).is("deleted_at", null).limit(1)
+        ? await supabase
+            .from("donations")
+            .select("id")
+            .eq("import_fingerprint", fingerprint)
+            .is("deleted_at", null)
+            .limit(1)
         : { data: [] };
       if (!existingGift?.length && !fingerprintGift?.length) {
         const { data: gift } = await supabase
@@ -127,7 +140,9 @@ async function addRowActivity(personId: string, row: RowValues, source: string, 
     }
   }
 
-  const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""].filter(Boolean).join(" · ");
+  const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
+    .filter(Boolean)
+    .join(" · ");
   if (noteText && !created.donationId && !(row.amount ?? "").toString().trim()) {
     const { data: note } = await supabase
       .from("interactions")
@@ -162,7 +177,8 @@ export async function quickMerge(
 ): Promise<QuickMergeResult> {
   const incoming = incomingPerson(item.row_data);
   const fields = compareRecords(existing, incoming);
-  if (hasConflict(fields)) throw new Error("This row disagrees with what we have — open it and decide.");
+  if (hasConflict(fields))
+    throw new Error("This row disagrees with what we have — open it and decide.");
 
   const before: Partial<Record<CompareKey, string | null>> = {};
   for (const f of fields) if (f.state === "fill") before[f.key] = f.existing ?? null;
@@ -179,29 +195,57 @@ export async function quickMerge(
   });
   if (error) throw error;
 
-  return { itemId: item.id, personId: existing.id, personName: existingName, before, filledFields, ...activity };
+  return {
+    itemId: item.id,
+    personId: existing.id,
+    personName: existingName,
+    before,
+    filledFields,
+    ...activity,
+  };
 }
 
 /** Put things back the way they were, right after a one-tap merge. */
 export async function undoQuickMerge(result: QuickMergeResult) {
   if (Object.keys(result.before).length > 0) {
-    await supabase
-      .from("people")
-      .update(result.before as never)
-      .eq("id", result.personId);
+    await guard(
+      supabase
+        .from("people")
+        .update(result.before as never)
+        .eq("id", result.personId),
+      { area: "import", action: "Undo the update" },
+    );
   }
-  if (result.donationId) await supabase.from("donations").delete().eq("id", result.donationId);
-  if (result.registrationId) await supabase.from("registrations").delete().eq("id", result.registrationId);
+  if (result.donationId)
+    await guard(supabase.from("donations").delete().eq("id", result.donationId), {
+      area: "import",
+      action: "Undo the gift",
+    });
+  if (result.registrationId)
+    await guard(supabase.from("registrations").delete().eq("id", result.registrationId), {
+      area: "import",
+      action: "Undo the attendance",
+    });
   if (result.upgradedRegistration)
-    await supabase
-      .from("registrations")
-      .update({ status: result.upgradedRegistration.status ?? "registered" } as never)
-      .eq("id", result.upgradedRegistration.id);
-  for (const id of result.interactionIds) await supabase.from("interactions").delete().eq("id", id);
-  await supabase
-    .from("review_queue")
-    .update({ status: "pending", resolution_note: "One-tap update undone" } as never)
-    .eq("id", result.itemId);
+    await guard(
+      supabase
+        .from("registrations")
+        .update({ status: result.upgradedRegistration.status ?? "registered" } as never)
+        .eq("id", result.upgradedRegistration.id),
+      { area: "import", action: "Undo the update" },
+    );
+  for (const id of result.interactionIds)
+    await guard(supabase.from("interactions").delete().eq("id", id), {
+      area: "import",
+      action: "Undo the timeline note",
+    });
+  await guard(
+    supabase
+      .from("review_queue")
+      .update({ status: "pending", resolution_note: "One-tap update undone" } as never)
+      .eq("id", result.itemId),
+    { area: "import", action: "Undo the update" },
+  );
 }
 
 /** Throw an incoming row away with a short reason on the record. */

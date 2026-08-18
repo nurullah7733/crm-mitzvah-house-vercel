@@ -15,16 +15,24 @@ import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
 import { fetchAll } from "@/lib/fetch-all";
+import { RouteError } from "@/components/RouteError";
 
 export const Route = createFileRoute("/_authenticated/donations")({
   head: () => ({
     meta: [
       { title: "Donations | Mitzvah House CRM" },
-      { name: "description", content: "Every gift, always attached to the individual who gave it." },
+      {
+        name: "description",
+        content: "Every gift, always attached to the individual who gave it.",
+      },
       { property: "og:title", content: "Donations | Mitzvah House CRM" },
-      { property: "og:description", content: "Every gift, always attached to the individual who gave it." },
+      {
+        property: "og:description",
+        content: "Every gift, always attached to the individual who gave it.",
+      },
     ],
   }),
+  errorComponent: RouteError,
   component: DonationsPage,
 });
 
@@ -37,7 +45,9 @@ function DonationsPage() {
   const [to, setTo] = useState("");
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
-  const [followUp, setFollowUp] = useState<"all" | "needs_thanks" | "thanked" | "needs_receipt">("all");
+  const [followUp, setFollowUp] = useState<"all" | "needs_thanks" | "thanked" | "needs_receipt">(
+    "all",
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ["donations-list"],
@@ -143,23 +153,48 @@ function DonationsPage() {
     >
       <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Start date">
-          <Input className="text-base" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+          />
         </Field>
         <Field label="End date">
-          <Input className="text-base" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
         </Field>
         <Field label="Min amount">
-          <Input className="text-base" type="number" inputMode="numeric" value={min} onChange={(e) => setMin(e.target.value)} />
+          <Input
+            className="text-base"
+            type="number"
+            inputMode="numeric"
+            value={min}
+            onChange={(e) => setMin(e.target.value)}
+          />
         </Field>
         <Field label="Max amount">
-          <Input className="text-base" type="number" inputMode="numeric" value={max} onChange={(e) => setMax(e.target.value)} />
+          <Input
+            className="text-base"
+            type="number"
+            inputMode="numeric"
+            value={max}
+            onChange={(e) => setMax(e.target.value)}
+          />
         </Field>
         <Field label="Follow-up" className="sm:col-span-2">
           <div className="flex flex-wrap gap-2">
             {(
               [
                 ["all", "All gifts"],
-                ["needs_thanks", `Thank-you pending${awaitingThanks ? ` (${awaitingThanks})` : ""}`],
+                [
+                  "needs_thanks",
+                  `Thank-you pending${awaitingThanks ? ` (${awaitingThanks})` : ""}`,
+                ],
                 ["thanked", "Thank-you sent"],
                 ["needs_receipt", "Receipt pending"],
               ] as const
@@ -168,7 +203,9 @@ function DonationsPage() {
                 key={key}
                 type="button"
                 className={`rounded-full px-3 py-1.5 text-sm ${
-                  followUp === key ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
+                  followUp === key
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border bg-card text-foreground"
                 }`}
                 onClick={() => setFollowUp(key)}
               >
@@ -195,7 +232,8 @@ function DonationsPage() {
       </div>
 
       <div className="mt-4 rounded-2xl border border-money/30 bg-money/5 px-4 py-3 text-sm">
-        Running total of what's shown: <span className="font-heading font-semibold text-money">{currency(total)}</span>
+        Running total of what's shown:{" "}
+        <span className="font-heading font-semibold text-money">{currency(total)}</span>
       </div>
 
       <SelectAllToggle
@@ -210,7 +248,10 @@ function DonationsPage() {
         {isLoading && <EmptyState label="Loading donations…" />}
         {!isLoading && gifts.length === 0 && <EmptyState label="No gifts match those filters." />}
         {gifts.map((d) => (
-          <div key={d.id} className="rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
+          <div
+            key={d.id}
+            className="rounded-2xl border border-border bg-card p-4 text-left shadow-sm"
+          >
             <div className="flex items-start gap-3">
               <div className="shrink-0 pt-0.5">
                 <SelectBox
@@ -221,21 +262,24 @@ function DonationsPage() {
               </div>
               <div className="min-w-0 flex-1 text-left">
                 <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-                {d.people ? (
-                  <Link
-                    to="/people/$personId"
-                    params={{ personId: d.people.id }}
-                    className="min-w-0 break-words text-left font-heading font-semibold text-primary hover:underline"
-                  >
-                    {personName(d.people)}
-                  </Link>
-                ) : (
-                  <p className="font-heading font-semibold text-foreground">Unknown donor</p>
-                )}
-                  <p className="shrink-0 font-heading text-lg font-semibold text-money">{currency(d.amount)}</p>
+                  {d.people ? (
+                    <Link
+                      to="/people/$personId"
+                      params={{ personId: d.people.id }}
+                      className="min-w-0 break-words text-left font-heading font-semibold text-primary hover:underline"
+                    >
+                      {personName(d.people)}
+                    </Link>
+                  ) : (
+                    <p className="font-heading font-semibold text-foreground">Unknown donor</p>
+                  )}
+                  <p className="shrink-0 font-heading text-lg font-semibold text-money">
+                    {currency(d.amount)}
+                  </p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {formatDate(d.date)} · {d.campaigns?.name ?? d.campaign ?? "General"} · {d.method ?? "—"}
+                  {formatDate(d.date)} · {d.campaigns?.name ?? d.campaign ?? "General"} ·{" "}
+                  {d.method ?? "—"}
                 </p>
                 {d.grants && (
                   <Link
@@ -256,7 +300,9 @@ function DonationsPage() {
                   </Link>
                 )}
                 {d.notes && <p className="mt-1 text-sm text-muted-foreground">{d.notes}</p>}
-                {d.source && <p className="mt-1 text-xs text-muted-foreground">Source: {d.source}</p>}
+                {d.source && (
+                  <p className="mt-1 text-xs text-muted-foreground">Source: {d.source}</p>
+                )}
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border pt-3">
@@ -269,7 +315,9 @@ function DonationsPage() {
                 />
                 Thank-you letter
                 {d.thank_you_sent_date ? (
-                  <span className="text-xs text-muted-foreground">sent {formatDate(d.thank_you_sent_date)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    sent {formatDate(d.thank_you_sent_date)}
+                  </span>
                 ) : (
                   <span className="text-xs text-urgent">not sent</span>
                 )}
@@ -283,7 +331,9 @@ function DonationsPage() {
                 />
                 Tax receipt
                 {d.receipt_sent_date ? (
-                  <span className="text-xs text-muted-foreground">sent {formatDate(d.receipt_sent_date)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    sent {formatDate(d.receipt_sent_date)}
+                  </span>
                 ) : null}
               </label>
             </div>
@@ -326,7 +376,10 @@ function DonationsPage() {
               key: "event_id",
               label: "Given at this event",
               type: "select",
-              options: (eventOptions ?? []).map((ev) => ({ value: ev.id, label: `${ev.name} (${ev.date})` })),
+              options: (eventOptions ?? []).map((ev) => ({
+                value: ev.id,
+                label: `${ev.name} (${ev.date})`,
+              })),
             },
             { key: "notes", label: "Notes", type: "textarea" },
           ]}

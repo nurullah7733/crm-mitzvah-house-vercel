@@ -46,7 +46,9 @@ export function ChipEditor({
           <span
             key={v}
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] ${
-              tone === "primary" ? "bg-primary/10 text-primary" : "bg-secondary text-secondary-foreground"
+              tone === "primary"
+                ? "bg-primary/10 text-primary"
+                : "bg-secondary text-secondary-foreground"
             }`}
           >
             {linkKind ? (
@@ -103,7 +105,12 @@ export function ChipEditor({
                 }
               }}
             />
-            <Button size="sm" className="rounded-xl" onClick={() => add(draft)} disabled={!draft.trim()}>
+            <Button
+              size="sm"
+              className="rounded-xl"
+              onClick={() => add(draft)}
+              disabled={!draft.trim()}
+            >
               Add
             </Button>
             <Button

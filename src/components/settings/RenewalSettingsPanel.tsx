@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/forms/fields";
 import { RENEWAL_DEFAULTS, useRenewalSettings, type RenewalSettings } from "@/lib/renewal";
 import { logChange } from "@/lib/session-log";
+import { showError } from "@/lib/app-errors";
 
 /** Who counts as a lapsed donor worth reaching out to. */
 export function RenewalSettingsPanel() {
@@ -34,14 +35,14 @@ export function RenewalSettingsPanel() {
       queryClient.invalidateQueries({ queryKey: ["dashboard-renewals"] });
       toast.success("Renewal outreach settings saved");
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not save the settings"),
+    onError: (e: unknown) => void showError(e, "Could not save the settings"),
   });
 
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">
-        A lapsed donor is someone who gave in a past year and hasn't given yet this year. These two numbers decide who
-        shows up on the Renewal outreach list.
+        A lapsed donor is someone who gave in a past year and hasn't given yet this year. These two
+        numbers decide who shows up on the Renewal outreach list.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Minimum lifetime giving">
@@ -73,7 +74,9 @@ export function RenewalSettingsPanel() {
         <Button onClick={() => save.mutate(form)} disabled={!isAdmin || save.isPending}>
           Save
         </Button>
-        {!isAdmin && <p className="text-xs text-muted-foreground">Only an admin can change these.</p>}
+        {!isAdmin && (
+          <p className="text-xs text-muted-foreground">Only an admin can change these.</p>
+        )}
       </div>
     </div>
   );

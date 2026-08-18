@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/forms/fields";
 import { LIFECYCLE_DEFAULTS, useLifecycleSettings, type LifecycleSettings } from "@/lib/lifecycle";
 import { logChange } from "@/lib/session-log";
+import { showError } from "@/lib/app-errors";
 
 /** When a child should be reviewed for adulthood, and how early bar/bat mitzvahs appear. */
 export function LifecycleSettingsPanel() {
@@ -32,14 +33,14 @@ export function LifecycleSettingsPanel() {
       queryClient.invalidateQueries({ queryKey: ["lifecycle-settings"] });
       toast.success("Saved");
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not save the settings"),
+    onError: (e: unknown) => void showError(e, "Could not save the settings"),
   });
 
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">
-        Nobody is ever changed from Child to Adult automatically. These two numbers only decide when someone shows up on
-        the review list in Tasks and on People.
+        Nobody is ever changed from Child to Adult automatically. These two numbers only decide when
+        someone shows up on the review list in Tasks and on People.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Adult age to review at" hint="Default 18. Staff still decide each one.">
@@ -73,7 +74,9 @@ export function LifecycleSettingsPanel() {
         <Button onClick={() => save.mutate(form)} disabled={!isAdmin || save.isPending}>
           Save
         </Button>
-        {!isAdmin && <p className="text-xs text-muted-foreground">Only an admin can change these.</p>}
+        {!isAdmin && (
+          <p className="text-xs text-muted-foreground">Only an admin can change these.</p>
+        )}
       </div>
     </div>
   );

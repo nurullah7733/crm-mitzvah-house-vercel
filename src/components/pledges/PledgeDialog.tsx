@@ -16,6 +16,7 @@ import {
   type PledgeFrequency,
   type PledgeStatus,
 } from "@/lib/pledges";
+import { showError } from "@/lib/app-errors";
 
 /** Record what a donor has promised. The money itself is still logged as donations. */
 export function PledgeDialog({
@@ -92,9 +93,7 @@ export function PledgeDialog({
       queryClient.invalidateQueries({ queryKey: ["pledge-summary"] });
       onOpenChange(false);
     },
-    onError: (e: Error) => {
-      void friendlyDbError(e, "That pledge didn't save.").then((why) => toast.error(why));
-    },
+    onError: (e: unknown) => void showError(e, "That pledge didn't save."),
   });
 
   return (
@@ -105,7 +104,11 @@ export function PledgeDialog({
       description="A pledge is a promise. Payments are still logged as donations and linked back here."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -131,7 +134,11 @@ export function PledgeDialog({
           />
         </Field>
         <Field label="How often">
-          <select className={selectClass} value={form.frequency} onChange={(e) => set("frequency", e.target.value)}>
+          <select
+            className={selectClass}
+            value={form.frequency}
+            onChange={(e) => set("frequency", e.target.value)}
+          >
             {(Object.keys(FREQUENCY_LABELS) as PledgeFrequency[]).map((f) => (
               <option key={f} value={f}>
                 {FREQUENCY_LABELS[f]}
@@ -140,13 +147,27 @@ export function PledgeDialog({
           </select>
         </Field>
         <Field label="Starts">
-          <Input className="text-base" type="date" value={form.start_date} onChange={(e) => set("start_date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.start_date}
+            onChange={(e) => set("start_date", e.target.value)}
+          />
         </Field>
         <Field label="Ends (optional)" hint="Leave blank for an open-ended commitment.">
-          <Input className="text-base" type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
+          <Input
+            className="text-base"
+            type="date"
+            value={form.end_date}
+            onChange={(e) => set("end_date", e.target.value)}
+          />
         </Field>
         <Field label="Status">
-          <select className={selectClass} value={form.status} onChange={(e) => set("status", e.target.value)}>
+          <select
+            className={selectClass}
+            value={form.status}
+            onChange={(e) => set("status", e.target.value)}
+          >
             {(Object.keys(STATUS_LABELS) as PledgeStatus[]).map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABELS[s]}
@@ -155,7 +176,11 @@ export function PledgeDialog({
           </select>
         </Field>
         <Field label="Campaign (optional)">
-          <select className={selectClass} value={form.campaign_id} onChange={(e) => set("campaign_id", e.target.value)}>
+          <select
+            className={selectClass}
+            value={form.campaign_id}
+            onChange={(e) => set("campaign_id", e.target.value)}
+          >
             <option value="">No campaign</option>
             {(campaigns ?? []).map((c) => (
               <option key={c.id} value={c.id}>
@@ -164,7 +189,11 @@ export function PledgeDialog({
             ))}
           </select>
         </Field>
-        <Field label="Days of grace" hint="How late a payment can be before we flag it." className="sm:col-span-2">
+        <Field
+          label="Days of grace"
+          hint="How late a payment can be before we flag it."
+          className="sm:col-span-2"
+        >
           <Input
             className="text-base"
             type="number"
@@ -175,7 +204,12 @@ export function PledgeDialog({
           />
         </Field>
         <Field label="Notes" className="sm:col-span-2">
-          <Textarea className="text-base" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          <Textarea
+            className="text-base"
+            rows={3}
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+          />
         </Field>
       </div>
     </ResponsiveModal>

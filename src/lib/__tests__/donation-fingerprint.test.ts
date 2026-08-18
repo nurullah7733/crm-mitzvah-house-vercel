@@ -26,11 +26,15 @@ describe("the same gift always produces the same fingerprint", () => {
     const a = donationImportFingerprint(row({ campaign: "Matzah  Campaign" }), 18, "2026-03-01");
     const b = donationImportFingerprint(row({ email: " YOSEF@Example.com " }), 18, "2026-03-01");
     expect(b).toBe(donationImportFingerprint(row(), 18, "2026-03-01"));
-    expect(a).toBe(donationImportFingerprint(row({ campaign: "matzah campaign" }), 18, "2026-03-01"));
+    expect(a).toBe(
+      donationImportFingerprint(row({ campaign: "matzah campaign" }), 18, "2026-03-01"),
+    );
   });
 
   it("ignores how the amount was typed", () => {
-    expect(donationImportFingerprint(row(), 18, "2026-03-01")).toBe(donationImportFingerprint(row(), 18.0, "2026-03-01"));
+    expect(donationImportFingerprint(row(), 18, "2026-03-01")).toBe(
+      donationImportFingerprint(row(), 18.0, "2026-03-01"),
+    );
   });
 
   it("does not depend on person_id, so a duplicated contact still can't duplicate the gift", () => {
@@ -39,10 +43,12 @@ describe("the same gift always produces the same fingerprint", () => {
   });
 
   it("uses the phone when there is no email, and the name when there is neither", () => {
-    expect(donationImportFingerprint(row({ email: "", phone: "(404) 555-0100" }), 18, "2026-03-01")).toContain(
-      "phone:4045550100",
+    expect(
+      donationImportFingerprint(row({ email: "", phone: "(404) 555-0100" }), 18, "2026-03-01"),
+    ).toContain("phone:4045550100");
+    expect(donationImportFingerprint(row({ email: "", phone: "" }), 18, "2026-03-01")).toContain(
+      "name:yosef katz",
     );
-    expect(donationImportFingerprint(row({ email: "", phone: "" }), 18, "2026-03-01")).toContain("name:yosef katz");
   });
 });
 
@@ -52,15 +58,23 @@ describe("genuinely different gifts do not collide", () => {
   it.each([
     ["a different amount", donationImportFingerprint(row(), 36, "2026-03-01")],
     ["a different date", donationImportFingerprint(row(), 18, "2026-03-02")],
-    ["a different donor", donationImportFingerprint(row({ email: "leah@example.com" }), 18, "2026-03-01")],
-    ["a different campaign", donationImportFingerprint(row({ campaign: "Building Fund" }), 18, "2026-03-01")],
+    [
+      "a different donor",
+      donationImportFingerprint(row({ email: "leah@example.com" }), 18, "2026-03-01"),
+    ],
+    [
+      "a different campaign",
+      donationImportFingerprint(row({ campaign: "Building Fund" }), 18, "2026-03-01"),
+    ],
   ])("%s produces a different fingerprint", (_label, other) => {
     expect(other).not.toBe(base);
     expect(other).not.toBeNull();
   });
 
   it("three separate $18 gifts on three different days each stand alone", () => {
-    const keys = ["2026-03-01", "2026-03-02", "2026-03-03"].map((d) => donationImportFingerprint(row(), 18, d));
+    const keys = ["2026-03-01", "2026-03-02", "2026-03-03"].map((d) =>
+      donationImportFingerprint(row(), 18, d),
+    );
     expect(new Set(keys).size).toBe(3);
   });
 });

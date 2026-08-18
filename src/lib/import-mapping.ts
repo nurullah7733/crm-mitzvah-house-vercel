@@ -105,7 +105,17 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
 export const FIELD_GROUPS: { title: string; fields: FieldKey[] }[] = [
   {
     title: "Essential",
-    fields: ["first_name", "last_name", "full_name", "email", "phone", "address", "city", "state", "postal_code"],
+    fields: [
+      "first_name",
+      "last_name",
+      "full_name",
+      "email",
+      "phone",
+      "address",
+      "city",
+      "state",
+      "postal_code",
+    ],
   },
   {
     title: "Person details",
@@ -123,7 +133,15 @@ export const FIELD_GROUPS: { title: string; fields: FieldKey[] }[] = [
   },
   {
     title: "Additional contact info",
-    fields: ["phone_mobile", "phone_home", "phone_work", "phone_other", "email_work", "email_other", "address_line2"],
+    fields: [
+      "phone_mobile",
+      "phone_home",
+      "phone_work",
+      "phone_other",
+      "email_work",
+      "email_other",
+      "address_line2",
+    ],
   },
   {
     title: "Family",
@@ -179,13 +197,41 @@ export const FIELD_HINTS: Partial<Record<FieldKey, string>> = {
 
 /** Columns whose meaning depends on another column being mapped too. */
 export const FIELD_PAIRS: { field: FieldKey; needs: FieldKey; message: string }[] = [
-  { field: "amount", needs: "date", message: "Donation amount is mapped but donation date isn't — gifts need a date." },
-  { field: "date", needs: "amount", message: "Donation date is mapped but donation amount isn't — no gifts will be created." },
-  { field: "child_birth_date", needs: "child_name", message: "Child birth date is mapped but no child name column is." },
-  { field: "child_age", needs: "child_name", message: "Child age is mapped but no child name column is." },
-  { field: "child_school", needs: "child_name", message: "Child school is mapped but no child name column is." },
-  { field: "spouse_email", needs: "spouse_full_name", message: "Partner email is mapped but no partner name column is." },
-  { field: "spouse_phone", needs: "spouse_full_name", message: "Partner phone is mapped but no partner name column is." },
+  {
+    field: "amount",
+    needs: "date",
+    message: "Donation amount is mapped but donation date isn't — gifts need a date.",
+  },
+  {
+    field: "date",
+    needs: "amount",
+    message: "Donation date is mapped but donation amount isn't — no gifts will be created.",
+  },
+  {
+    field: "child_birth_date",
+    needs: "child_name",
+    message: "Child birth date is mapped but no child name column is.",
+  },
+  {
+    field: "child_age",
+    needs: "child_name",
+    message: "Child age is mapped but no child name column is.",
+  },
+  {
+    field: "child_school",
+    needs: "child_name",
+    message: "Child school is mapped but no child name column is.",
+  },
+  {
+    field: "spouse_email",
+    needs: "spouse_full_name",
+    message: "Partner email is mapped but no partner name column is.",
+  },
+  {
+    field: "spouse_phone",
+    needs: "spouse_full_name",
+    message: "Partner phone is mapped but no partner name column is.",
+  },
 ];
 
 /** What a usable file needs before it's worth importing. */
@@ -269,9 +315,25 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "primary contact",
     "primary contact name",
   ],
-  email: ["email", "e-mail", "email address", "primary email", "contact email", "mail", "main email"],
+  email: [
+    "email",
+    "e-mail",
+    "email address",
+    "primary email",
+    "contact email",
+    "mail",
+    "main email",
+  ],
   phone: ["phone", "phone number", "telephone", "primary phone", "main phone", "best phone"],
-  phone_mobile: ["cell", "cell phone", "mobile", "mobile phone", "cell number", "mobile number", "text number"],
+  phone_mobile: [
+    "cell",
+    "cell phone",
+    "mobile",
+    "mobile phone",
+    "cell number",
+    "mobile number",
+    "text number",
+  ],
   phone_home: ["home phone", "house phone", "landline", "home number", "home telephone"],
   phone_work: ["work phone", "office phone", "business phone", "work number", "office number"],
   phone_other: [
@@ -298,20 +360,70 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "additional email",
     "email 3",
   ],
-  address: ["address", "street", "street address", "address line 1", "mailing address", "home address", "city state zip", "shipping address"],
-  address_line2: ["address line 2", "address 2", "apt", "apartment", "unit", "suite", "street 2", "address line two", "apt suite"],
+  address: [
+    "address",
+    "street",
+    "street address",
+    "address line 1",
+    "mailing address",
+    "home address",
+    "city state zip",
+    "shipping address",
+  ],
+  address_line2: [
+    "address line 2",
+    "address 2",
+    "apt",
+    "apartment",
+    "unit",
+    "suite",
+    "street 2",
+    "address line two",
+    "apt suite",
+  ],
   city: ["city", "town", "city name", "billing city", "shipping city"],
   state: ["state", "province", "region", "st", "billing state", "shipping state"],
-  postal_code: ["zip", "zip code", "zipcode", "postal code", "postcode", "billing zip", "shipping zip"],
+  postal_code: [
+    "zip",
+    "zip code",
+    "zipcode",
+    "postal code",
+    "postcode",
+    "billing zip",
+    "shipping zip",
+  ],
   household_name: ["household", "household name", "family", "family name"],
   birth_date: ["birthday", "birth date", "birthdate", "dob", "date of birth"],
   anniversary_date: ["anniversary", "wedding anniversary", "anniversary date", "wedding date"],
   school: ["school", "school name", "grade school", "yeshiva", "day school"],
-  person_notes: ["about", "occupation", "job title", "employer", "additional info", "other information", "details"],
+  person_notes: [
+    "about",
+    "occupation",
+    "job title",
+    "employer",
+    "additional info",
+    "other information",
+    "details",
+  ],
   role: ["role", "adult or child", "type", "relationship", "member type", "contact role"],
   age: ["age", "years old"],
-  spouse_full_name: ["spouse", "spouse name", "partner", "partner name", "husband", "wife", "second parent", "parent 2", "parent 2 name"],
-  spouse_first_name: ["spouse first name", "partner first name", "spouse first", "parent 2 first name"],
+  spouse_full_name: [
+    "spouse",
+    "spouse name",
+    "partner",
+    "partner name",
+    "husband",
+    "wife",
+    "second parent",
+    "parent 2",
+    "parent 2 name",
+  ],
+  spouse_first_name: [
+    "spouse first name",
+    "partner first name",
+    "spouse first",
+    "parent 2 first name",
+  ],
   spouse_last_name: ["spouse last name", "partner last name", "spouse last", "parent 2 last name"],
   spouse_email: ["spouse email", "partner email", "second email", "parent 2 email"],
   spouse_phone: ["spouse phone", "partner phone", "second phone", "parent 2 phone"],
@@ -349,9 +461,33 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "camper last name",
     "kid last name",
   ],
-  child_birth_date: ["child birthday", "child birth date", "child dob", "student dob", "child 1 dob", "child 2 dob", "child 3 dob", "child 1 birth date", "child 2 birth date"],
-  child_age: ["child age", "child 1 age", "child 2 age", "child 3 age", "student age", "camper age"],
-  child_school: ["child school", "student school", "child 1 school", "child 2 school", "child grade", "grade"],
+  child_birth_date: [
+    "child birthday",
+    "child birth date",
+    "child dob",
+    "student dob",
+    "child 1 dob",
+    "child 2 dob",
+    "child 3 dob",
+    "child 1 birth date",
+    "child 2 birth date",
+  ],
+  child_age: [
+    "child age",
+    "child 1 age",
+    "child 2 age",
+    "child 3 age",
+    "student age",
+    "camper age",
+  ],
+  child_school: [
+    "child school",
+    "student school",
+    "child 1 school",
+    "child 2 school",
+    "child grade",
+    "grade",
+  ],
   amount: ["amount", "gift amount", "donation amount", "total", "gross amount", "paid amount"],
   date: ["date", "gift date", "donation date", "transaction date", "created at", "processed on"],
   campaign: ["campaign", "fund", "appeal", "designation"],
@@ -377,7 +513,11 @@ export type Confidence = "high" | "medium" | "low";
 export type ColumnGuess = { header: string; field: FieldKey; confidence: Confidence };
 
 function normalize(h: string) {
-  return h.trim().toLowerCase().replace(/[_\-.]+/g, " ").replace(/\s+/g, " ");
+  return h
+    .trim()
+    .toLowerCase()
+    .replace(/[_\-.]+/g, " ")
+    .replace(/\s+/g, " ");
 }
 
 /** Guess which CRM field each spreadsheet column belongs to. */
@@ -404,8 +544,10 @@ export function guessMapping(headers: string[]): ColumnGuess[] {
     const repeatable = REPEATABLE_FIELDS.includes(guess.field);
     if (guess.field !== "ignore" && !repeatable && used.has(guess.field)) {
       // A second phone or email column becomes an extra one rather than being dropped.
-      if (guess.field === "phone") return { header: h, field: "phone_other" as FieldKey, confidence: "medium" as Confidence };
-      if (guess.field === "email") return { header: h, field: "email_other" as FieldKey, confidence: "medium" as Confidence };
+      if (guess.field === "phone")
+        return { header: h, field: "phone_other" as FieldKey, confidence: "medium" as Confidence };
+      if (guess.field === "email")
+        return { header: h, field: "email_other" as FieldKey, confidence: "medium" as Confidence };
       return { header: h, field: "ignore" as FieldKey, confidence: "low" as Confidence };
     }
     if (guess.field !== "ignore" && !repeatable) used.add(guess.field);
@@ -419,16 +561,11 @@ export function digits(value: string | null | undefined) {
 
 /** Build one readable address out of whatever address columns the file had. */
 export function composeAddress(v: Partial<Record<FieldKey, string>>): string | null {
-  const cityLine = [
-    [v.city, v.state].filter(Boolean).join(", "),
-    v.postal_code,
-  ]
+  const cityLine = [[v.city, v.state].filter(Boolean).join(", "), v.postal_code]
     .filter(Boolean)
     .join(" ")
     .trim();
-  const lines = [v.address, v.address_line2, cityLine]
-    .map((l) => (l ?? "").trim())
-    .filter(Boolean);
+  const lines = [v.address, v.address_line2, cityLine].map((l) => (l ?? "").trim()).filter(Boolean);
   return lines.length ? lines.join("\n") : null;
 }
 
@@ -485,14 +622,21 @@ export function addressKey(address: string | null | undefined): string | null {
   const flat = (address ?? "")
     .toLowerCase()
     .replace(/\n/g, " ")
-    .replace(/\b(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|boulevard|blvd|apartment|apt|unit|suite|ste)\b/g, "")
+    .replace(
+      /\b(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|boulevard|blvd|apartment|apt|unit|suite|ste)\b/g,
+      "",
+    )
     .replace(/[^a-z0-9]+/g, "")
     .trim();
   return flat.length >= 6 ? flat : null;
 }
 
 /** Decide whether a row describes a child, from a role column, an age, or a birth date. */
-export function roleFromRow(v: { role?: string | undefined; age?: string | undefined; birth_date?: string | undefined }): "Adult" | "Child" {
+export function roleFromRow(v: {
+  role?: string | undefined;
+  age?: string | undefined;
+  birth_date?: string | undefined;
+}): "Adult" | "Child" {
   const role = (v.role ?? "").trim().toLowerCase();
   if (/child|kid|student|camper|son|daughter|minor|youth|teen/.test(role)) return "Child";
   if (/adult|parent|mother|father|mom|dad|guardian|spouse/.test(role)) return "Adult";
@@ -538,7 +682,8 @@ export type RowValues = Partial<Record<FieldKey, string>> & {
 /** Every email a stored contact has, lower-cased. */
 export function personEmails(p: ExistingPerson): string[] {
   const list = [(p.email ?? "").trim().toLowerCase()];
-  for (const m of p.contact_methods ?? []) if (m.kind === "email") list.push(m.value.trim().toLowerCase());
+  for (const m of p.contact_methods ?? [])
+    if (m.kind === "email") list.push(m.value.trim().toLowerCase());
   return list.filter(Boolean);
 }
 
@@ -555,8 +700,10 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
   if ((values.email ?? "").trim()) rowEmails.unshift(values.email!.trim().toLowerCase());
   if (rowEmails.length > 0) {
     const hits = people.filter((p) => personEmails(p).some((e) => rowEmails.includes(e)));
-    if (hits.length === 1) return { status: "matched", reason: "Matched on email", candidates: hits };
-    if (hits.length > 1) return { status: "ambiguous", reason: "Several people share that email", candidates: hits };
+    if (hits.length === 1)
+      return { status: "matched", reason: "Matched on email", candidates: hits };
+    if (hits.length > 1)
+      return { status: "ambiguous", reason: "Several people share that email", candidates: hits };
   }
 
   const rowPhones = (values.phones ?? [])
@@ -566,8 +713,10 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
     .map((d) => d.slice(-10));
   if (rowPhones.length > 0) {
     const hits = people.filter((p) => personPhones(p).some((d) => rowPhones.includes(d)));
-    if (hits.length === 1) return { status: "matched", reason: "Matched on phone", candidates: hits };
-    if (hits.length > 1) return { status: "ambiguous", reason: "Several people share that phone", candidates: hits };
+    if (hits.length === 1)
+      return { status: "matched", reason: "Matched on phone", candidates: hits };
+    if (hits.length > 1)
+      return { status: "ambiguous", reason: "Several people share that phone", candidates: hits };
   }
 
   const { first, last } = splitName(values);
@@ -589,18 +738,25 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
       return { status: "ambiguous", reason: "Same name, different address", candidates: nameHits };
     }
     if (nameHits.length > 1) {
-      const withAddress = address
-        ? nameHits.filter((p) => sameAddress(p.households?.address))
-        : [];
+      const withAddress = address ? nameHits.filter((p) => sameAddress(p.households?.address)) : [];
       if (withAddress.length === 1)
         return { status: "matched", reason: "Matched on name + address", candidates: withAddress };
-      return { status: "ambiguous", reason: "More than one person with that name", candidates: nameHits };
+      return {
+        status: "ambiguous",
+        reason: "More than one person with that name",
+        candidates: nameHits,
+      };
     }
-    if (!first && !last) return { status: "ambiguous", reason: "No name in the file", candidates: [] };
+    if (!first && !last)
+      return { status: "ambiguous", reason: "No name in the file", candidates: [] };
     return { status: "new", reason: "Looks like a new person", candidates: [] };
   }
 
-  return { status: "ambiguous", reason: "Not enough information to identify a person", candidates: [] };
+  return {
+    status: "ambiguous",
+    reason: "Not enough information to identify a person",
+    candidates: [],
+  };
 }
 
 /** Remembers which row first claimed each identity inside one file. */
@@ -636,11 +792,52 @@ export function matchRowOnce(
   return base;
 }
 
-const TITLES = ["mr", "mrs", "ms", "miss", "dr", "rabbi", "rebbetzin", "rev", "cantor", "prof", "mr.", "mrs.", "ms.", "dr.", "r'"];
+const TITLES = [
+  "mr",
+  "mrs",
+  "ms",
+  "miss",
+  "dr",
+  "rabbi",
+  "rebbetzin",
+  "rev",
+  "cantor",
+  "prof",
+  "mr.",
+  "mrs.",
+  "ms.",
+  "dr.",
+  "r'",
+];
 const SUFFIXES = ["jr", "sr", "ii", "iii", "iv", "md", "phd", "esq", "jr.", "sr.", "m.d.", "ph.d."];
 /** Words that belong to the surname when they appear before the final word. */
 const NAME_PARTICLES = [
-  "ben","bat","bas","van","von","der","den","de","del","della","di","da","dos","la","le","du","el","al","abu","bin","ibn","st","st.","mac","mc","o'",
+  "ben",
+  "bat",
+  "bas",
+  "van",
+  "von",
+  "der",
+  "den",
+  "de",
+  "del",
+  "della",
+  "di",
+  "da",
+  "dos",
+  "la",
+  "le",
+  "du",
+  "el",
+  "al",
+  "abu",
+  "bin",
+  "ibn",
+  "st",
+  "st.",
+  "mac",
+  "mc",
+  "o'",
 ];
 
 /**
@@ -668,7 +865,12 @@ export function splitName(values: Partial<Record<FieldKey, string>>): {
   };
 }
 
-export function splitFullName(raw: string): { first: string; middle: string; last: string; suffix: string } {
+export function splitFullName(raw: string): {
+  first: string;
+  middle: string;
+  last: string;
+  suffix: string;
+} {
   const full = (raw ?? "").trim().replace(/\s+/g, " ");
   const empty = { first: "", middle: "", last: "", suffix: "" };
   if (!full) return empty;
@@ -676,14 +878,18 @@ export function splitFullName(raw: string): { first: string; middle: string; las
     const [l, rest] = full.split(",");
     const tail = (rest ?? "").trim().split(" ").filter(Boolean);
     let suffix = "";
-    if (tail.length > 1 && SUFFIXES.includes((tail[tail.length - 1] ?? "").toLowerCase())) suffix = tail.pop() ?? "";
+    if (tail.length > 1 && SUFFIXES.includes((tail[tail.length - 1] ?? "").toLowerCase()))
+      suffix = tail.pop() ?? "";
     const f = tail.shift() ?? "";
     return { first: f, middle: tail.join(" "), last: (l ?? "").trim(), suffix };
   }
   let parts = full.split(" ");
   if (parts.length > 1 && TITLES.includes((parts[0] ?? "").toLowerCase())) parts = parts.slice(1);
   let suffix = "";
-  if (parts.length > 1 && SUFFIXES.includes((parts[parts.length - 1] ?? "").toLowerCase().replace(/,$/, ""))) {
+  if (
+    parts.length > 1 &&
+    SUFFIXES.includes((parts[parts.length - 1] ?? "").toLowerCase().replace(/,$/, ""))
+  ) {
     suffix = (parts[parts.length - 1] ?? "").replace(/,$/, "");
     parts = parts.slice(0, -1);
   }

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 import { archiveRecords, type ArchivableTable } from "@/lib/archive";
+import { showError } from "@/lib/app-errors";
 
 /** Shared multi-select state for any list of people. */
 export function useSelection() {
@@ -21,7 +22,14 @@ export function useSelection() {
   const selectAll = useCallback((all: string[]) => setIds(all), []);
 
   return useMemo(
-    () => ({ ids, toggle, clear, selectAll, has: (id: string) => ids.includes(id), count: ids.length }),
+    () => ({
+      ids,
+      toggle,
+      clear,
+      selectAll,
+      has: (id: string) => ids.includes(id),
+      count: ids.length,
+    }),
     [ids, toggle, clear, selectAll],
   );
 }
@@ -84,7 +92,11 @@ export function SelectAllToggle({
         </span>
       </span>
       {selectedIds.length > 0 && (
-        <button type="button" className="ml-auto text-xs text-muted-foreground underline" onClick={onClear}>
+        <button
+          type="button"
+          className="ml-auto text-xs text-muted-foreground underline"
+          onClick={onClear}
+        >
           Clear selection
         </button>
       )}
@@ -122,7 +134,11 @@ export function BulkPeopleBar({
       const [tags, programs, events] = await Promise.all([
         supabase.from("tag_options").select("label").order("label"),
         supabase.from("program_options").select("label").order("label"),
-        supabase.from("events").select("id, name, date").is("deleted_at", null).order("date", { ascending: false }),
+        supabase
+          .from("events")
+          .select("id, name, date")
+          .is("deleted_at", null)
+          .order("date", { ascending: false }),
       ]);
       return {
         tags: (tags.data ?? []).map((t) => t.label),
@@ -142,7 +158,10 @@ export function BulkPeopleBar({
 
   const addLabel = useMutation({
     mutationFn: async ({ kind, label }: { kind: "tags" | "programs"; label: string }) => {
-      const { data, error } = await supabase.from("people").select(`id, ${kind}`).in("id", selectedIds);
+      const { data, error } = await supabase
+        .from("people")
+        .select(`id, ${kind}`)
+        .in("id", selectedIds);
       if (error) throw error;
       for (const row of data ?? []) {
         const current = ((row as Record<string, unknown>)[kind] as string[] | null) ?? [];
@@ -154,8 +173,11 @@ export function BulkPeopleBar({
         if (upErr) throw upErr;
       }
     },
-    onSuccess: (_d, v) => finish(`Added “${v.label}” to ${selectedIds.length} ${selectedIds.length === 1 ? "person" : "people"}`),
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: (_d, v) =>
+      finish(
+        `Added “${v.label}” to ${selectedIds.length} ${selectedIds.length === 1 ? "person" : "people"}`,
+      ),
+    onError: (e: unknown) => void showError(e),
   });
 
   const addToEvent = useMutation({
@@ -175,8 +197,9 @@ export function BulkPeopleBar({
       if (insErr) throw insErr;
       return rows.length;
     },
-    onSuccess: (n) => finish(n === 0 ? "Everyone was already registered" : `Registered ${n} for the event`),
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: (n) =>
+      finish(n === 0 ? "Everyone was already registered" : `Registered ${n} for the event`),
+    onError: (e: unknown) => void showError(e),
   });
 
   const removePeople = useMutation({
@@ -184,7 +207,7 @@ export function BulkPeopleBar({
       await archiveRecords("people", selectedIds);
     },
     onSuccess: () => finish("Removed — hidden now, and recoverable from the change history"),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const runExtra = useMutation({
@@ -192,37 +215,56 @@ export function BulkPeopleBar({
       if (extraAction) await extraAction.run(selectedIds);
     },
     onSuccess: () => finish("Done"),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   if (selectedIds.length === 0) return null;
   const allSelected = visibleIds.length > 0 && selectedIds.length >= visibleIds.length;
-  const busy = addLabel.isPending || addToEvent.isPending || removePeople.isPending || runExtra.isPending;
+  const busy =
+    addLabel.isPending || addToEvent.isPending || removePeople.isPending || runExtra.isPending;
 
   return (
     <>
       <div className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center px-3 lg:bottom-6">
         <div className="pointer-events-auto flex w-full max-w-3xl flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-lg">
-          <span className="text-sm font-medium text-foreground">
-            {selectedIds.length} selected
-          </span>
+          <span className="text-sm font-medium text-foreground">{selectedIds.length} selected</span>
           {!allSelected && (
             <Button variant="ghost" size="sm" className="rounded-xl text-xs" onClick={onSelectAll}>
               Select all {visibleIds.length} matching these filters
             </Button>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMode("tag")}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={() => setMode("tag")}
+            >
               <Tag className="size-4" /> Add tag
             </Button>
-            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMode("program")}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={() => setMode("program")}
+            >
               <Check className="size-4" /> Add to list
             </Button>
-            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMode("event")}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={() => setMode("event")}
+            >
               <CalendarPlus className="size-4" /> Add to event
             </Button>
             {selectedIds.length === 2 && (
-              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setMergeOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => setMergeOpen(true)}
+              >
                 <Merge className="size-4" /> Merge
               </Button>
             )}
@@ -246,7 +288,13 @@ export function BulkPeopleBar({
             >
               <Trash2 className="size-4" /> Delete
             </Button>
-            <Button variant="ghost" size="sm" className="rounded-xl" onClick={onClear} aria-label="Clear selection">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-xl"
+              onClick={onClear}
+              aria-label="Clear selection"
+            >
               <X className="size-4" />
             </Button>
           </div>
@@ -260,14 +308,21 @@ export function BulkPeopleBar({
         description={`This applies to all ${selectedIds.length} selected.`}
         footer={
           <>
-            <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setMode(null)}>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => setMode(null)}
+            >
               Cancel
             </Button>
             <Button
               className="flex-1 rounded-xl sm:flex-none"
               disabled={!value.trim() || busy}
               onClick={() =>
-                addLabel.mutate({ kind: mode === "program" ? "programs" : "tags", label: value.trim() })
+                addLabel.mutate({
+                  kind: mode === "program" ? "programs" : "tags",
+                  label: value.trim(),
+                })
               }
             >
               {busy ? "Adding…" : "Add"}
@@ -287,7 +342,9 @@ export function BulkPeopleBar({
               key={label}
               onClick={() => setValue(label)}
               className={`rounded-full px-2.5 py-1 text-[11px] transition ${
-                value === label ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"
+                value === label
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground"
               }`}
             >
               {label}
@@ -327,7 +384,11 @@ export function BulkPeopleBar({
         description="They're hidden from every screen and recoverable from the change history."
         footer={
           <>
-            <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => setMode(null)}>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl sm:flex-none"
+              onClick={() => setMode(null)}
+            >
               Cancel
             </Button>
             <Button

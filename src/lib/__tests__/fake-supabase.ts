@@ -8,7 +8,11 @@ type Filter = { column: string; value: unknown; op: "eq" | "is" | "gte" | "lte" 
 
 export function createFakeSupabase(initial: Rows) {
   const tables: Rows = JSON.parse(JSON.stringify(initial));
-  const writes: { table: string; op: "insert" | "update" | "delete"; payload: Record<string, unknown> }[] = [];
+  const writes: {
+    table: string;
+    op: "insert" | "update" | "delete";
+    payload: Record<string, unknown>;
+  }[] = [];
 
   function matches(row: Record<string, unknown>, filters: Filter[]) {
     return filters.every((f) => {

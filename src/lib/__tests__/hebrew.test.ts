@@ -12,7 +12,8 @@ import {
 
 /** A yahrzeit on the wrong day is the error the community would notice first. */
 
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /** Freeze "today" so next-occurrence answers are deterministic. */
 function freeze(dateISO: string) {

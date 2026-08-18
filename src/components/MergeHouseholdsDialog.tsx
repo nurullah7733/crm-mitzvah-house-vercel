@@ -14,6 +14,7 @@ import {
   type MergeField,
   type Side,
 } from "@/components/MergeCompare";
+import { showError } from "@/lib/app-errors";
 
 type Household = {
   id: string;
@@ -103,7 +104,11 @@ export function MergeHouseholdsDialog({
   const rows = useMemo(
     () =>
       left && right
-        ? diffRecords(FIELDS, left as unknown as Record<string, unknown>, right as unknown as Record<string, unknown>)
+        ? diffRecords(
+            FIELDS,
+            left as unknown as Record<string, unknown>,
+            right as unknown as Record<string, unknown>,
+          )
         : [],
     [left, right],
   );
@@ -128,11 +133,13 @@ export function MergeHouseholdsDialog({
       onOpenChange(false);
       onMerged?.();
     },
-    onError: async (e: Error) => toast.error(await friendlyDbError(e)),
+    onError: (e: unknown) => void showError(e),
   });
 
   const memberLine = (h: Household | undefined) =>
-    h ? `${data?.counts.get(h.id) ?? 0} ${(data?.counts.get(h.id) ?? 0) === 1 ? "person" : "people"}` : "";
+    h
+      ? `${data?.counts.get(h.id) ?? 0} ${(data?.counts.get(h.id) ?? 0) === 1 ? "person" : "people"}`
+      : "";
 
   return (
     <ResponsiveModal
@@ -142,7 +149,11 @@ export function MergeHouseholdsDialog({
       description="Choose which household stays. Everyone from both households moves into it, and all of their donations and history stay with them."
       footer={
         <>
-          <Button variant="outline" className="flex-1 rounded-xl sm:flex-none" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl sm:flex-none"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -173,7 +184,11 @@ export function MergeHouseholdsDialog({
             picks={picks}
             onPick={(key, side) => setPicks((p) => ({ ...p, [key]: side }))}
             onUseAll={(side) =>
-              setPicks(Object.fromEntries(rows.filter((r) => r.state === "conflict").map((r) => [r.key, side])))
+              setPicks(
+                Object.fromEntries(
+                  rows.filter((r) => r.state === "conflict").map((r) => [r.key, side]),
+                ),
+              )
             }
             leftLabel={left.name}
             rightLabel={right.name}

@@ -66,7 +66,8 @@ async function sendAccessEmail(
     // The address may still exist behind the scenes; fall through to a
     // password-set email rather than failing.
     const again = (await allAuthUsers(admin)).find((u) => u.email?.toLowerCase() === email);
-    if (!again) throw new Error(`Could not send the invite: ${error?.message ?? "unknown problem"}`);
+    if (!again)
+      throw new Error(`Could not send the invite: ${error?.message ?? "unknown problem"}`);
     user = again;
   }
 
@@ -262,8 +263,9 @@ export async function deleteStaffMember(admin: Admin, staffId: string, actingUse
 
   const email = row.email.toLowerCase();
   const users = await allAuthUsers(admin);
-  const user = (row.user_id ? users.find((u) => u.id === row.user_id) : undefined)
-    ?? users.find((u) => u.email?.toLowerCase() === email);
+  const user =
+    (row.user_id ? users.find((u) => u.id === row.user_id) : undefined) ??
+    users.find((u) => u.email?.toLowerCase() === email);
 
   if (user) {
     if (user.id === actingUserId) throw new Error("You cannot remove your own access.");

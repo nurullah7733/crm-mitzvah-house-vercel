@@ -11,18 +11,27 @@ import { AppShell, EmptyState, currency, formatDate, initials } from "@/componen
 import { Button } from "@/components/ui/button";
 import { BulkPeopleBar, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { fetchAll } from "@/lib/fetch-all";
+import { RouteError } from "@/components/RouteError";
+import { showError } from "@/lib/app-errors";
 
 export const Route = createFileRoute("/_authenticated/events/$eventId")({
   head: () => ({
     meta: [
       { title: "Event | Mitzvah House CRM" },
-      { name: "description", content: "Attendees, registration status and suggested invitees for this event." },
+      {
+        name: "description",
+        content: "Attendees, registration status and suggested invitees for this event.",
+      },
       { property: "og:title", content: "Event | Mitzvah House CRM" },
-      { property: "og:description", content: "Attendees, registration status and suggested invitees for this event." },
+      {
+        property: "og:description",
+        content: "Attendees, registration status and suggested invitees for this event.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: EventPage,
 });
 
@@ -38,7 +47,11 @@ function EventPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["event", eventId],
     queryFn: async () => {
-      const { data: event, error } = await supabase.from("events").select("*").eq("id", eventId).maybeSingle();
+      const { data: event, error } = await supabase
+        .from("events")
+        .select("*")
+        .eq("id", eventId)
+        .maybeSingle();
       if (error) throw error;
       const [registrations, people, gifts] = await Promise.all([
         fetchAll((f, t) =>
@@ -77,7 +90,7 @@ function EventPage() {
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries(),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const invite = useMutation({
@@ -91,7 +104,7 @@ function EventPage() {
       toast.success("Registered");
       queryClient.invalidateQueries();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   if (isLoading) {
@@ -114,13 +127,17 @@ function EventPage() {
   const registered = data?.registrations ?? [];
   const gifts = data?.gifts ?? [];
   const giftTotal = gifts.reduce((sum, g) => sum + Number(g.amount ?? 0), 0);
-  const attendedCount = registered.filter((r) => (r.status ?? "").toLowerCase() === "attended").length;
+  const attendedCount = registered.filter(
+    (r) => (r.status ?? "").toLowerCase() === "attended",
+  ).length;
   const registeredIds = new Set(registered.map((r) => r.people?.id).filter(Boolean) as string[]);
   const suggested = (data?.people ?? []).filter(
     (p) =>
       !registeredIds.has(p.id) &&
       !!e.program &&
-      [...(p.programs ?? []), ...(p.tags ?? [])].some((v) => v.toLowerCase() === e.program!.toLowerCase()),
+      [...(p.programs ?? []), ...(p.tags ?? [])].some(
+        (v) => v.toLowerCase() === e.program!.toLowerCase(),
+      ),
   );
 
   return (
@@ -157,7 +174,10 @@ function EventPage() {
           { key: "description", label: "Description", type: "textarea" },
         ]}
       />
-      <Link to="/events" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+      <Link
+        to="/events"
+        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+      >
         <ArrowLeft className="size-4" /> All events
       </Link>
 
@@ -172,14 +192,18 @@ function EventPage() {
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-border p-3">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Registered</p>
-            <p className="font-heading text-lg font-semibold text-foreground">{registered.length}</p>
+            <p className="font-heading text-lg font-semibold text-foreground">
+              {registered.length}
+            </p>
           </div>
           <div className="rounded-xl border border-border p-3">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Attended</p>
             <p className="font-heading text-lg font-semibold text-foreground">{attendedCount}</p>
           </div>
           <div className="rounded-xl border border-money/30 bg-money/5 p-3">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Gifts at this event</p>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              Gifts at this event
+            </p>
             <p className="font-heading text-lg font-semibold text-money">{currency(giftTotal)}</p>
             <p className="text-xs text-muted-foreground">
               {gifts.length} {gifts.length === 1 ? "gift" : "gifts"} attributed
@@ -225,7 +249,9 @@ function EventPage() {
                       key={s}
                       onClick={() => setStatus.mutate({ id: r.id, status: s })}
                       className={`rounded-lg px-3 py-1.5 text-xs capitalize ${
-                        r.status === s ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                        r.status === s
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground"
                       }`}
                     >
                       {s === "no_show" ? "No show" : s}
@@ -293,7 +319,9 @@ function EventPage() {
               </Button>
             </div>
           ))}
-          {suggested.length === 0 && <p className="text-sm text-muted-foreground">No suggestions right now.</p>}
+          {suggested.length === 0 && (
+            <p className="text-sm text-muted-foreground">No suggestions right now.</p>
+          )}
         </div>
       </section>
     </AppShell>

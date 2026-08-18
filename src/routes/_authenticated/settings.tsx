@@ -33,6 +33,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { restoreRecords, type ArchivableTable } from "@/lib/archive";
+import { RouteError } from "@/components/RouteError";
+import { showError } from "@/lib/app-errors";
 
 const ROLES = [
   { value: "admin", label: "Admin" },
@@ -45,13 +47,20 @@ export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
     meta: [
       { title: "Settings | Mitzvah House CRM" },
-      { name: "description", content: "Account details and the lists that power Mitzvah House CRM." },
+      {
+        name: "description",
+        content: "Account details and the lists that power Mitzvah House CRM.",
+      },
       { property: "og:title", content: "Settings | Mitzvah House CRM" },
-      { property: "og:description", content: "Account details and the lists that power Mitzvah House CRM." },
+      {
+        property: "og:description",
+        content: "Account details and the lists that power Mitzvah House CRM.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
+  errorComponent: RouteError,
   component: SettingsPage,
 });
 
@@ -69,9 +78,15 @@ function SettingsPage() {
           <p className="mt-2 text-sm text-foreground">{user?.email ?? "—"}</p>
         </section>
 
-        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+        <Accordion
+          type="multiple"
+          defaultValue={[]}
+          className="rounded-2xl border border-border bg-card shadow-sm"
+        >
           <AccordionItem value="staff" className="border-0">
-            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">Staff</AccordionTrigger>
+            <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
+              Staff
+            </AccordionTrigger>
             <AccordionContent className="px-5 pb-5">
               <StaffPanel />
             </AccordionContent>
@@ -80,7 +95,11 @@ function SettingsPage() {
 
         <RecalculateTotalsPanel />
 
-        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+        <Accordion
+          type="multiple"
+          defaultValue={[]}
+          className="rounded-2xl border border-border bg-card shadow-sm"
+        >
           <AccordionItem value="backup" className="border-0">
             <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
               Download a full backup
@@ -91,7 +110,11 @@ function SettingsPage() {
           </AccordionItem>
         </Accordion>
 
-        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+        <Accordion
+          type="multiple"
+          defaultValue={[]}
+          className="rounded-2xl border border-border bg-card shadow-sm"
+        >
           <AccordionItem value="renewal" className="border-0">
             <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
               Renewal outreach
@@ -110,7 +133,11 @@ function SettingsPage() {
           </AccordionItem>
         </Accordion>
 
-        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+        <Accordion
+          type="multiple"
+          defaultValue={[]}
+          className="rounded-2xl border border-border bg-card shadow-sm"
+        >
           <AccordionItem value="lists" className="border-0">
             <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
               Lists & labels
@@ -148,7 +175,11 @@ function SettingsPage() {
           </AccordionItem>
         </Accordion>
 
-        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+        <Accordion
+          type="multiple"
+          defaultValue={[]}
+          className="rounded-2xl border border-border bg-card shadow-sm"
+        >
           <AccordionItem value="integrations" className="border-0">
             <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
               Integrations
@@ -159,7 +190,11 @@ function SettingsPage() {
           </AccordionItem>
         </Accordion>
 
-        <Accordion type="multiple" defaultValue={[]} className="rounded-2xl border border-border bg-card shadow-sm">
+        <Accordion
+          type="multiple"
+          defaultValue={[]}
+          className="rounded-2xl border border-border bg-card shadow-sm"
+        >
           <AccordionItem value="history" className="border-0">
             <AccordionTrigger className="px-5 py-4 text-base hover:no-underline">
               Change history
@@ -203,7 +238,7 @@ function ChangeHistoryPanel() {
       queryClient.invalidateQueries({ queryKey: ["audit-log"] });
       toast.success(`Cleared ${count} old ${count === 1 ? "entry" : "entries"}`);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const { data: entries } = useQuery({
@@ -230,15 +265,15 @@ function ChangeHistoryPanel() {
       toast.success("Restored");
       logChange("Restored a removed record");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Everything anyone has added, edited or removed in the last two months, newest first. Anything
-        older is cleared automatically each night. Removed records can be put back, and you can open
-        any entry to see exactly what changed.
+        Everything anyone has added, edited or removed in the last two months, newest first.
+        Anything older is cleared automatically each night. Removed records can be put back, and you
+        can open any entry to see exactly what changed.
       </p>
       {isAdmin && (
         <Button
@@ -253,7 +288,8 @@ function ChangeHistoryPanel() {
       <div className="space-y-2">
         {(entries ?? []).map((row) => {
           const changes = (row.changes ?? {}) as Record<string, unknown>;
-          const fields = row.action === "edited" ? Object.keys(changes).filter((k) => k !== "updated_at") : [];
+          const fields =
+            row.action === "edited" ? Object.keys(changes).filter((k) => k !== "updated_at") : [];
           const canRestore =
             row.action === "deleted" &&
             row.record_id &&
@@ -268,9 +304,12 @@ function ChangeHistoryPanel() {
                   className="flex min-w-0 items-center gap-2 text-left"
                   aria-expanded={open}
                 >
-                  <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition ${open ? "rotate-180" : ""}`} />
+                  <ChevronDown
+                    className={`size-4 shrink-0 text-muted-foreground transition ${open ? "rotate-180" : ""}`}
+                  />
                   <span className="text-sm text-foreground">
-                    {HISTORY_TABLES[row.table_name] ?? row.table_name} {row.action.replace("_", " ")}
+                    {HISTORY_TABLES[row.table_name] ?? row.table_name}{" "}
+                    {row.action.replace("_", " ")}
                     {fields.length > 0 ? ` — ${fields.join(", ")}` : ""}
                   </span>
                 </button>
@@ -279,7 +318,10 @@ function ChangeHistoryPanel() {
                     variant="outline"
                     className="rounded-xl"
                     onClick={() =>
-                      restore.mutate({ table: row.table_name as RestorableTable, id: row.record_id as string })
+                      restore.mutate({
+                        table: row.table_name as RestorableTable,
+                        id: row.record_id as string,
+                      })
                     }
                   >
                     Restore
@@ -289,11 +331,20 @@ function ChangeHistoryPanel() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {row.actor_email ?? "System"} · {formatDate(row.created_at.slice(0, 10))}
               </p>
-              {open && <ChangeDetail action={row.action} changes={changes} recordId={row.record_id} table={row.table_name} />}
+              {open && (
+                <ChangeDetail
+                  action={row.action}
+                  changes={changes}
+                  recordId={row.record_id}
+                  table={row.table_name}
+                />
+              )}
             </div>
           );
         })}
-        {(entries ?? []).length === 0 && <p className="text-sm text-muted-foreground">No changes recorded yet.</p>}
+        {(entries ?? []).length === 0 && (
+          <p className="text-sm text-muted-foreground">No changes recorded yet.</p>
+        )}
       </div>
     </div>
   );
@@ -324,14 +375,19 @@ function ChangeDetail({
 
   return (
     <div className="mt-3 space-y-2 rounded-xl bg-muted/50 p-3">
-      {rows.length === 0 && <p className="text-xs text-muted-foreground">No field details were recorded.</p>}
+      {rows.length === 0 && (
+        <p className="text-xs text-muted-foreground">No field details were recorded.</p>
+      )}
       {rows.map(([key, value]) => {
-        const pair = isEdit && value && typeof value === "object" && "from" in (value as object)
-          ? (value as { from?: unknown; to?: unknown })
-          : null;
+        const pair =
+          isEdit && value && typeof value === "object" && "from" in (value as object)
+            ? (value as { from?: unknown; to?: unknown })
+            : null;
         return (
           <div key={key} className="grid gap-0.5 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-3">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{key.replace(/_/g, " ")}</p>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              {key.replace(/_/g, " ")}
+            </p>
             {pair ? (
               <p className="break-words text-xs text-foreground">
                 <span className="line-through text-muted-foreground">{showValue(pair.from)}</span>{" "}
@@ -365,7 +421,7 @@ function RecalculateTotalsPanel() {
       toast.success(`Rebuilt giving totals for ${count} contacts`);
       logChange("Recalculated all giving totals");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   if (!isAdmin) return null;
@@ -375,8 +431,8 @@ function RecalculateTotalsPanel() {
       <h2 className="font-heading font-semibold">Giving totals</h2>
       <p className="mt-1 text-xs text-muted-foreground">
         Totals update themselves whenever a gift is added, changed or removed. Use this only if you
-        suspect a figure looks wrong — it rebuilds every contact's lifetime and this-year giving from
-        the actual donation records.
+        suspect a figure looks wrong — it rebuilds every contact's lifetime and this-year giving
+        from the actual donation records.
       </p>
       <Button
         className="mt-3 rounded-xl"
@@ -384,30 +440,36 @@ function RecalculateTotalsPanel() {
         disabled={recalc.isPending}
         onClick={() => recalc.mutate()}
       >
-        <RefreshCw className="size-4" /> {recalc.isPending ? "Recalculating…" : "Recalculate all totals"}
+        <RefreshCw className="size-4" />{" "}
+        {recalc.isPending ? "Recalculating…" : "Recalculate all totals"}
       </Button>
     </section>
   );
 }
 
-const STATUS_LABEL: Record<StaffAccountStatus, { label: string; className: string; hint: string }> = {
-  active: { label: "Active", className: "bg-money/10 text-money", hint: "Has signed in and can use the CRM." },
-  invited: {
-    label: "Invited",
-    className: "bg-suggestion/15 text-foreground",
-    hint: "Invite email sent — waiting for them to choose a password.",
-  },
-  no_account: {
-    label: "No account",
-    className: "bg-urgent/10 text-urgent",
-    hint: "No login yet. Send an invite so they can get in.",
-  },
-  disabled: {
-    label: "No access",
-    className: "bg-muted text-muted-foreground",
-    hint: "Their login is switched off. Restore access to let them back in.",
-  },
-};
+const STATUS_LABEL: Record<StaffAccountStatus, { label: string; className: string; hint: string }> =
+  {
+    active: {
+      label: "Active",
+      className: "bg-money/10 text-money",
+      hint: "Has signed in and can use the CRM.",
+    },
+    invited: {
+      label: "Invited",
+      className: "bg-suggestion/15 text-foreground",
+      hint: "Invite email sent — waiting for them to choose a password.",
+    },
+    no_account: {
+      label: "No account",
+      className: "bg-urgent/10 text-urgent",
+      hint: "No login yet. Send an invite so they can get in.",
+    },
+    disabled: {
+      label: "No access",
+      className: "bg-muted text-muted-foreground",
+      hint: "Their login is switched off. Restore access to let them back in.",
+    },
+  };
 
 function StaffPanel() {
   const queryClient = useQueryClient();
@@ -424,7 +486,11 @@ function StaffPanel() {
   const hardDelete = useServerFn(deleteStaff);
   const restore = useServerFn(restoreStaff);
 
-  const { data: staff, isError, error } = useQuery({
+  const {
+    data: staff,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["staff-members"],
     queryFn: () => load(),
     enabled: isAdmin,
@@ -436,7 +502,12 @@ function StaffPanel() {
   const add = useMutation({
     mutationFn: () =>
       invite({
-        data: { name: name.trim(), email: email.trim().toLowerCase(), role, redirectTo: inviteLink() },
+        data: {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          role,
+          redirectTo: inviteLink(),
+        },
       }),
     onSuccess: (result) => {
       setName("");
@@ -450,7 +521,7 @@ function StaffPanel() {
       );
       logChange("Invited a staff member");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const resendInvite = useMutation({
@@ -464,17 +535,18 @@ function StaffPanel() {
       );
       logChange("Resent a staff invite");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const setStaffRoleMut = useMutation({
-    mutationFn: ({ staffId, role }: { staffId: string; role: Role }) => changeRole({ data: { staffId, role } }),
+    mutationFn: ({ staffId, role }: { staffId: string; role: Role }) =>
+      changeRole({ data: { staffId, role } }),
     onSuccess: () => {
       refresh();
       toast.success("Role updated");
       logChange("Changed a staff role");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const remove = useMutation({
@@ -484,7 +556,7 @@ function StaffPanel() {
       toast.success("Their login has been switched off");
       logChange("Removed staff access");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const deleteForGood = useMutation({
@@ -494,7 +566,7 @@ function StaffPanel() {
       toast.success("Deleted — that email address can be invited again");
       logChange("Deleted a staff member");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   const putBack = useMutation({
@@ -504,7 +576,7 @@ function StaffPanel() {
       toast.success("Access restored");
       logChange("Restored staff access");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => void showError(e),
   });
 
   if (!isAdmin) {
@@ -518,8 +590,9 @@ function StaffPanel() {
   return (
     <div className="space-y-1">
       <p className="text-xs text-muted-foreground">
-        Adding someone here creates their login and emails them an invite. They click the link, choose
-        their own password, and get the role you picked. Nobody else ever handles their password.
+        Adding someone here creates their login and emails them an invite. They click the link,
+        choose their own password, and get the role you picked. Nobody else ever handles their
+        password.
       </p>
       {isError && <p className="mt-2 text-xs text-urgent">{(error as Error)?.message}</p>}
 
@@ -534,7 +607,9 @@ function StaffPanel() {
                   <p className="truncate text-sm text-muted-foreground">{s.email}</p>
                 </div>
                 <div>
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}
+                  >
                     {badge.label}
                   </span>
                   <p className="mt-1 text-xs text-muted-foreground">{badge.hint}</p>
@@ -544,7 +619,9 @@ function StaffPanel() {
                     className={selectClass}
                     value={s.role}
                     aria-label={`Role for ${s.name}`}
-                    onChange={(e) => setStaffRoleMut.mutate({ staffId: s.id, role: e.target.value as Role })}
+                    onChange={(e) =>
+                      setStaffRoleMut.mutate({ staffId: s.id, role: e.target.value as Role })
+                    }
                   >
                     {ROLES.map((r) => (
                       <option key={r.value} value={r.value}>
@@ -559,7 +636,8 @@ function StaffPanel() {
                     onClick={() => resendInvite.mutate(s.id)}
                     title="Emails a fresh link to set a password. Any earlier link stops working."
                   >
-                    <Mail className="size-4" /> {s.status === "no_account" ? "Send invite" : "Resend invite"}
+                    <Mail className="size-4" />{" "}
+                    {s.status === "no_account" ? "Send invite" : "Resend invite"}
                   </Button>
                   {s.status === "disabled" ? (
                     <Button
@@ -605,12 +683,19 @@ function StaffPanel() {
             </div>
           );
         })}
-        {(staff ?? []).length === 0 && <p className="text-sm text-muted-foreground">No staff added yet.</p>}
+        {(staff ?? []).length === 0 && (
+          <p className="text-sm text-muted-foreground">No staff added yet.</p>
+        )}
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
         <Field label="Name">
-          <Input className="text-base" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+          <Input
+            className="text-base"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Full name"
+          />
         </Field>
         <Field label="Email">
           <Input
@@ -623,7 +708,11 @@ function StaffPanel() {
           />
         </Field>
         <Field label="Role">
-          <select className={selectClass} value={role} onChange={(e) => setRole(e.target.value as Role)}>
+          <select
+            className={selectClass}
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+          >
             {ROLES.map((r) => (
               <option key={r.value} value={r.value}>
                 {r.label}
