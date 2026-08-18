@@ -657,7 +657,14 @@ function DataInbox() {
                         const choice = choices[r.id];
                         return (
                           <div key={r.id} className="rounded-xl border border-border p-3">
-                            <p className="text-sm font-medium text-foreground">{name}</p>
+                            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              <SelectBox
+                                checked={selection.has(r.id)}
+                                onChange={() => selection.toggle(r.id)}
+                                label={name}
+                              />
+                              {name}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {[row.email, row.phone].filter(Boolean).join(" · ") || "No email or phone on the row"}
                               {selectedPerson ? ` · comparing with ${personName(selectedPerson)}, already on file` : ""}
