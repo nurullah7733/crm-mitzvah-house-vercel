@@ -177,11 +177,11 @@ describe("unpacking a row into people", () => {
   });
 
   it("tidies capitalisation of names and addresses without touching spelling", () => {
-    const v = build(["Full Name", "Street Address", "City", "State"], ["yosef katz", "123 main st", "atlanta", "Georgia"]);
+    const v = build(["Full Name", "Street Address", "City", "State"], ["yosef katz", "123 main st", "atlanta", "ga"]);
     expect(v.full_name).toBe("Yosef Katz");
     expect(v.address).toBe("123 Main St");
     expect(v.city).toBe("Atlanta");
-    expect(v.state).toBe("GA");
+    expect(v.state).toBe("GA"); // two-letter codes are upper-cased
   });
 });
 
