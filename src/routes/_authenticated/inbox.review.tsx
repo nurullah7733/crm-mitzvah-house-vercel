@@ -844,17 +844,52 @@ function DataInbox() {
         </section>
       )}
 
-      {handled.length > 0 && (
+      {pastBatches.length > 0 && (
         <section className="mt-6">
-          <h2 className="font-heading font-semibold text-foreground">Already handled</h2>
-          <div className="mt-2 space-y-2">
-            {handled.map((r) => (
-              <div key={r.id} className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-                {r.reason} · {r.filename ?? "Manual"} · {r.status}
-                {r.resolution_note ? ` · ${r.resolution_note}` : ""}
-              </div>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowPast((s) => !s)}
+            className="flex w-full items-center justify-between rounded-2xl border border-border bg-card px-4 py-3 text-left"
+          >
+            <span>
+              <span className="font-heading font-semibold text-foreground">Past imports</span>
+              <span className="ml-2 text-sm text-muted-foreground">
+                {pastBatches.length} finished upload{pastBatches.length === 1 ? "" : "s"} · {past.length} row
+                {past.length === 1 ? "" : "s"} settled
+              </span>
+            </span>
+            <ChevronDown className={`size-4 transition ${showPast ? "rotate-180" : ""}`} />
+          </button>
+          {showPast && (
+            <div className="mt-2 space-y-2">
+              {pastBatches.map((b) => (
+                <div key={b.key} className="rounded-2xl border border-border bg-card p-4">
+                  <p className="text-sm font-medium text-foreground">
+                    {b.filename} · {b.rows.length} row{b.rows.length === 1 ? "" : "s"}
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {b.rows.map((r) => (
+                      <div key={r.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>
+                          {r.reason} · {r.status}
+                          {r.resolution_note ? ` · ${r.resolution_note}` : ""}
+                        </span>
+                        {(r.status === "skipped" || r.status === "dismissed") && (
+                          <button
+                            type="button"
+                            className="text-primary underline"
+                            onClick={() => reopen.mutate(r.id)}
+                          >
+                            Put back on the list
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
