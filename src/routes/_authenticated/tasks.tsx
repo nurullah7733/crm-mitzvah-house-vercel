@@ -30,6 +30,17 @@ import { toast } from "sonner";
 import { friendlyDbError } from "@/lib/db-errors";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
+import { archiveRecords } from "@/lib/archive";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { RouteError } from "@/components/RouteError";
 import { showError } from "@/lib/app-errors";
 
@@ -56,6 +67,10 @@ function TasksPage() {
   const [completing, setCompleting] = useState<CompletableTask | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
+  // A big import can generate hundreds of follow-ups. Filtering by the file
+  // they came from makes it possible to clear just that batch.
+  const [batchFilter, setBatchFilter] = useState<string>("all");
+  const [clearOpen, setClearOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tasks-list"],
@@ -234,7 +249,28 @@ function TasksPage() {
     }),
   ].sort((a, b) => a.days - b.days);
 
-  const tasks = (data ?? []).map((t) => ({
+  const { data: batches } = useQuery({
+    queryKey: ["task-import-batches"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("import_batches")
+        .select("id, filename, import_date")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const tasks = (data ?? [])
+    .filter((t) =>
+      batchFilter === "all"
+        ? true
+        : batchFilter === "none"
+          ? !t.import_batch_id
+          : t.import_batch_id === batchFilter,
+    )
+    .map((t) => ({
     ...t,
     group:
       t.status === "done"
