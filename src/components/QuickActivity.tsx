@@ -57,7 +57,7 @@ export function QuickActivityChips({
 /** Write the chosen activities onto a timeline, dated today. */
 export async function logActivities(
   activities: string[],
-  target: { personId?: string; householdId?: string },
+  target: { personId?: string | undefined; householdId?: string | undefined },
 ) {
   if (activities.length === 0) return;
   const date = new Date().toISOString().slice(0, 10);
