@@ -260,6 +260,21 @@ function DateFields({
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
 }) {
+  /** Keep the Hebrew month/day in step with the English date + sunset answer. */
+  function applyDeathDate(deathDate: string, afterSunset: boolean) {
+    const patch: Partial<Draft> = { death_date: deathDate, death_after_sunset: afterSunset };
+    const hd = hebrewMonthDayFromDeath(deathDate, afterSunset);
+    if (hd) {
+      patch.hebrew_month = String(hd.month);
+      patch.hebrew_day = String(hd.day);
+    }
+    onChange(patch);
+  }
+
+  const hebrewFull = draft.death_date
+    ? hebrewDateFromDeath(draft.death_date, draft.death_after_sunset)
+    : null;
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label="Name of the person remembered">
