@@ -104,7 +104,7 @@ describe("acknowledgment letters", () => {
       },
       org,
     });
-    const text = `${doc.body} ${doc.greeting ?? ""}`;
+    const text = doc.body;
     expect(text).toContain("Anna Stronquist");
     expect(text).toContain("18");
     expect(text).toContain("Mitzvah Kitchen");
