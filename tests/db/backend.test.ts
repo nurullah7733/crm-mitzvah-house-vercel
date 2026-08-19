@@ -179,5 +179,30 @@ describe.skipIf(!configured)("database rules", () => {
       const { data } = await db.from("interactions").select("id").eq("source_id", gift.id!);
       expect(data).toHaveLength(0);
     });
+
+    it("tax receipt entries are created and removed with the checkbox state", async () => {
+      const id = await addPerson("Receipt", { email: `receipt.${tag}@example.com` });
+      const gift = await addGift(id, 180, `${year}-09-01`);
+
+      const marked = await db.rpc("mark_receipt_sent", { _donation_id: gift.id!, _sent: true });
+      expect(marked.error).toBeNull();
+      const created = await db
+        .from("interactions")
+        .select("id, person_id, type, source_kind")
+        .eq("source_id", gift.id!)
+        .eq("source_kind", "donation_receipt");
+      expect(created.error).toBeNull();
+      expect(created.data).toMatchObject([{ person_id: id, type: "note", source_kind: "donation_receipt" }]);
+
+      const unmarked = await db.rpc("mark_receipt_sent", { _donation_id: gift.id!, _sent: false });
+      expect(unmarked.error).toBeNull();
+      const after = await db
+        .from("interactions")
+        .select("id")
+        .eq("source_id", gift.id!)
+        .eq("source_kind", "donation_receipt");
+      expect(after.error).toBeNull();
+      expect(after.data).toHaveLength(0);
+    });
   });
 });
