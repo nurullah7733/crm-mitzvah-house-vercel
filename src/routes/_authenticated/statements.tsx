@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Printer, RotateCcw } from "lucide-react";
+import { Printer, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
