@@ -174,14 +174,14 @@ function DonationsPage() {
               )
             }
           >
-            <Download className="size-4" /> Export to CSV
+            <Download className="size-4" /> Export CSV
           </Button>
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Log donation
           </Button>
           <Button asChild variant="outline" className="rounded-xl">
             <Link to="/statements">
-              <FileText className="size-4" /> Year-end statements
+              <FileText className="size-4" /> Statements
             </Link>
           </Button>
         </>
@@ -386,7 +386,7 @@ function DonationsPage() {
             <div className="mt-2 flex flex-wrap gap-2">
               <AcknowledgmentButton
                 donationId={d.id}
-                label={d.thank_you_sent ? "Print letter again" : "Print thank-you letter"}
+                label={d.thank_you_sent ? "Print again" : "Thank-you letter"}
                 onDone={async () => {
                   await queryClient.invalidateQueries({ queryKey: ["donations"] });
                 }}
@@ -397,7 +397,7 @@ function DonationsPage() {
               className="mt-2 text-xs text-primary hover:underline"
               onClick={() => setEditing(d as unknown as Record<string, unknown>)}
             >
-              Edit or remove this gift
+              Edit gift
             </button>
           </div>
         ))}

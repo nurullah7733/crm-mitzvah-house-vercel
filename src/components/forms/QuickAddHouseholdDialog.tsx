@@ -191,7 +191,7 @@ export function QuickAddHouseholdDialog({
           disabled={locating}
         >
           {locating ? <Loader2 className="size-4 animate-spin" /> : <MapPin className="size-4" />}
-          Use my current location
+          Use my location
         </Button>
 
         <Field label="Note (what you picked up at the door)">

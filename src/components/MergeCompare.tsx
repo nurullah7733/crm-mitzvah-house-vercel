@@ -149,13 +149,13 @@ export function MergeCompare({
                 onClick={() => onUseAll("left")}
                 className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground"
               >
-                Use all from {leftLabel}
+                All from {leftLabel}
               </button>
               <button
                 onClick={() => onUseAll("right")}
                 className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground"
               >
-                Use all from {rightLabel}
+                All from {rightLabel}
               </button>
             </div>
           </div>

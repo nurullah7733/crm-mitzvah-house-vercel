@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, History } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QueryError } from "@/components/ErrorState";
-import { AppShell, currency, formatDate } from "@/components/AppShell";
+import { AppShell, LoadingState, currency, formatDate } from "@/components/AppShell";
 import { greeting, useCurrentStaff } from "@/lib/current-staff";
 import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/session-log";
 import {
@@ -94,6 +94,7 @@ function Dashboard() {
   const {
     data,
     error: dashboardError,
+    isLoading: dashboardLoading,
     refetch: refetchDashboard,
   } = useQuery({
     queryKey: ["dashboard"],
@@ -293,6 +294,11 @@ function Dashboard() {
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
+        {dashboardLoading && !dashboardError ? (
+          <div className="lg:col-span-2">
+            <LoadingState what="your dashboard" />
+          </div>
+        ) : null}
         <Panel
           title="Needs attention"
           to="/tasks"

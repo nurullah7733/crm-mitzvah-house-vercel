@@ -774,21 +774,21 @@ function DataInbox() {
                         className="rounded-xl"
                         onClick={() => setAll("related")}
                       >
-                        All related — one household
+                        All related
                       </Button>
                       <Button
                         variant="outline"
                         className="rounded-xl"
                         onClick={() => setAll("separate")}
                       >
-                        None related — separate contacts
+                        None related
                       </Button>
                       <Button
                         variant="ghost"
                         className="rounded-xl"
                         onClick={() => setAll("later")}
                       >
-                        Leave all for later
+                        Decide later
                       </Button>
                     </div>
 
@@ -828,7 +828,7 @@ function DataInbox() {
                             className="rounded-xl"
                             onClick={() => setSelected("separate")}
                           >
-                            Ticked are not related
+                            Ticked: not related
                           </Button>
                         </div>
                       </div>
@@ -959,7 +959,7 @@ function DataInbox() {
                               className="mt-2 text-xs text-primary underline"
                               onClick={() => setReviewId(r.id)}
                             >
-                              Open this row on its own
+                              Open row
                             </button>
                           </div>
                         );
@@ -1070,7 +1070,7 @@ function DataInbox() {
                                 })
                               }
                             >
-                              ✓ Same person — update contact
+                              ✓ Same person
                             </Button>
                           )}
                           <Button
@@ -1088,7 +1088,7 @@ function DataInbox() {
                               setDeleteReason("");
                             }}
                           >
-                            🗑️ Delete this row
+                            🗑️ Delete row
                           </Button>
                         </div>
                       </div>
@@ -1210,7 +1210,7 @@ function DataInbox() {
                           disabled={skip.isPending}
                           onClick={() => skip.mutate(r.id)}
                         >
-                          Set aside for later
+                          Set aside
                         </button>
                       )}
                     </div>
@@ -1301,7 +1301,7 @@ function DataInbox() {
                             className="text-primary underline"
                             onClick={() => reopen.mutate(r.id)}
                           >
-                            Put back on the list
+                            Put back
                           </button>
                         )}
                       </div>

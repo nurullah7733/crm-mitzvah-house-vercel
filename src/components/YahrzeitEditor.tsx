@@ -43,7 +43,7 @@ const emptyDraft: Draft = {
 
 /**
  * Add, edit and remove yahrzeits. Lives inside the Special dates card's edit mode,
- * and always offers an "Add another yahrzeit" row — even when the list is empty.
+ * and always offers an "Add yahrzeit" row — even when the list is empty.
  */
 export function YahrzeitEditor({
   personId,
@@ -190,7 +190,7 @@ export function YahrzeitEditor({
                   disabled={busy}
                   onClick={() => saveExisting(r.id)}
                 >
-                  Save this yahrzeit
+                  Save
                 </Button>
               )}
               {r.needs_sunset_review && !dirty && (
@@ -201,7 +201,7 @@ export function YahrzeitEditor({
                   disabled={busy}
                   onClick={() => confirmReviewed(r.id)}
                 >
-                  This date is already correct
+                  Date is correct
                 </Button>
               )}
               <Button
@@ -246,7 +246,7 @@ export function YahrzeitEditor({
           className="min-h-11 w-full rounded-xl"
           onClick={() => setAdding({ ...emptyDraft })}
         >
-          <Plus className="size-3.5" /> Add another yahrzeit
+          <Plus className="size-3.5" /> Add yahrzeit
         </Button>
       )}
     </div>

@@ -268,10 +268,10 @@ function HouseholdsPage() {
       action={
         <div className="flex gap-2">
           <Button variant="outline" className="rounded-xl" onClick={() => setExportOpen(true)}>
-            <Download className="size-4" /> Export to CSV
+            <Download className="size-4" /> Export CSV
           </Button>
           <Button variant="outline" className="rounded-xl" onClick={() => setQuickOpen(true)}>
-            <MapPin className="size-4" /> Quick add address
+            <MapPin className="size-4" /> Quick add
           </Button>
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add household

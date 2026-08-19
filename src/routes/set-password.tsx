@@ -96,7 +96,7 @@ function SetPasswordPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           {ready === false ? (
             <div className="space-y-4 text-sm text-muted-foreground">
               <p>

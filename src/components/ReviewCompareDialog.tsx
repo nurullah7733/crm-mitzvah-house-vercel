@@ -268,7 +268,7 @@ export function ReviewCompareDialog({
         mode === "edit"
           ? "Fix a typo before combining"
           : mode === "discard"
-            ? "Throw this row away"
+            ? "Discard row"
             : "Is this the same person?"
       }
       description={
@@ -295,7 +295,7 @@ export function ReviewCompareDialog({
               disabled={busy}
               onClick={() => discard.mutate()}
             >
-              Yes, throw it away
+              Throw it away
             </Button>
           </>
         ) : mode === "edit" ? (
@@ -346,7 +346,7 @@ export function ReviewCompareDialog({
               disabled={busy}
               onClick={() => setMode("discard")}
             >
-              Throw this row away
+              Discard row
             </Button>
           </div>
         )
@@ -572,7 +572,7 @@ export function ReviewCompareDialog({
                         className="rounded-xl"
                         onClick={() => pickAllConflicts("existing")}
                       >
-                        Keep what we have
+                        Keep ours
                       </Button>
                       <Button
                         size="sm"
@@ -580,7 +580,7 @@ export function ReviewCompareDialog({
                         className="rounded-xl"
                         onClick={() => pickAllConflicts("incoming")}
                       >
-                        Use the file's version
+                        Use file version
                       </Button>
                     </div>
                   </div>
@@ -702,7 +702,7 @@ export function ReviewCompareDialog({
                       className="rounded-xl"
                       onClick={() => pickAll("existing")}
                     >
-                      Use all from left
+                      Use all left
                     </Button>
                     <Button
                       size="sm"
@@ -710,7 +710,7 @@ export function ReviewCompareDialog({
                       className="rounded-xl"
                       onClick={() => pickAll("incoming")}
                     >
-                      Use all from right
+                      Use all right
                     </Button>
                     <Button
                       size="sm"

@@ -145,7 +145,7 @@ function RenewalsPage() {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
               <Download className="mr-2 size-4" />
-              Export for a mailed appeal
+              Export list
             </Button>
             <Button
               onClick={() => createTasks.mutate(chosen.length > 0 ? chosen : rows)}
@@ -153,17 +153,17 @@ function RenewalsPage() {
             >
               <HeartHandshake className="mr-2 size-4" />
               {chosen.length > 0
-                ? `Create ${chosen.length} renewal calls`
-                : "Create renewal calls for all"}
+                ? `Create ${chosen.length} calls`
+                : "Create call tasks"}
             </Button>
           </div>
         </div>
 
         <section className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
           <table className="w-full min-w-[46rem] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="p-3">
+            <thead className="bg-muted/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-4 py-3 font-medium">
                   <Checkbox
                     checked={allChecked}
                     onCheckedChange={(v) =>
@@ -172,24 +172,24 @@ function RenewalsPage() {
                     aria-label="Select everyone"
                   />
                 </th>
-                <th className="p-3">Name</th>
-                <th className="p-3">Last gift</th>
-                <th className="p-3">Lifetime giving</th>
-                <th className="p-3">Years they gave</th>
-                <th className="p-3">Relationship owner</th>
+                <th className="px-4 py-3 font-medium">Name</th>
+                <th className="px-4 py-3 font-medium">Last gift</th>
+                <th className="px-4 py-3 font-medium">Lifetime giving</th>
+                <th className="px-4 py-3 font-medium">Years they gave</th>
+                <th className="px-4 py-3 font-medium">Relationship owner</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((d) => (
                 <tr key={d.person_id} className="border-b border-border last:border-0">
-                  <td className="p-3">
+                  <td className="px-4 py-3">
                     <Checkbox
                       checked={!!selected[d.person_id]}
                       onCheckedChange={(v) => setSelected((s) => ({ ...s, [d.person_id]: !!v }))}
                       aria-label={`Select ${d.name ?? "contact"}`}
                     />
                   </td>
-                  <td className="p-3">
+                  <td className="px-4 py-3">
                     <Link
                       to="/people/$personId"
                       params={{ personId: d.person_id }}
@@ -198,7 +198,7 @@ function RenewalsPage() {
                       {d.name ?? "Unnamed contact"}
                     </Link>
                   </td>
-                  <td className="p-3">
+                  <td className="px-4 py-3">
                     <span className="font-medium text-money">
                       {d.last_gift_amount === null ? "—" : currency(d.last_gift_amount)}
                     </span>
@@ -206,8 +206,8 @@ function RenewalsPage() {
                       {formatDate(d.last_gift_date)}
                     </span>
                   </td>
-                  <td className="p-3 text-money">{currency(d.lifetime_total)}</td>
-                  <td className="p-3">
+                  <td className="px-4 py-3 text-money">{currency(d.lifetime_total)}</td>
+                  <td className="px-4 py-3">
                     {d.prior_years} {d.prior_years === 1 ? "year" : "years"}
                     {d.gave_last_year ? (
                       <span className="block text-xs text-muted-foreground">
@@ -215,9 +215,16 @@ function RenewalsPage() {
                       </span>
                     ) : null}
                   </td>
-                  <td className="p-3 text-muted-foreground">{d.owner ?? "Unassigned"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{d.owner ?? "Unassigned"}</td>
                 </tr>
               ))}
+              {isLoading && (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">
+                    Looking through the gift history…
+                  </td>
+                </tr>
+              )}
               {!isLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">
