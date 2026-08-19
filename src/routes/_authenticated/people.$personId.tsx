@@ -53,6 +53,7 @@ import {
   LIFECYCLE_DEFAULTS,
 } from "@/lib/lifecycle";
 import { ChipEditor } from "@/components/ChipEditor";
+import { QuickActivityButtons } from "@/components/QuickActivity";
 import { EditableCard } from "@/components/EditableCard";
 import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMethodsEditor";
 import { fetchContactMethods } from "@/lib/contact-methods";
