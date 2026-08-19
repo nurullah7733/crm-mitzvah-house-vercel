@@ -661,15 +661,29 @@ function PersonPage() {
               {(showAllGifts ? gifts : gifts.slice(0, 3)).map((d) => (
                 <div
                   key={d.id}
-                  className="flex items-start justify-between gap-3 border-b border-border py-2 last:border-0"
+                  className="border-b border-border py-2 last:border-0"
                 >
-                  <div className="min-w-0">
-                    <p className="text-sm text-foreground">{formatDate(d.date)}</p>
-                    <p className="text-xs text-muted-foreground">{giftSource(d)}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">{formatDate(d.date)}</p>
+                      <p className="text-xs text-muted-foreground">{giftSource(d)}</p>
+                    </div>
+                    <p className="shrink-0 font-heading text-sm font-semibold text-money">
+                      {currency(d.amount)}
+                    </p>
                   </div>
-                  <p className="shrink-0 font-heading text-sm font-semibold text-money">
-                    {currency(d.amount)}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <AcknowledgmentButton
+                      donationId={d.id}
+                      label={d.thank_you_sent ? "Print letter again" : "Thank-you letter"}
+                      onDone={async () => {
+                        await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+                      }}
+                    />
+                    {d.thank_you_sent ? (
+                      <span className="text-xs text-money">Thanked</span>
+                    ) : null}
+                  </div>
                 </div>
               ))}
               {gifts.length > 3 && (
@@ -682,6 +696,23 @@ function PersonPage() {
                 </button>
               )}
             </div>
+            {gifts.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
+                <StatementButton
+                  personId={personId}
+                  taxYear={statementYear}
+                  onDone={async () => {
+                    await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+                  }}
+                />
+                <Link
+                  to="/statements"
+                  className="self-center text-xs text-primary hover:underline"
+                >
+                  All year-end statements
+                </Link>
+              </div>
+            )}
           </Card>
 
           <PledgePanel personId={p.id} />
