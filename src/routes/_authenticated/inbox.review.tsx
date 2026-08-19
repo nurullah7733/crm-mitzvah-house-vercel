@@ -459,16 +459,31 @@ function DataInbox() {
     mutationFn: async (card: { key: string; address: string; rows: typeof pending }) => {
       const relatedRows = card.rows.filter((row) => choices[row.id]?.action === "related");
       const sameRows = card.rows.filter((row) => choices[row.id]?.action === "same");
-      let householdId = sameRows
-        .map((row) => chosenPeople[row.id] ?? personById((row.candidate_person_ids ?? [])[0]))
-        .find((person) => Boolean(person?.household_id))?.household_id ?? null;
-      if (!householdId && relatedRows.length > 0) {
-        const firstRelated = relatedRows[0]!;
-        const surname = rowDisplayName((firstRelated.row_data ?? {}) as RowValues).surname;
+      const existingHouseholdIds = [
+        ...new Set(
+          sameRows
+            .map(
+              (row) =>
+                (chosenPeople[row.id] ?? personById((row.candidate_person_ids ?? [])[0]))
+                  ?.household_id,
+            )
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      if (existingHouseholdIds.length > 1) {
+        throw new Error(
+          "These contacts already belong to different households. Merge those households first, then apply this address group.",
+        );
+      }
+      let householdId = existingHouseholdIds[0] ?? null;
+      const togetherRows = [...sameRows, ...relatedRows];
+      if (!householdId && togetherRows.length > 1) {
+        const firstTogether = togetherRows[0]!;
+        const surname = rowDisplayName((firstTogether.row_data ?? {}) as RowValues).surname;
         householdId = await ensureHouseholdAtAddress(
           card.address || null,
           surname ? `${surname} household` : "Household",
-          firstRelated.batch_id,
+          firstTogether.batch_id,
         );
       }
       let saved = 0;
