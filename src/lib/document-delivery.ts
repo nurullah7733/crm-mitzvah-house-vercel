@@ -83,7 +83,7 @@ export async function recordDelivery(args: {
     _document_id: args.documentId,
     _delivery_method: args.method,
     _delivery_status: args.status,
-    _note: args.note ?? null,
+    _note: args.note ?? undefined,
   });
   if (error) throw error;
 }
