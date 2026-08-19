@@ -71,11 +71,11 @@ function StatementsPage() {
 
   const groups = useMemo(() => groupByDonor(gifts.data ?? []), [gifts.data]);
   const issuedByPerson = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof Object>>();
+    const map = new Map<string, IssuedDocumentRow>();
     for (const doc of issued.data ?? []) {
       if (doc.kind === "tax_statement" && doc.status === "issued") map.set(doc.person_id, doc);
     }
-    return map as Map<string, NonNullable<(typeof issued.data)>[number]>;
+    return map;
   }, [issued.data]);
 
   const visible = groups.filter((g) =>
