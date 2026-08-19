@@ -161,8 +161,8 @@ function RenewalsPage() {
 
         <section className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
           <table className="w-full min-w-[46rem] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <thead className="bg-muted/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border">
                 <th className="px-4 py-3 font-medium">
                   <Checkbox
                     checked={allChecked}
