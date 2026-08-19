@@ -302,22 +302,42 @@ function DateFields({
         />
       </Field>
       <Field
-        label="Or enter the English date"
+        label="Or enter the English date of passing"
         className="sm:col-span-2"
         hint="We convert it to the Hebrew month and day so it recurs on the Hebrew calendar."
       >
         <Input
           className="text-base"
           type="date"
-          onChange={(e) => {
-            const hd = hebrewMonthDayFromEnglish(e.target.value);
-            if (hd) onChange({ hebrew_month: String(hd.month), hebrew_day: String(hd.day) });
-          }}
+          value={draft.death_date}
+          onChange={(e) => applyDeathDate(e.target.value, draft.death_after_sunset)}
         />
       </Field>
+
+      <label className="flex items-start gap-3 rounded-xl border border-border p-3 sm:col-span-2">
+        <input
+          type="checkbox"
+          className="mt-1 size-5 accent-[#335AA4]"
+          checked={draft.death_after_sunset}
+          onChange={(e) => applyDeathDate(draft.death_date, e.target.checked)}
+        />
+        <span className="text-sm">
+          The passing was <strong>after sunset</strong>
+          <span className="block text-xs text-muted-foreground">
+            A Hebrew day begins at sunset, so a passing after sunset already belongs to the next
+            Hebrew day and the yahrzeit is observed a day later. Tick this and we move the date for
+            you.
+          </span>
+        </span>
+      </label>
+
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        Observed on {hebrewMonthName(Number(draft.hebrew_month))} {draft.hebrew_day}. In a Hebrew
-        leap year, an Adar yahrzeit is observed in Adar II.
+        Observed on {hebrewMonthName(Number(draft.hebrew_month))} {draft.hebrew_day}
+        {hebrewFull ? ` (${hebrewFull})` : ""}.
+        {draft.death_after_sunset && draft.death_date
+          ? " Moved one Hebrew day forward for the after-sunset rule."
+          : ""}{" "}
+        In a Hebrew leap year, an Adar yahrzeit is observed in Adar II.
       </p>
     </div>
   );
