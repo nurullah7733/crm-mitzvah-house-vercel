@@ -819,6 +819,9 @@ function PersonPage() {
               <Plus className="size-3.5" /> Event
             </Button>
           </div>
+          <div className="mt-3 border-t border-border pt-3">
+            <QuickActivityButtons personId={personId} />
+          </div>
           <ol className="mt-4 space-y-4">
             {timeline.length === 0 && (
               <li className="text-sm text-muted-foreground">No activity yet.</li>
