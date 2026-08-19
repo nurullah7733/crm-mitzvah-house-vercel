@@ -218,6 +218,13 @@ function RenewalsPage() {
                   <td className="p-3 text-muted-foreground">{d.owner ?? "Unassigned"}</td>
                 </tr>
               ))}
+              {isLoading && (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">
+                    Looking through the gift history…
+                  </td>
+                </tr>
+              )}
               {!isLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">

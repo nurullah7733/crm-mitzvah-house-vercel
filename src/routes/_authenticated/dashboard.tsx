@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, History } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QueryError } from "@/components/ErrorState";
-import { AppShell, currency, formatDate } from "@/components/AppShell";
+import { AppShell, LoadingState, currency, formatDate } from "@/components/AppShell";
 import { greeting, useCurrentStaff } from "@/lib/current-staff";
 import { getSessionLog, subscribeSessionLog, type SessionChange } from "@/lib/session-log";
 import {

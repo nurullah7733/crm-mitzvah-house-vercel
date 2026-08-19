@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Printer, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
+import { AppShell, EmptyState, LoadingState, currency, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
@@ -223,7 +223,7 @@ function StatementsPage() {
         )}
 
         {gifts.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading gifts…</p>
+          <LoadingState what="gifts" />
         ) : visible.length === 0 ? (
           <EmptyState
             label={`No gifts recorded in ${taxYear}. Pick another tax year, or record gifts on the Donations screen first.`}
