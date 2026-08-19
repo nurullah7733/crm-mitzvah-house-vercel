@@ -13,7 +13,7 @@ import {
 } from "@/lib/statements";
 import { loadOrgSettings } from "@/lib/org-settings";
 import { deliverDocuments } from "@/lib/document-delivery";
-import { logAppError } from "@/lib/error-log";
+import { showError } from "@/lib/app-errors";
 
 /**
  * Buttons that turn gift records into printed paper.
@@ -59,9 +59,7 @@ export function StatementButton({
       }
       await onDone?.();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      toast.error(`We could not produce that statement: ${message}`);
-      void logAppError({ area: "statements", action: "issue_statement_profile", message });
+      await showError(e, { area: "statements", action: "issue statement from profile" });
     } finally {
       setBusy(false);
     }
@@ -117,9 +115,7 @@ export function AcknowledgmentButton({
       }
       await onDone?.();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      toast.error(`We could not produce that letter: ${message}`);
-      void logAppError({ area: "statements", action: "issue_acknowledgment", message });
+      await showError(e, { area: "statements", action: "generate thank-you letter" });
     } finally {
       setBusy(false);
     }
