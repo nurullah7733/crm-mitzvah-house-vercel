@@ -599,6 +599,19 @@ export function rowIdentityKeys(v: RowValues): string[] {
   return [...new Set(keys)];
 }
 
+/** The same person may legitimately appear once per gift in a transaction export. */
+export function rowOccurrenceKeys(v: RowValues): string[] {
+  const identities = rowIdentityKeys(v);
+  const amount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const date = parseImportDate(v.date);
+  const hasGift = Number.isFinite(amount) && amount > 0 && Boolean(date);
+  if (!hasGift) return identities;
+  const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return identities.map((identity) =>
+    [identity, date, amount.toFixed(2), campaign].join("|"),
+  );
+}
+
 /**
  * Stable identity for an imported gift. It deliberately does not use person_id:
  * a bad import can create two contact rows for one donor, but it still must not
@@ -778,10 +791,11 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
 
     const usable = people.filter((p) => !birthRulesOut(p));
     const nameHits = usable.filter(exact);
-    const address = (values.address ?? "").trim().toLowerCase();
+    const address = composeAddress(values);
+    const rowAddressKey = addressKey(address);
     const sameAddress = (stored: string | null | undefined) => {
-      const s = (stored ?? "").trim().toLowerCase();
-      return Boolean(s) && (s === address || s.startsWith(address));
+      const storedKey = addressKey(stored);
+      return Boolean(rowAddressKey) && storedKey === rowAddressKey;
     };
 
     const confirmedByBirth = nameHits.filter(sameBirth);
@@ -793,7 +807,7 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
       };
 
     if (nameHits.length === 1) {
-      if (!address || sameAddress(nameHits[0]?.households?.address)) {
+      if (!rowAddressKey || sameAddress(nameHits[0]?.households?.address)) {
         return {
           status: "matched",
           reason: address ? "Same name and same address" : "Same name",
@@ -807,7 +821,9 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
       };
     }
     if (nameHits.length > 1) {
-      const withAddress = address ? nameHits.filter((p) => sameAddress(p.households?.address)) : [];
+      const withAddress = rowAddressKey
+        ? nameHits.filter((p) => sameAddress(p.households?.address))
+        : [];
       if (withAddress.length === 1)
         return {
           status: "matched",
@@ -825,7 +841,7 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
     // agrees as well, so unrelated people never reach the review queue.
     const close = usable.filter((p) => namesAreClose(rowFull, fullName(p)));
     const strongClose = close.filter(
-      (p) => sameBirth(p) || (Boolean(address) && sameAddress(p.households?.address)),
+      (p) => sameBirth(p) || (Boolean(rowAddressKey) && sameAddress(p.households?.address)),
     );
     if (strongClose.length > 0)
       return {
@@ -873,7 +889,7 @@ export function matchRowOnce(
   seen: RowIdentityRegistry,
   index: number,
 ): MatchResult {
-  const keys = rowIdentityKeys(values);
+  const keys = rowOccurrenceKeys(values);
   const earlier = keys.map((k) => seen.get(k)).find((n) => n !== undefined && n !== index);
   const base = matchRow(values, people);
   if (earlier !== undefined) {

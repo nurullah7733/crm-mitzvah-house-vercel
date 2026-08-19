@@ -225,6 +225,17 @@ describe("unpacking a row into people", () => {
     expect(v.city).toBe("Atlanta");
     expect(v.state).toBe("GA"); // two-letter codes are upper-cased
   });
+
+  it.each([
+    ["3/14/1978", "3/14/1978"],
+    ["1978-03-14", "1978-03-14"],
+    ["14-Mar-1978", "14-Mar-1978"],
+    ["12/25/90", "12/25/90"],
+    ["2/29/1992", "2/29/1992"],
+  ])("carries a mapped birth date through the row builder: %s", (raw, expected) => {
+    const v = build(["First Name", "Last Name", "Date of Birth"], ["Test", "Person", raw]);
+    expect(v.birth_date).toBe(expected);
+  });
 });
 
 describe("addresses", () => {
@@ -293,6 +304,16 @@ describe("matching a row to existing contacts", () => {
     ).toBe("matched");
   });
 
+  it("normalizes road and apartment spellings during duplicate detection", () => {
+    const people = [person({ households: { name: "Katz", address: "123 Main Road #3B" } })];
+    const result = matchRow(
+      { first_name: "Yosef", last_name: "Katz", address: "123 Main Rd", address_line2: "Apt 3B" },
+      people,
+    );
+    expect(result.status).toBe("matched");
+    expect(result.reason).toBe("Same name and same address");
+  });
+
   it("matches a secondary phone or email held on the contact", () => {
     const people = [
       person({
@@ -333,6 +354,19 @@ describe("the same person twice inside one file", () => {
     const second = matchRowOnce({ ...row }, [], seen, 1);
     expect(second.status).toBe("ambiguous");
     expect(second.reason).toContain("row 1");
+  });
+
+  it("allows separate gifts for the same person while still catching an identical gift", () => {
+    const seen = newRowIdentityRegistry();
+    const first = {
+      first_name: "Yosef",
+      last_name: "Katz",
+      amount: "18",
+      date: "3/14/2025",
+    };
+    expect(matchRowOnce(first, [], seen, 0).status).toBe("new");
+    expect(matchRowOnce({ ...first, amount: "36" }, [], seen, 1).status).toBe("new");
+    expect(matchRowOnce({ ...first }, [], seen, 2).status).toBe("ambiguous");
   });
 
   it("catches a repeat that only shares a phone number", () => {

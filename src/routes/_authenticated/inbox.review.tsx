@@ -454,7 +454,20 @@ function DataInbox() {
    */
   const applyCard = useMutation({
     mutationFn: async (card: { key: string; address: string; rows: typeof pending }) => {
-      let householdId: string | null = null;
+      const relatedRows = card.rows.filter((row) => choices[row.id]?.action === "related");
+      const sameRows = card.rows.filter((row) => choices[row.id]?.action === "same");
+      let householdId = sameRows
+        .map((row) => chosenPeople[row.id] ?? personById((row.candidate_person_ids ?? [])[0]))
+        .find((person) => Boolean(person?.household_id))?.household_id ?? null;
+      if (!householdId && relatedRows.length > 0) {
+        const firstRelated = relatedRows[0]!;
+        const surname = rowDisplayName((firstRelated.row_data ?? {}) as RowValues).surname;
+        householdId = await ensureHouseholdAtAddress(
+          card.address || null,
+          surname ? `${surname} household` : "Household",
+          firstRelated.batch_id,
+        );
+      }
       let saved = 0;
       let left = 0;
       for (const r of card.rows) {
@@ -483,18 +496,24 @@ function DataInbox() {
               "We don't have a matching contact for that person — open and decide instead.",
             );
           await quickMerge(item, existing, personName(existing));
+          if (householdId) {
+            await guard(
+              supabase
+                .from("people")
+                .update({
+                  household_id: householdId,
+                  ...(choice?.relationship
+                    ? { household_relationship: choice.relationship }
+                    : {}),
+                } as never)
+                .eq("id", existing.id),
+              { area: "import", action: "Link this person to the household" },
+            );
+          }
           saved += 1;
           continue;
         }
         if (action === "related") {
-          if (!householdId) {
-            const surname = rowDisplayName(row).surname;
-            householdId = await ensureHouseholdAtAddress(
-              card.address || null,
-              surname ? `${surname} household` : "Household",
-              r.batch_id,
-            );
-          }
           await createPersonFromRow(item, {
             householdId,
             relationship: choice?.relationship || null,
@@ -688,6 +707,9 @@ function DataInbox() {
                     return next;
                   });
                 const answered = card.rows.filter((r) => choices[r.id]).length;
+                const missingRelationship = card.rows.some(
+                  (r) => choices[r.id]?.action === "related" && !choices[r.id]?.relationship,
+                );
                 const chosenInCard = card.rows.filter((r) => selection.has(r.id));
                 /** Apply one answer to just the rows ticked inside this card. */
                 const setSelected = (action: GroupAction, relationship = "") =>
@@ -700,6 +722,20 @@ function DataInbox() {
                       };
                     return next;
                   });
+                const selectedTarget = chosenInCard
+                  .map((r) => chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]))
+                  .find((person) => Boolean(person));
+                const mergeSelectedIntoTarget = () => {
+                  if (!selectedTarget) {
+                    toast.error("Choose an existing contact on one of the ticked rows first.");
+                    return;
+                  }
+                  setChosenPeople((current) => ({
+                    ...current,
+                    ...Object.fromEntries(chosenInCard.map((row) => [row.id, selectedTarget])),
+                  }));
+                  setSelected("same");
+                };
                 return (
                   <div
                     key={card.key}
@@ -750,9 +786,9 @@ function DataInbox() {
                             size="sm"
                             variant="outline"
                             className="rounded-xl"
-                            onClick={() => setSelected("same")}
+                            onClick={mergeSelectedIntoTarget}
                           >
-                            Ticked are the same person — merge into their match
+                            Merge all ticked into {selectedTarget ? personName(selectedTarget) : "one contact"}
                           </Button>
                           {RELATIONSHIP_OPTIONS.map((rel) => (
                             <Button
@@ -839,7 +875,7 @@ function DataInbox() {
                                     }))
                                   }
                                 >
-                                  <option value="">Relationship (optional)</option>
+                                  <option value="">Choose relationship</option>
                                   {RELATIONSHIP_OPTIONS.map((rel) => (
                                     <option key={rel} value={rel}>
                                       {rel}
@@ -912,13 +948,18 @@ function DataInbox() {
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Button
                         className="rounded-xl"
-                        disabled={applyCard.isPending || answered === 0}
+                        disabled={
+                          applyCard.isPending ||
+                          answered !== card.rows.length ||
+                          missingRelationship
+                        }
                         onClick={() => applyCard.mutate(card)}
                       >
-                        {applyCard.isPending ? "Saving…" : "Save these people"}
+                        {applyCard.isPending ? "Applying…" : "Apply household decisions"}
                       </Button>
                       <span className="text-xs text-muted-foreground">
                         {answered} of {card.rows.length} answered
+                        {missingRelationship ? " · choose each relationship" : ""}
                       </span>
                     </div>
                   </div>

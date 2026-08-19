@@ -747,7 +747,7 @@ function ImportCenter() {
 
           // A flagged row is never written. It waits in the Data Inbox for a person.
           if (
-            flaggedByPreview ||
+            (flaggedByPreview && live.status !== "matched") ||
             live.status === "ambiguous" ||
             shared ||
             giftAlreadyImported ||
@@ -758,7 +758,7 @@ function ImportCenter() {
               v,
               giftAlreadyImported
                 ? "This gift appears to have already been imported"
-                : flaggedByPreview || live.status === "ambiguous"
+                 : (flaggedByPreview && live.status !== "matched") || live.status === "ambiguous"
                   ? reason
                   : giftsElsewhere.length > 0
                     ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
