@@ -64,6 +64,7 @@ import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
 import { RouteError } from "@/components/RouteError";
 import { showError, guard } from "@/lib/app-errors";
+import { shouldShowProfileInteraction } from "@/lib/profile-timeline";
 
 export const Route = createFileRoute("/_authenticated/people/$personId")({
   head: () => ({
@@ -287,7 +288,7 @@ function PersonPage() {
     // mirror rows the database keeps for them are skipped so one gift never
     // reads as two entries.
     ...(data?.interactions ?? [])
-      .filter((i) => !i.source_kind)
+      .filter(shouldShowProfileInteraction)
       .map((i) => ({
       key: `i-${i.id}`,
       date: i.date,
