@@ -205,6 +205,9 @@ function DataInbox() {
   const addressCards = useMemo(() => {
     const byKey = new Map<string, { key: string; address: string; rows: typeof pending }>();
     for (const r of pending) {
+      // A single identified contact belongs in the certain/conflict split below,
+      // not in household review merely because the spreadsheet also had an address.
+      if ((r.candidate_person_ids ?? []).length === 1) continue;
       const g = rowGroup(r.row_data as Record<string, unknown> | null);
       if (!g) continue;
       const bucket = byKey.get(g.key) ?? {
@@ -599,19 +602,22 @@ function DataInbox() {
         </div>
       )}
 
-      {safeRows.length > 1 && (
+      {pending.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-money/40 bg-money/5 p-4">
           <p className="text-sm text-foreground">
-            {safeRows.length} of these are clearly the same person and only add details we were
-            missing. Nothing gets overwritten.
+            <strong>{safeRows.length} certain matches</strong> · {pending.length - safeRows.length}{" "}
+            need your review. Certain matches only add missing details; formatting differences and
+            blank fields are not conflicts.
           </p>
-          <Button
-            className="rounded-xl"
-            disabled={approveSafe.isPending}
-            onClick={() => approveSafe.mutate()}
-          >
-            {approveSafe.isPending ? "Merging…" : `Merge all ${safeRows.length} with no conflicts`}
-          </Button>
+          {safeRows.length > 0 && (
+            <Button
+              className="rounded-xl"
+              disabled={approveSafe.isPending}
+              onClick={() => approveSafe.mutate()}
+            >
+              {approveSafe.isPending ? "Merging…" : `Approve all ${safeRows.length}`}
+            </Button>
+          )}
         </div>
       )}
 

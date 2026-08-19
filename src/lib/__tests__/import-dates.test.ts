@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseImportDate } from "@/lib/import-dates";
+import { hebrewDateFromEnglish } from "@/lib/hebrew";
 
 describe("parseImportDate", () => {
   it("reads the formats our files actually contain", () => {
@@ -27,4 +28,13 @@ describe("parseImportDate", () => {
   it("reads Excel serial numbers", () => {
     expect(parseImportDate("28563")).toBe("1978-03-14");
   });
+
+  it.each(["3/14/1978", "1978-03-14", "14-Mar-1978", "12/25/90", "2/29/1992"])(
+    "keeps %s parseable through Hebrew-date conversion",
+    (raw) => {
+      const parsed = parseImportDate(raw);
+      expect(parsed).not.toBeNull();
+      expect(hebrewDateFromEnglish(parsed)).not.toBeNull();
+    },
+  );
 });

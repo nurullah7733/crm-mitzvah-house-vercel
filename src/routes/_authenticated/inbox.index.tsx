@@ -745,11 +745,14 @@ function ImportCenter() {
               : []
           ).filter((g) => rowFullName && namesAreClose(rowFullName, g.name));
 
-          // A flagged row is never written. It waits in the Data Inbox for a person.
+          // Certain identity matches (one exact email, phone, or name plus address/birth date)
+          // continue into the fill-blanks path below. Sharing an address must not turn a
+          // certain match back into a review item — that was also where mapped birthdays
+          // were previously abandoned before the update payload was built.
           if (
             (flaggedByPreview && live.status !== "matched") ||
             live.status === "ambiguous" ||
-            shared ||
+            (shared && live.status !== "matched") ||
             giftAlreadyImported ||
             giftsElsewhere.length > 0
           ) {
@@ -873,8 +876,12 @@ function ImportCenter() {
             if (v.met_source) patch["met_source"] = v.met_source;
             if (v.school) patch["school"] = v.school;
             if (v.person_notes) patch["notes"] = v.person_notes;
-            if (Object.keys(patch).length > 0)
-              await supabase.from("people").update(patch).eq("id", personId);
+            if (Object.keys(patch).length > 0) {
+              await guard(supabase.from("people").update(patch).eq("id", personId), {
+                area: "import",
+                action: "Update the matched contact",
+              });
+            }
             remember({
               id: personId,
               first,
