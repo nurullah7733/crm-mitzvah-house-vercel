@@ -17,7 +17,7 @@ import {
 } from "@/lib/address-household";
 import { showError, guard } from "@/lib/app-errors";
 import { QuickActivityChips, logActivities } from "@/components/QuickActivity";
-import { properCaseName } from "@/lib/proper-case";
+import { properCase } from "@/lib/proper-case";
 
 const HINTS = [
   "Needs mezuzah",
@@ -110,7 +110,7 @@ export function QuickAddHouseholdDialog({
         notes.trim(),
       ].filter(Boolean);
 
-      const family = properCaseName(lastName).trim();
+      const family = properCase(lastName).trim();
       const { data, error } = await supabase
         .from("households")
         .insert({
