@@ -93,6 +93,17 @@ export function orgAddressLines(org: OrgSettings): string[] {
 
 export const ORG_SETTINGS_KEY = "organization";
 
+/** One-off read, for places that generate a document outside React Query. */
+export async function loadOrgSettings(): Promise<OrgSettings> {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", ORG_SETTINGS_KEY)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeOrgSettings(data?.value);
+}
+
 export function useOrgSettings() {
   return useQuery({
     queryKey: ["org-settings"],
