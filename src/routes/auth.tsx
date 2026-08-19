@@ -67,7 +67,7 @@ function AuthPage() {
           <p className="mt-1 text-sm text-muted-foreground">Staff sign in — invite only</p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
