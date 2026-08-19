@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { showError } from "@/lib/app-errors";
 
-type ListTable = "met_source_options" | "program_options" | "tag_options";
+type ListTable = "met_source_options" | "program_options" | "tag_options" | "activity_options";
 
 /** A simple add / rename / remove list backed by one of the option tables. */
 export function EditableList({
