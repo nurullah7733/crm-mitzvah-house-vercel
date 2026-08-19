@@ -26,6 +26,7 @@ import {
   statementFor,
   voidStatement,
   type DonorYearGroup,
+  type IssuedDocumentRow,
 } from "@/lib/statements";
 import type { GeneratedDocument } from "@/lib/documents";
 
