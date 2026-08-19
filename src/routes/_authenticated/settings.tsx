@@ -170,6 +170,12 @@ function SettingsPage() {
                   placeholder="Add a label"
                   category="important"
                 />
+                <EditableList
+                  table="activity_options"
+                  title="Quick activities"
+                  description="The one-tap buttons on deliveries and on each person's profile — tefillin, packages, meals, anything else you do at the door."
+                  placeholder="Add an activity"
+                />
               </div>
             </AccordionContent>
           </AccordionItem>
