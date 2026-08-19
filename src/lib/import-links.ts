@@ -73,8 +73,9 @@ export type AddressDecision = {
 /**
  * Group rows that sit at the same address. Matching is forgiving about
  * formatting, so "412 Ashford Dunwoody Rd" and "412 Ashford Dunwoody Road"
- * count as one place. Only groups with more than one distinct surname are
- * returned as questions — the rest are already obvious families or singles.
+ * count as one place. Every shared address is returned as one confirmation card.
+ * A shared surname is a strong family signal, but staff still confirm it rather
+ * than the importer silently assigning a relationship.
  */
 export function groupSharedAddresses(
   rows: { index: number; name: string; surname: string; address: string | null }[],
@@ -92,6 +93,6 @@ export function groupSharedAddresses(
     byKey.set(key, bucket);
   }
   return [...byKey.entries()]
-    .filter(([, b]) => b.rows.length > 1 && b.surnames.size > 1)
+    .filter(([, b]) => b.rows.length > 1)
     .map(([key, b]) => ({ key, address: b.address, rows: b.rows }));
 }

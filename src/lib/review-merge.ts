@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import { splitName, roleFromRow, type RowValues } from "@/lib/import-mapping";
+import { digits, splitName, roleFromRow, type RowValues } from "@/lib/import-mapping";
+import { parseImportDate } from "@/lib/import-dates";
 import { guard } from "@/lib/app-errors";
 
 /** A person as the review screen needs it. */
@@ -53,8 +54,8 @@ export function incomingPerson(row: RowValues): Record<CompareKey, string | null
     email: clean(row.email),
     phone: clean(row.phone),
     role: roleFromRow(row),
-    birth_date: clean(row.birth_date),
-    anniversary_date: clean(row.anniversary_date),
+    birth_date: parseImportDate(row.birth_date),
+    anniversary_date: parseImportDate(row.anniversary_date),
     school: clean(row.school),
     notes: clean(row.person_notes ?? row.notes),
     met_source: clean(row.met_source),
@@ -71,8 +72,14 @@ export type FieldComparison = {
   state: FieldState;
 };
 
-function norm(v: string | null) {
-  return (v ?? "").trim().toLowerCase();
+/** Compare what a value means, not how it was formatted in a spreadsheet. */
+export function comparisonKey(key: CompareKey, value: string | null) {
+  const clean = (value ?? "").trim();
+  if (!clean) return "";
+  if (key === "phone") return digits(clean).slice(-10);
+  if (key === "email") return clean.toLowerCase();
+  if (key === "birth_date" || key === "anniversary_date") return parseImportDate(clean) ?? clean;
+  return clean.toLowerCase().replace(/\s+/g, " ");
 }
 
 /**
@@ -88,9 +95,11 @@ export function compareRecords(
     const a = (existing[key] ?? null) as string | null;
     const b = incoming[key];
     let state: FieldState = "empty";
-    if (norm(a) && norm(b)) state = norm(a) === norm(b) ? "same" : "conflict";
-    else if (!norm(a) && norm(b)) state = "fill";
-    else if (norm(a) && !norm(b)) state = "same";
+    const aKey = comparisonKey(key, a);
+    const bKey = comparisonKey(key, b);
+    if (aKey && bKey) state = aKey === bKey ? "same" : "conflict";
+    else if (!aKey && bKey) state = "fill";
+    else if (aKey && !bKey) state = "same";
     return { key, label, existing: a, incoming: b, state };
   });
 }
@@ -192,7 +201,7 @@ export async function applyIncoming(
     const picked = choices[f.key];
     if (picked === "existing") continue;
     if (picked === "incoming") {
-      if (norm(f.incoming) !== norm(f.existing)) {
+      if (comparisonKey(f.key, f.incoming) !== comparisonKey(f.key, f.existing)) {
         patch[f.key] = f.incoming;
         changedFields.push(f.key);
       }
