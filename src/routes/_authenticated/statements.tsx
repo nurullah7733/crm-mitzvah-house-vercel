@@ -224,9 +224,7 @@ function StatementsPage() {
           <p className="text-sm text-muted-foreground">Loading gifts…</p>
         ) : visible.length === 0 ? (
           <EmptyState
-            icon={FileText}
-            title={`No gifts recorded in ${taxYear}`}
-            description="Pick another tax year, or record gifts on the Donations screen first."
+            label={`No gifts recorded in ${taxYear}. Pick another tax year, or record gifts on the Donations screen first.`}
           />
         ) : (
           <section className="grid gap-3">

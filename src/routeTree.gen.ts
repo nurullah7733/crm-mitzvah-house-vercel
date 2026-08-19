@@ -18,6 +18,7 @@ import { Route as AuthenticatedDonationsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedRenewalsRouteImport } from './routes/_authenticated/renewals'
 import { Route as AuthenticatedSearchRouteImport } from './routes/_authenticated/search'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedStatementsRouteImport } from './routes/_authenticated/statements'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated/tasks'
 import { Route as AuthenticatedEventsIndexRouteImport } from './routes/_authenticated/events.index'
 import { Route as AuthenticatedEventsEventIdRouteImport } from './routes/_authenticated/events.$eventId'
@@ -72,6 +73,11 @@ const AuthenticatedSearchRoute = AuthenticatedSearchRouteImport.update({
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedStatementsRoute = AuthenticatedStatementsRouteImport.update({
+  id: '/statements',
+  path: '/statements',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
@@ -148,6 +154,7 @@ export interface FileRoutesByFullPath {
   '/renewals': typeof AuthenticatedRenewalsRoute
   '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/statements': typeof AuthenticatedStatementsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRoute
   '/grants/$grantId': typeof AuthenticatedGrantsGrantIdRoute
@@ -169,6 +176,7 @@ export interface FileRoutesByTo {
   '/renewals': typeof AuthenticatedRenewalsRoute
   '/search': typeof AuthenticatedSearchRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/statements': typeof AuthenticatedStatementsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRoute
   '/grants/$grantId': typeof AuthenticatedGrantsGrantIdRoute
@@ -192,6 +200,7 @@ export interface FileRoutesById {
   '/_authenticated/renewals': typeof AuthenticatedRenewalsRoute
   '/_authenticated/search': typeof AuthenticatedSearchRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/statements': typeof AuthenticatedStatementsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/events/$eventId': typeof AuthenticatedEventsEventIdRoute
   '/_authenticated/grants/$grantId': typeof AuthenticatedGrantsGrantIdRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/renewals'
     | '/search'
     | '/settings'
+    | '/statements'
     | '/tasks'
     | '/events/$eventId'
     | '/grants/$grantId'
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/renewals'
     | '/search'
     | '/settings'
+    | '/statements'
     | '/tasks'
     | '/events/$eventId'
     | '/grants/$grantId'
@@ -258,6 +269,7 @@ export interface FileRouteTypes {
     | '/_authenticated/renewals'
     | '/_authenticated/search'
     | '/_authenticated/settings'
+    | '/_authenticated/statements'
     | '/_authenticated/tasks'
     | '/_authenticated/events/$eventId'
     | '/_authenticated/grants/$grantId'
@@ -341,6 +353,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/statements': {
+      id: '/_authenticated/statements'
+      path: '/statements'
+      fullPath: '/statements'
+      preLoaderRoute: typeof AuthenticatedStatementsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/tasks': {
@@ -429,6 +448,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedRenewalsRoute: typeof AuthenticatedRenewalsRoute
   AuthenticatedSearchRoute: typeof AuthenticatedSearchRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedStatementsRoute: typeof AuthenticatedStatementsRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
   AuthenticatedEventsEventIdRoute: typeof AuthenticatedEventsEventIdRoute
   AuthenticatedGrantsGrantIdRoute: typeof AuthenticatedGrantsGrantIdRoute
@@ -448,6 +468,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedRenewalsRoute: AuthenticatedRenewalsRoute,
   AuthenticatedSearchRoute: AuthenticatedSearchRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedStatementsRoute: AuthenticatedStatementsRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
   AuthenticatedEventsEventIdRoute: AuthenticatedEventsEventIdRoute,
   AuthenticatedGrantsGrantIdRoute: AuthenticatedGrantsGrantIdRoute,
