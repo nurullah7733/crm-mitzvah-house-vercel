@@ -16,6 +16,7 @@ import {
   DELIVERY_METHODS,
   deliverDocuments,
   deliveryLabel,
+  printDocuments,
   type DeliveryMethod,
 } from "@/lib/document-delivery";
 import {
@@ -131,8 +132,8 @@ function StatementsPage() {
   /** Preview without recording anything as issued. */
   function preview(group: DonorYearGroup) {
     if (!org) return;
-    const ok = DELIVERY_CHANNELS.printed.send([statementFor(group, taxYear, org)], "Preview");
-    void ok;
+    // Preview never records anything: no statement row, no receipt flags.
+    printDocuments([statementFor(group, taxYear, org)], `${taxYear} statement preview`);
   }
 
   async function undo(documentId: string) {
