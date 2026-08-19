@@ -36,6 +36,49 @@ export function hebrewMonthDayFromEnglish(
   }
 }
 
+/**
+ * The Hebrew date a death falls on, given the English (civil) date of death.
+ *
+ * A Hebrew day begins at sunset, so a death that happened AFTER sunset already
+ * belongs to the next Hebrew day — the yahrzeit is observed a day later than a
+ * plain civil-date conversion would suggest. This is the traditional rule and
+ * the community notices when it is wrong.
+ */
+export function hebrewMonthDayFromDeath(
+  value: string | null | undefined,
+  afterSunset: boolean,
+): { month: number; day: number } | null {
+  if (!value) return null;
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [y, m, d] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+  if (!y || !m || !d) return null;
+  try {
+    let hd = new HDate(new Date(y, m - 1, d));
+    if (afterSunset) hd = hd.next();
+    return { month: hd.getMonth(), day: hd.getDate() };
+  } catch {
+    return null;
+  }
+}
+
+/** Full Hebrew date for a death, honouring the after-sunset rollover. */
+export function hebrewDateFromDeath(
+  value: string | null | undefined,
+  afterSunset: boolean,
+): string | null {
+  if (!value) return null;
+  const parts = value.slice(0, 10).split("-").map(Number);
+  const [y, m, d] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+  if (!y || !m || !d) return null;
+  try {
+    let hd = new HDate(new Date(y, m - 1, d));
+    if (afterSunset) hd = hd.next();
+    return hd.render("en");
+  } catch {
+    return null;
+  }
+}
+
 /** English (Gregorian) date string -> Hebrew date, e.g. "21st of Av, 5750". */
 export function hebrewDateFromEnglish(value: string | null | undefined): string | null {
   if (!value) return null;
