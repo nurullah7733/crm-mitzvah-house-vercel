@@ -11,6 +11,7 @@ import { AddDonationDialog } from "@/components/forms/AddDialogs";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
+import { AcknowledgmentButton } from "@/components/DonorDocumentActions";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
