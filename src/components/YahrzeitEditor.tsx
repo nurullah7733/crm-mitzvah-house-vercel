@@ -1,11 +1,16 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Sunset } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, selectClass } from "@/components/forms/fields";
-import { HEBREW_MONTHS, hebrewMonthDayFromEnglish, hebrewMonthName } from "@/lib/hebrew";
+import {
+  HEBREW_MONTHS,
+  hebrewDateFromDeath,
+  hebrewMonthDayFromDeath,
+  hebrewMonthName,
+} from "@/lib/hebrew";
 
 export type YahrzeitRow = {
   id: string;
@@ -13,6 +18,9 @@ export type YahrzeitRow = {
   relationship: string | null;
   hebrew_month: number;
   hebrew_day: number;
+  death_date?: string | null;
+  death_after_sunset?: boolean | null;
+  needs_sunset_review?: boolean | null;
 };
 
 type Draft = {
@@ -20,6 +28,8 @@ type Draft = {
   relationship: string;
   hebrew_month: string;
   hebrew_day: string;
+  death_date: string;
+  death_after_sunset: boolean;
 };
 
 const emptyDraft: Draft = {
@@ -27,6 +37,8 @@ const emptyDraft: Draft = {
   relationship: "",
   hebrew_month: "1",
   hebrew_day: "1",
+  death_date: "",
+  death_after_sunset: false,
 };
 
 /**
@@ -52,6 +64,8 @@ export function YahrzeitEditor({
       relationship: r.relationship ?? "",
       hebrew_month: String(r.hebrew_month ?? 1),
       hebrew_day: String(r.hebrew_day ?? 1),
+      death_date: (r.death_date ?? "").slice(0, 10),
+      death_after_sunset: Boolean(r.death_after_sunset),
     };
 
   const setDraft = (id: string, patch: Partial<Draft>) =>
@@ -72,6 +86,10 @@ export function YahrzeitEditor({
         relationship: d.relationship.trim() || null,
         hebrew_month: Number(d.hebrew_month),
         hebrew_day: Number(d.hebrew_day),
+        death_date: d.death_date || null,
+        death_after_sunset: d.death_after_sunset,
+        // Saving is the staff member confirming the date, sunset rule included.
+        needs_sunset_review: false,
       })
       .eq("id", id);
     setBusy(false);
@@ -113,6 +131,9 @@ export function YahrzeitEditor({
       relationship: adding.relationship.trim() || null,
       hebrew_month: Number(adding.hebrew_month),
       hebrew_day: Number(adding.hebrew_day),
+      death_date: adding.death_date || null,
+      death_after_sunset: adding.death_after_sunset,
+      needs_sunset_review: false,
     });
     setBusy(false);
     if (error) {
