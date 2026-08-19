@@ -154,6 +154,17 @@ export function YahrzeitEditor({
         const dirty = Boolean(edits[r.id]);
         return (
           <div key={r.id} className="rounded-xl border border-border p-3">
+            {r.needs_sunset_review ? (
+              <p className="mb-3 flex items-start gap-2 rounded-xl border border-[#F9C348] bg-[#F9C348]/10 p-3 text-xs">
+                <Sunset className="mt-0.5 size-4 shrink-0 text-[#B98600]" />
+                <span>
+                  Please check this date. It was entered before we asked whether the passing was
+                  after sunset — if it was, the yahrzeit falls one Hebrew day later. Enter the
+                  English date of passing below and answer the sunset question, then save. Nothing
+                  has been changed automatically.
+                </span>
+              </p>
+            ) : null}
             <DateFields draft={d} onChange={(patch) => setDraft(r.id, patch)} />
             <div className="mt-3 flex flex-wrap gap-2">
               {dirty && (
@@ -164,6 +175,17 @@ export function YahrzeitEditor({
                   onClick={() => saveExisting(r.id)}
                 >
                   Save this yahrzeit
+                </Button>
+              )}
+              {r.needs_sunset_review && !dirty && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11 rounded-xl"
+                  disabled={busy}
+                  onClick={() => confirmReviewed(r.id)}
+                >
+                  This date is already correct
                 </Button>
               )}
               <Button
