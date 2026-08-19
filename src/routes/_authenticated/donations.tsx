@@ -179,6 +179,11 @@ function DonationsPage() {
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Log donation
           </Button>
+          <Button asChild variant="outline" className="rounded-xl">
+            <Link to="/statements">
+              <FileText className="size-4" /> Year-end statements
+            </Link>
+          </Button>
         </>
       }
     >
