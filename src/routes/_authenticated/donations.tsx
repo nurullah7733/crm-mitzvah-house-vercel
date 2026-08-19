@@ -377,6 +377,15 @@ function DonationsPage() {
                 ) : null}
               </label>
             </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <AcknowledgmentButton
+                donationId={d.id}
+                label={d.thank_you_sent ? "Print letter again" : "Print thank-you letter"}
+                onDone={async () => {
+                  await queryClient.invalidateQueries({ queryKey: ["donations"] });
+                }}
+              />
+            </div>
             <button
               type="button"
               className="mt-2 text-xs text-primary hover:underline"
