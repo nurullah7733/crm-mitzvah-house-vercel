@@ -16,8 +16,11 @@ import {
   nameFromAddress,
 } from "@/lib/address-household";
 import { showError, guard } from "@/lib/app-errors";
+import { QuickActivityChips, logActivities } from "@/components/QuickActivity";
+import { properCase } from "@/lib/proper-case";
 
 const HINTS = [
+  "Needs mezuzah",
   "Family with young kids",
   "Hebrew speaking",
   "Russian speaking",
@@ -37,9 +40,11 @@ export function QuickAddHouseholdDialog({
   const queryClient = useQueryClient();
   const [address, setAddress] = useState("");
   const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [hints, setHints] = useState<string[]>([]);
+  const [activities, setActivities] = useState<string[]>([]);
   const [locating, setLocating] = useState(false);
 
   const toggleHint = (h: string) =>
@@ -48,9 +53,11 @@ export function QuickAddHouseholdDialog({
   function reset() {
     setAddress("");
     setFirstName("");
+    setLastName("");
     setPhone("");
     setNotes("");
     setHints([]);
+    setActivities([]);
   }
 
   async function useMyLocation() {
@@ -103,10 +110,11 @@ export function QuickAddHouseholdDialog({
         notes.trim(),
       ].filter(Boolean);
 
+      const family = properCase(lastName).trim();
       const { data, error } = await supabase
         .from("households")
         .insert({
-          name: nameFromAddress(clean),
+          name: family ? `${family} — ${nameFromAddress(clean)}` : nameFromAddress(clean),
           address: clean,
           phone: phone.trim() || null,
           notes: noteLines.join("\n") || null,
@@ -126,6 +134,7 @@ export function QuickAddHouseholdDialog({
           { area: "households", action: "Add the timeline note" },
         );
       }
+      await logActivities(activities, { householdId: data.id });
       await createFindOutWhoTask(clean);
     },
     onSuccess: () => {
@@ -203,7 +212,7 @@ export function QuickAddHouseholdDialog({
                 key={h}
                 type="button"
                 onClick={() => toggleHint(h)}
-                className={`rounded-full border px-3 py-1.5 text-sm ${
+                className={`min-h-11 rounded-xl border px-4 py-2.5 text-sm ${
                   hints.includes(h)
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
@@ -215,11 +224,21 @@ export function QuickAddHouseholdDialog({
           </div>
         </div>
 
+        <QuickActivityChips selected={activities} onChange={setActivities} />
+
         <Field label="First name, if you got one">
           <Input
             className="text-base"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
+          />
+        </Field>
+        <Field label="Last name, if you got one">
+          <Input
+            className="text-base"
+            placeholder="Names the household properly"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
           />
         </Field>
         <Field label="Phone, if you got one">

@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_options: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+        }
+        Relationships: []
+      }
       app_error_log: {
         Row: {
           action: string | null

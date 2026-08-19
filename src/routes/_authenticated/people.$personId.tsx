@@ -53,6 +53,7 @@ import {
   LIFECYCLE_DEFAULTS,
 } from "@/lib/lifecycle";
 import { ChipEditor } from "@/components/ChipEditor";
+import { QuickActivityButtons } from "@/components/QuickActivity";
 import { EditableCard } from "@/components/EditableCard";
 import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMethodsEditor";
 import { fetchContactMethods } from "@/lib/contact-methods";
@@ -818,6 +819,9 @@ function PersonPage() {
             >
               <Plus className="size-3.5" /> Event
             </Button>
+          </div>
+          <div className="mt-3 border-t border-border pt-3">
+            <QuickActivityButtons personId={personId} />
           </div>
           <ol className="mt-4 space-y-4">
             {timeline.length === 0 && (
