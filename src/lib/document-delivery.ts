@@ -79,11 +79,12 @@ export async function recordDelivery(args: {
   status: DeliveryStatus;
   note?: string | null;
 }) {
+  const note = args.note?.trim();
   const { error } = await supabase.rpc("record_document_delivery", {
     _document_id: args.documentId,
     _delivery_method: args.method,
     _delivery_status: args.status,
-    _note: args.note ?? undefined,
+    ...(note ? { _note: note } : {}),
   });
   if (error) throw error;
 }
