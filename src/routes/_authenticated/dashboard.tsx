@@ -294,6 +294,11 @@ function Dashboard() {
         </Link>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
+        {dashboardLoading && !dashboardError ? (
+          <div className="lg:col-span-2">
+            <LoadingState what="your dashboard" />
+          </div>
+        ) : null}
         <Panel
           title="Needs attention"
           to="/tasks"
