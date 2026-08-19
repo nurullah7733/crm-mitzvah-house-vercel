@@ -59,6 +59,7 @@ import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMet
 import { fetchContactMethods } from "@/lib/contact-methods";
 import { properCase, properCaseAddress } from "@/lib/proper-case";
 import { YahrzeitEditor } from "@/components/YahrzeitEditor";
+import { AcknowledgmentButton, StatementButton } from "@/components/DonorDocumentActions";
 import { PledgePanel } from "@/components/pledges/PledgePanel";
 import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
