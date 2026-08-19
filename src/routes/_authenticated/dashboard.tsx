@@ -94,6 +94,7 @@ function Dashboard() {
   const {
     data,
     error: dashboardError,
+    isLoading: dashboardLoading,
     refetch: refetchDashboard,
   } = useQuery({
     queryKey: ["dashboard"],
