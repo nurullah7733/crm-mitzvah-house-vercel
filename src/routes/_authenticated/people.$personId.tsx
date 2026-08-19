@@ -330,6 +330,10 @@ function PersonPage() {
   const thisYear = gifts
     .filter((d) => (d.date ?? "").slice(0, 4) === String(currentYear))
     .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  // Statements are produced for the most recent year this person actually gave in.
+  const statementYear = gifts.length
+    ? Math.max(...gifts.map((d) => Number((d.date ?? "").slice(0, 4)) || currentYear))
+    : currentYear;
   const giftSource = (d: (typeof gifts)[number]) =>
     [d.source, d.campaigns?.name, d.grants?.name, d.method]
       .filter(Boolean)
