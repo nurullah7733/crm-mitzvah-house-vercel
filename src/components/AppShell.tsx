@@ -138,8 +138,9 @@ export function AppShell({
         </div>
       </header>
 
-      {/* Desktop sidebar */}
-      <aside className="fixed bottom-0 left-0 top-[76px] hidden w-60 flex-col bg-[linear-gradient(180deg,var(--sidebar),var(--sidebar-accent))] px-4 py-6 lg:flex">
+      {/* Desktop sidebar — starts at the very top and tucks under the sticky
+          header, so no white seam can appear if the header height changes. */}
+      <aside className="fixed bottom-0 left-0 top-0 hidden w-60 flex-col bg-[linear-gradient(180deg,var(--sidebar),var(--sidebar-accent))] px-4 pb-6 pt-[5.5rem] lg:flex">
         <nav className="flex flex-1 flex-col gap-1">
           {[...NAV, INBOX].map(({ to, label, icon: Icon }) => (
             <Link
@@ -168,19 +169,21 @@ export function AppShell({
       </aside>
 
       <div className="lg:pl-60">
-        <div className="border-b border-border bg-card px-5 py-3 sm:px-8">
+        <div className="border-b border-border bg-card px-5 py-4 sm:px-8">
           <div className="mx-auto max-w-5xl">
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div className="min-w-0">
-                <h1 className="truncate font-heading text-xl font-semibold text-foreground sm:text-2xl">
+                <h1 className="font-heading text-xl font-semibold text-foreground sm:text-2xl">
                   {title}
                 </h1>
                 {subtitle ? (
-                  <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
                 ) : null}
               </div>
               {action ? (
-                <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end [&>*]:min-h-11 sm:[&>*]:min-h-0">
+                /* Header actions always wrap — including any wrapper a page
+                   passes in — so a label is never pushed off a narrow screen. */
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end [&>*]:min-h-11 sm:[&>*]:min-h-9 [&>div]:flex [&>div]:flex-wrap [&>div]:gap-2">
                   {action}
                 </div>
               ) : null}
@@ -209,12 +212,18 @@ export function AppShell({
   );
 }
 
-export function EmptyState({ label }: { label: string }) {
+export function EmptyState({ label, hint }: { label: string; hint?: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
-      {label}
+    <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground sm:p-10">
+      <p>{label}</p>
+      {hint ? <p className="mt-1 text-xs text-muted-foreground/80">{hint}</p> : null}
     </div>
   );
+}
+
+/** One loading placeholder for every screen, so waiting always looks the same. */
+export function LoadingState({ what }: { what: string }) {
+  return <EmptyState label={`Loading ${what}…`} />;
 }
 
 export function initials(first?: string | null, last?: string | null) {
