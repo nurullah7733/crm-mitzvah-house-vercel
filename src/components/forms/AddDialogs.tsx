@@ -553,7 +553,7 @@ export function AddPersonDialog({ open, onOpenChange }: DialogProps) {
                 className="mt-2 rounded-xl"
                 onClick={() => set("household_id", suggestHousehold.id)}
               >
-                Add this person to it
+                Add to it
               </Button>
             </div>
           )}
@@ -938,7 +938,7 @@ export function AddDonationDialog({
                 disabled={save.isPending}
                 onClick={() => save.mutate(null)}
               >
-                No, it's unrelated
+                Not related
               </Button>
               <Button
                 className="flex-1 rounded-xl sm:flex-none"
@@ -958,7 +958,7 @@ export function AddDonationDialog({
                 void handleSave();
               }}
             >
-              It's a different gift — save it
+              Different gift
             </Button>
           ) : (
             <Button
@@ -1010,7 +1010,7 @@ export function AddDonationDialog({
               className="mt-2 text-xs text-primary hover:underline"
               onClick={() => setPickOther(true)}
             >
-              Choose a different event
+              Different event
             </button>
           )}
           <div className="mt-3">

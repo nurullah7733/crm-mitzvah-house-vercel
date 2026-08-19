@@ -44,7 +44,7 @@ export function RouteError({ error, reset }: { error: unknown; reset?: () => voi
             <RefreshCw className="size-4" /> Try again
           </Button>
           <Button variant="outline" asChild>
-            <Link to="/dashboard">Go to the dashboard</Link>
+            <Link to="/dashboard">Go to dashboard</Link>
           </Button>
         </div>
       </div>

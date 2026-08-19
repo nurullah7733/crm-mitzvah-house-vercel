@@ -46,7 +46,7 @@ export function StatementButton({
       const result = await deliverDocuments({
         documentIds: [documentId],
         docs: [statementFor(group, taxYear, org)],
-        heading: `${taxYear} tax statement`,
+        heading: `${taxYear} statement`,
         method: "printed",
       });
       if (result.status === "delivered") {
@@ -73,7 +73,7 @@ export function StatementButton({
       disabled={busy}
       onClick={run}
     >
-      <FileText className="size-3.5" /> {taxYear} tax statement
+      <FileText className="size-3.5" /> {taxYear} statement
     </Button>
   );
 }

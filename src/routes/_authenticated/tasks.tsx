@@ -379,7 +379,7 @@ function TasksPage() {
               className="mt-2 block text-xs text-primary hover:underline"
               onClick={() => void reopen()}
             >
-              Reopen this task
+              Reopen
             </button>
           )}
           <button
@@ -387,7 +387,7 @@ function TasksPage() {
             className="mt-2 block text-xs text-primary hover:underline"
             onClick={() => setEditing(t as unknown as Record<string, unknown>)}
           >
-            Edit or remove this task
+            Edit task
           </button>
         </div>
       </div>
@@ -428,7 +428,7 @@ function TasksPage() {
           className="h-10 rounded-xl border border-urgent/50 bg-card px-3 text-sm text-urgent disabled:opacity-50"
           onClick={() => setClearOpen(true)}
         >
-          Clear all {tasks.length} showing
+          Clear all ({tasks.length})
         </button>
       </div>
       <SelectAllToggle

@@ -145,7 +145,7 @@ function RenewalsPage() {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
               <Download className="mr-2 size-4" />
-              Export for a mailed appeal
+              Export list
             </Button>
             <Button
               onClick={() => createTasks.mutate(chosen.length > 0 ? chosen : rows)}
@@ -153,8 +153,8 @@ function RenewalsPage() {
             >
               <HeartHandshake className="mr-2 size-4" />
               {chosen.length > 0
-                ? `Create ${chosen.length} renewal calls`
-                : "Create renewal calls for all"}
+                ? `Create ${chosen.length} calls`
+                : "Create call tasks"}
             </Button>
           </div>
         </div>

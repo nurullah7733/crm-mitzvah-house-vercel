@@ -190,11 +190,11 @@ function HouseholdPage() {
           </span>
         )}
         <Button variant="outline" className="rounded-xl" onClick={() => setLogOpen(true)}>
-          Log a visit or delivery
+          Log visit
         </Button>
         {addressOnly && (
           <Button variant="outline" className="rounded-xl" onClick={markEstablished}>
-            Mark as established
+            Mark established
           </Button>
         )}
       </div>

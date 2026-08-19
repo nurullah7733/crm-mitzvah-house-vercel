@@ -85,7 +85,7 @@ function EventsPage() {
               )
             }
           >
-            <Download className="size-4" /> Export to CSV
+            <Download className="size-4" /> Export CSV
           </Button>
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add event
