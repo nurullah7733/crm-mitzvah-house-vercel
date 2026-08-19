@@ -118,6 +118,22 @@ export function YahrzeitEditor({
     await onChanged();
   }
 
+  /** Staff confirming an older date is right, without changing it. */
+  async function confirmReviewed(id: string) {
+    setBusy(true);
+    const { error } = await supabase
+      .from("yahrzeits")
+      .update({ needs_sunset_review: false })
+      .eq("id", id);
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Marked as checked");
+    await onChanged();
+  }
+
   async function addNew() {
     if (!adding) return;
     if (!adding.deceased_name.trim()) {
