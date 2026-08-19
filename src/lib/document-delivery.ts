@@ -14,7 +14,7 @@ export const DELIVERY_METHODS = ["printed", "email", "text", "constant_contact"]
 export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
 export type DeliveryStatus = "pending" | "delivered" | "failed";
 
-export type DeliveryResult = { status: DeliveryStatus; note?: string };
+export type DeliveryResult = { status: DeliveryStatus; note?: string | null };
 
 export type DeliveryChannel = {
   method: DeliveryMethod;
