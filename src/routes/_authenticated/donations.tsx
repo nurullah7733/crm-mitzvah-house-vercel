@@ -14,6 +14,7 @@ import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
+import { fuzzyScoreAny } from "@/lib/nl-search";
 import { fetchAll } from "@/lib/fetch-all";
 import { RouteError } from "@/components/RouteError";
 
@@ -40,6 +41,7 @@ function DonationsPage() {
   const queryClient = useQueryClient();
   const selection = useSelection();
   const [addOpen, setAddOpen] = useState(false);
+  const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -78,7 +80,35 @@ function DonationsPage() {
     },
   });
 
-  const gifts = (data ?? []).filter((d) => {
+  const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+  /** Same typo-tolerant matching as the main search: donor name, campaign or amount. */
+  function searchScore(d: (typeof rows)[number]): number | null {
+    if (terms.length === 0) return 0;
+    const fields = [
+      personName(d.people),
+      d.campaigns?.name ?? "",
+      d.grants?.name ?? "",
+      d.events?.name ?? "",
+      String(d.amount ?? ""),
+      currency(d.amount).replace(/[^0-9.]/g, ""),
+    ];
+    let sum = 0;
+    for (const term of terms) {
+      const s = fuzzyScoreAny(term, fields);
+      if (s === null) return null;
+      sum += s;
+    }
+    return sum;
+  }
+
+  const rows = data ?? [];
+  const gifts = rows
+    .map((d) => ({ d, score: searchScore(d) }))
+    .filter((r) => r.score !== null)
+    .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
+    .map((r) => r.d)
+    .filter((d) => {
     const date = (d.date ?? "").slice(0, 10);
     if (from && date < from) return false;
     if (to && date > to) return false;
@@ -89,7 +119,7 @@ function DonationsPage() {
     if (followUp === "thanked" && !d.thank_you_sent) return false;
     if (followUp === "needs_receipt" && d.receipt_sent) return false;
     return true;
-  });
+    });
   const total = gifts.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
   const awaitingThanks = (data ?? []).filter((d) => !d.thank_you_sent).length;
 
@@ -152,6 +182,15 @@ function DonationsPage() {
       }
     >
       <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Search by donor, campaign or amount" className="sm:col-span-2 lg:col-span-4">
+          <Input
+            className="text-base"
+            type="search"
+            placeholder="Try a name — spelling doesn't have to be perfect"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </Field>
         <Field label="Start date">
           <Input
             className="text-base"
@@ -214,11 +253,12 @@ function DonationsPage() {
             ))}
           </div>
         </Field>
-        {(from || to || min || max) && (
+        {(q || from || to || min || max) && (
           <button
             type="button"
             className="justify-self-start text-xs text-primary hover:underline sm:col-span-2 lg:col-span-4"
             onClick={() => {
+              setQ("");
               setFrom("");
               setTo("");
               setMin("");
