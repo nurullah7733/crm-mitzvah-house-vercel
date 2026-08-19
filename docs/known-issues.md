@@ -131,10 +131,14 @@ see what changed rather than wondering whether it was quietly dropped.
 22. **Salesforce migration is unbuilt.** No Salesforce-specific mapping preset and
     no dry run against a real export; it has to go through the generic CSV
     importer.
-23. **No tax statement or receipt output.** Donations track `thank_you_sent` and
-    `receipt_sent` flags with dates, reversible in one click, and filter views for
-    what is pending — but nothing *generates* an annual giving statement, a
-    receipt PDF or an acknowledgement letter. Only raw CSV.
+23. ~~**No tax statement or receipt output.**~~ FIXED. `/statements` generates
+    year-end statements per donor (or all at once) with org name, address, EIN and
+    IRS substantiation wording, plus per-gift acknowledgment letters from the
+    Settings template. Issuance is recorded in `issued_documents` (with a snapshot,
+    a `delivery_method` and a `delivery_status`), marks the gifts' receipt /
+    thank-you flags through the existing RPCs so timeline entries appear, and can
+    be voided to reverse all of it. Output is print/PDF only; email, text and
+    Constant Contact are declared delivery channels that are not wired up yet.
 24. **Campaigns have no UI.** The `campaigns` table, `donations.campaign_id` and
     the backfill are live; the list and detail routes were removed at the client's
     request. Campaign progress is therefore invisible in the app, and the legacy
@@ -154,11 +158,12 @@ see what changed rather than wondering whether it was quietly dropped.
     Auth user to a `staff_members` row with `ilike` on email (`user_id` exists but
     is not a foreign key to auth and is not always populated). `tasks.owner` and
     `people.owner` are free-text names, not references.
-29. **Yahrzeit edge case unhandled.** Adar → Adar II in leap years is handled, and
-    day-of-month is clamped for short Cheshvan/Kislev. The traditional rule that a
-    death after sunset falls on the next Hebrew day is *not* handled, so dates
-    entered from a Gregorian death date may be one day off. The community will
-    notice this.
+29. ~~**Yahrzeit edge case unhandled.**~~ FIXED. The yahrzeit editor now takes the
+    English date of passing plus an "after sunset" answer and rolls the Hebrew date
+    forward one day when set (`hebrewMonthDayFromDeath`). Adar → Adar II and
+    short-month clamping are unchanged. Existing records were flagged
+    `needs_sunset_review` rather than silently moved: the profile shows a notice and
+    staff either re-enter the date or confirm it is already correct.
 30. **Duplicate detection is capped.** `find_duplicate_people()` returns
     `LIMIT 200` pairs, with no pagination and no signal that it truncated.
 31. **Address-only households are surfaced but not policed.** Doorstep add,

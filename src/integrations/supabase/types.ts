@@ -237,6 +237,8 @@ export type Database = {
           date: string
           deleted_at: string | null
           event_id: string | null
+          goods_or_services_description: string | null
+          goods_or_services_provided: boolean
           grant_id: string | null
           id: string
           import_batch_id: string | null
@@ -258,6 +260,8 @@ export type Database = {
           date?: string
           deleted_at?: string | null
           event_id?: string | null
+          goods_or_services_description?: string | null
+          goods_or_services_provided?: boolean
           grant_id?: string | null
           id?: string
           import_batch_id?: string | null
@@ -279,6 +283,8 @@ export type Database = {
           date?: string
           deleted_at?: string | null
           event_id?: string | null
+          goods_or_services_description?: string | null
+          goods_or_services_provided?: boolean
           grant_id?: string | null
           id?: string
           import_batch_id?: string | null
@@ -752,6 +758,87 @@ export type Database = {
           },
           {
             foreignKeyName: "interactions_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      issued_documents: {
+        Row: {
+          created_at: string
+          delivered_at: string | null
+          delivery_method: string
+          delivery_note: string | null
+          delivery_status: string
+          donation_id: string | null
+          gift_count: number
+          gift_ids: string[]
+          id: string
+          issued_at: string
+          issued_by: string | null
+          issued_by_email: string | null
+          kind: string
+          person_id: string
+          snapshot: Json
+          status: string
+          tax_year: number | null
+          total_amount: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          delivered_at?: string | null
+          delivery_method?: string
+          delivery_note?: string | null
+          delivery_status?: string
+          donation_id?: string | null
+          gift_count?: number
+          gift_ids?: string[]
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          issued_by_email?: string | null
+          kind: string
+          person_id: string
+          snapshot?: Json
+          status?: string
+          tax_year?: number | null
+          total_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          delivered_at?: string | null
+          delivery_method?: string
+          delivery_note?: string | null
+          delivery_status?: string
+          donation_id?: string | null
+          gift_count?: number
+          gift_ids?: string[]
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          issued_by_email?: string | null
+          kind?: string
+          person_id?: string
+          snapshot?: Json
+          status?: string
+          tax_year?: number | null
+          total_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "issued_documents_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "issued_documents_person_id_fkey"
             columns: ["person_id"]
             isOneToOne: false
             referencedRelation: "people"
@@ -1281,28 +1368,37 @@ export type Database = {
       yahrzeits: {
         Row: {
           created_at: string
+          death_after_sunset: boolean
+          death_date: string | null
           deceased_name: string
           hebrew_day: number
           hebrew_month: number
           id: string
+          needs_sunset_review: boolean
           person_id: string
           relationship: string | null
         }
         Insert: {
           created_at?: string
+          death_after_sunset?: boolean
+          death_date?: string | null
           deceased_name: string
           hebrew_day: number
           hebrew_month: number
           id?: string
+          needs_sunset_review?: boolean
           person_id: string
           relationship?: string | null
         }
         Update: {
           created_at?: string
+          death_after_sunset?: boolean
+          death_date?: string | null
           deceased_name?: string
           hebrew_day?: number
           hebrew_month?: number
           id?: string
+          needs_sunset_review?: boolean
           person_id?: string
           relationship?: string | null
         }
@@ -1361,6 +1457,18 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      issue_acknowledgment: {
+        Args: { _delivery_method?: string; _donation_id: string }
+        Returns: string
+      }
+      issue_tax_statement: {
+        Args: {
+          _delivery_method?: string
+          _person_id: string
+          _tax_year: number
+        }
+        Returns: string
+      }
       lapsed_donors: {
         Args: {
           _limit?: number
@@ -1446,6 +1554,15 @@ export type Database = {
       recalc_all_totals_internal: { Args: never; Returns: number }
       recalc_person_totals: { Args: { _person_id: string }; Returns: undefined }
       recalculate_all_giving_totals: { Args: never; Returns: number }
+      record_document_delivery: {
+        Args: {
+          _delivery_method: string
+          _delivery_status?: string
+          _document_id: string
+          _note?: string
+        }
+        Returns: undefined
+      }
       registration_status_rank: { Args: { _status: string }; Returns: number }
       restore_records: {
         Args: { _ids: string[]; _table: string }
@@ -1480,6 +1597,7 @@ export type Database = {
       }
       text_soundex: { Args: { "": string }; Returns: string }
       undo_import: { Args: { _batch_id: string }; Returns: Json }
+      void_tax_statement: { Args: { _document_id: string }; Returns: undefined }
     }
     Enums: {
       app_role: "admin" | "marketing" | "va"

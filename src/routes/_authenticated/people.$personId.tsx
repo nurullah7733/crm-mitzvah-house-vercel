@@ -59,6 +59,7 @@ import { ContactMethodList, ContactMethodsEditor } from "@/components/ContactMet
 import { fetchContactMethods } from "@/lib/contact-methods";
 import { properCase, properCaseAddress } from "@/lib/proper-case";
 import { YahrzeitEditor } from "@/components/YahrzeitEditor";
+import { AcknowledgmentButton, StatementButton } from "@/components/DonorDocumentActions";
 import { PledgePanel } from "@/components/pledges/PledgePanel";
 import { logChange } from "@/lib/session-log";
 import { personInitials, personName } from "@/lib/names";
@@ -329,6 +330,10 @@ function PersonPage() {
   const thisYear = gifts
     .filter((d) => (d.date ?? "").slice(0, 4) === String(currentYear))
     .reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+  // Statements are produced for the most recent year this person actually gave in.
+  const statementYear = gifts.length
+    ? Math.max(...gifts.map((d) => Number((d.date ?? "").slice(0, 4)) || currentYear))
+    : currentYear;
   const giftSource = (d: (typeof gifts)[number]) =>
     [d.source, d.campaigns?.name, d.grants?.name, d.method]
       .filter(Boolean)
@@ -660,15 +665,29 @@ function PersonPage() {
               {(showAllGifts ? gifts : gifts.slice(0, 3)).map((d) => (
                 <div
                   key={d.id}
-                  className="flex items-start justify-between gap-3 border-b border-border py-2 last:border-0"
+                  className="border-b border-border py-2 last:border-0"
                 >
-                  <div className="min-w-0">
-                    <p className="text-sm text-foreground">{formatDate(d.date)}</p>
-                    <p className="text-xs text-muted-foreground">{giftSource(d)}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">{formatDate(d.date)}</p>
+                      <p className="text-xs text-muted-foreground">{giftSource(d)}</p>
+                    </div>
+                    <p className="shrink-0 font-heading text-sm font-semibold text-money">
+                      {currency(d.amount)}
+                    </p>
                   </div>
-                  <p className="shrink-0 font-heading text-sm font-semibold text-money">
-                    {currency(d.amount)}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <AcknowledgmentButton
+                      donationId={d.id}
+                      label={d.thank_you_sent ? "Print letter again" : "Thank-you letter"}
+                      onDone={async () => {
+                        await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+                      }}
+                    />
+                    {d.thank_you_sent ? (
+                      <span className="text-xs text-money">Thanked</span>
+                    ) : null}
+                  </div>
                 </div>
               ))}
               {gifts.length > 3 && (
@@ -681,6 +700,23 @@ function PersonPage() {
                 </button>
               )}
             </div>
+            {gifts.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
+                <StatementButton
+                  personId={personId}
+                  taxYear={statementYear}
+                  onDone={async () => {
+                    await queryClient.invalidateQueries({ queryKey: ["person", personId] });
+                  }}
+                />
+                <Link
+                  to="/statements"
+                  className="self-center text-xs text-primary hover:underline"
+                >
+                  All year-end statements
+                </Link>
+              </div>
+            )}
           </Card>
 
           <PledgePanel personId={p.id} />
@@ -773,6 +809,12 @@ function PersonPage() {
                       next: in {next.days} days ({formatDate(next.date.toISOString())})
                     </p>
                   )}
+                  {y.needs_sunset_review ? (
+                    <p className="mt-1 rounded-lg bg-[#F9C348]/15 px-2 py-1 text-xs text-[#8A6300]">
+                      Please check this date — we now ask whether the passing was after sunset, which
+                      moves the yahrzeit one Hebrew day later. Use Edit to confirm it.
+                    </p>
+                  ) : null}
                 </div>
               );
             })}

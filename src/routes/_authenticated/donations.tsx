@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Download, Plus } from "lucide-react";
+import { Download, FileText, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell, EmptyState, currency, formatDate } from "@/components/AppShell";
@@ -11,6 +11,7 @@ import { AddDonationDialog } from "@/components/forms/AddDialogs";
 import { useSelection, SelectBox, SelectAllToggle } from "@/components/BulkPeopleActions";
 import { BulkRecordBar } from "@/components/BulkRecordActions";
 import { EditRecordDialog } from "@/components/forms/EditRecordDialog";
+import { AcknowledgmentButton } from "@/components/DonorDocumentActions";
 import { Field } from "@/components/forms/fields";
 import { downloadCsv, stamp } from "@/lib/csv";
 import { personName } from "@/lib/names";
@@ -177,6 +178,11 @@ function DonationsPage() {
           </Button>
           <Button className="rounded-xl" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Log donation
+          </Button>
+          <Button asChild variant="outline" className="rounded-xl">
+            <Link to="/statements">
+              <FileText className="size-4" /> Year-end statements
+            </Link>
           </Button>
         </>
       }
@@ -376,6 +382,15 @@ function DonationsPage() {
                   </span>
                 ) : null}
               </label>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <AcknowledgmentButton
+                donationId={d.id}
+                label={d.thank_you_sent ? "Print letter again" : "Print thank-you letter"}
+                onDone={async () => {
+                  await queryClient.invalidateQueries({ queryKey: ["donations"] });
+                }}
+              />
             </div>
             <button
               type="button"
