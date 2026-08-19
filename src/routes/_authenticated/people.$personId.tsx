@@ -809,6 +809,12 @@ function PersonPage() {
                       next: in {next.days} days ({formatDate(next.date.toISOString())})
                     </p>
                   )}
+                  {y.needs_sunset_review ? (
+                    <p className="mt-1 rounded-lg bg-[#F9C348]/15 px-2 py-1 text-xs text-[#8A6300]">
+                      Please check this date — we now ask whether the passing was after sunset, which
+                      moves the yahrzeit one Hebrew day later. Use Edit to confirm it.
+                    </p>
+                  ) : null}
                 </div>
               );
             })}
