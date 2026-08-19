@@ -65,7 +65,7 @@ describe("year-end tax statements", () => {
 
   it("includes the organization identity, EIN and IRS substantiation language", () => {
     const doc = buildStatement({ donor, taxYear: 2025, gifts, org });
-    expect(doc.substantiation).toContain("no goods or services were provided");
+    expect(doc.substantiation).toMatch(/no goods or services were provided/i);
     const html = renderDocumentsHtml([doc], "2025 statement");
     expect(html).toContain("Mitzvah House");
     expect(html).toContain("12-3456789");
