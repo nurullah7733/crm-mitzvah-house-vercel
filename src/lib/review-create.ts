@@ -165,12 +165,13 @@ export async function createPersonFromRow(
 
   const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
   let eventFee = 0;
-  if ((row.event_name ?? "").trim()) {
+  const eventName = (row.event_name ?? "").trim();
+  if (eventName) {
     const { data: events } = await supabase
       .from("events")
       .select("id, name, date, registration_fee")
       .is("deleted_at", null);
-    const match = matchEventByName(row.event_name, (events ?? []) as EventOption[]);
+    const match = matchEventByName(eventName, (events ?? []) as EventOption[]);
     if (match) {
       eventFee = Math.min(
         Math.max(Number(match.registration_fee ?? 0), 0),
