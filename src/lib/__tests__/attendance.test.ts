@@ -26,6 +26,7 @@ const world = (over: Partial<Rows> = {}): Rows => ({
       name: "Chanukah Dinner",
       date: "2026-12-10",
       program: "Chanukah",
+      registration_fee: 36,
       deleted_at: null,
     },
   ],
@@ -91,6 +92,18 @@ describe("recording attendance", () => {
     });
     expect(registrations()).toHaveLength(1);
     expect(registrations()[0]).toMatchObject({ person_id: "p1", status: "attended" });
+  });
+
+  it("stores registration revenue separately from the full payment", async () => {
+    await recordAttendance({
+      personId: "p1",
+      eventId: "e1",
+      eventName: "Chanukah Dinner",
+      eventDate: "2026-12-10",
+      feeAmount: 36,
+      paymentAmount: 100,
+    });
+    expect(registrations()[0]).toMatchObject({ fee_amount: 36, payment_amount: 100 });
   });
 
   it("is idempotent: running twice leaves one registration and writes nothing the second time", async () => {

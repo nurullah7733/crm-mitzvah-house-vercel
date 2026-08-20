@@ -2062,8 +2062,16 @@ function ImportHistory() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-foreground">{b.filename}</p>
               <p className="text-xs text-muted-foreground">
-                {b.import_date} · {b.total_rows} rows · {b.new_rows} new · {b.matched_rows} matched
-                {b.status === "reverted" ? " · undone" : ""}
+                {b.import_date} · {b.total_rows} rows · {b.created_rows} created · {b.matched_rows}{" "}
+                matched · {b.flagged_rows} flagged · {b.failed_rows} failed
+                {b.processed_rows !== b.total_rows ? ` · ${b.processed_rows} processed` : ""}
+                {b.status === "reverted"
+                  ? " · undone"
+                  : b.status === "processing"
+                    ? " · interrupted"
+                    : b.status === "needs_attention"
+                      ? " · needs attention"
+                      : " · reconciled"}
               </p>
             </div>
             {b.status === "reverted" ? (

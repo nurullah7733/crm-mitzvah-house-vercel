@@ -726,43 +726,10 @@ function DataInbox() {
             </p>
             <div className="mt-2 space-y-3">
               {addressCards.map((card) => {
-                const setAll = (action: GroupAction) =>
-                  setChoices((c) => {
-                    const next = { ...c };
-                    for (const r of card.rows)
-                      next[r.id] = { action, relationship: c[r.id]?.relationship ?? "" };
-                    return next;
-                  });
                 const answered = card.rows.filter((r) => choices[r.id]).length;
                 const missingRelationship = card.rows.some(
                   (r) => choices[r.id]?.action === "related" && !choices[r.id]?.relationship,
                 );
-                const chosenInCard = card.rows.filter((r) => selection.has(r.id));
-                /** Apply one answer to just the rows ticked inside this card. */
-                const setSelected = (action: GroupAction, relationship = "") =>
-                  setChoices((c) => {
-                    const next = { ...c };
-                    for (const r of chosenInCard)
-                      next[r.id] = {
-                        action,
-                        relationship: relationship || (c[r.id]?.relationship ?? ""),
-                      };
-                    return next;
-                  });
-                const selectedTarget = chosenInCard
-                  .map((r) => chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]))
-                  .find((person) => Boolean(person));
-                const mergeSelectedIntoTarget = () => {
-                  if (!selectedTarget) {
-                    toast.error("Choose an existing contact on one of the ticked rows first.");
-                    return;
-                  }
-                  setChosenPeople((current) => ({
-                    ...current,
-                    ...Object.fromEntries(chosenInCard.map((row) => [row.id, selectedTarget])),
-                  }));
-                  setSelected("same");
-                };
                 return (
                   <div
                     key={card.key}
