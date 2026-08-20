@@ -7,6 +7,7 @@ export type NearbyEvent = {
   name: string;
   date: string;
   program: string | null;
+  registration_fee: number | null;
 };
 
 function shift(iso: string, days: number) {
@@ -23,7 +24,7 @@ export async function findEventsNearDate(date: string): Promise<NearbyEvent[]> {
   if (!date) return [];
   const { data, error } = await supabase
     .from("events")
-    .select("id, name, date, program")
+    .select("id, name, date, program, registration_fee")
     .is("deleted_at", null)
     .gte("date", shift(date, -1))
     .lte("date", shift(date, 1))
@@ -107,16 +108,20 @@ export async function recordAttendance({
   eventName,
   eventDate,
   importBatchId,
+  feeAmount,
+  paymentAmount,
 }: {
   personId: string;
   eventId: string;
   eventName: string;
   eventDate: string | null;
   importBatchId?: string | null;
+  feeAmount?: number;
+  paymentAmount?: number | null;
 }) {
   const { data: existing } = await supabase
     .from("registrations")
-    .select("id, status")
+    .select("id, status, fee_amount, payment_amount")
     .eq("event_id", eventId)
     .eq("person_id", personId)
     .limit(1);
@@ -126,7 +131,20 @@ export async function recordAttendance({
     if (!isAttended(row.status)) {
       const { error } = await supabase
         .from("registrations")
-        .update({ status: "attended" })
+        .update({
+          status: "attended",
+          ...(feeAmount !== undefined ? { fee_amount: feeAmount } : {}),
+          ...(paymentAmount !== undefined ? { payment_amount: paymentAmount } : {}),
+        })
+        .eq("id", row.id);
+      if (error) throw error;
+    } else if (feeAmount !== undefined || paymentAmount !== undefined) {
+      const { error } = await supabase
+        .from("registrations")
+        .update({
+          ...(feeAmount !== undefined ? { fee_amount: feeAmount } : {}),
+          ...(paymentAmount !== undefined ? { payment_amount: paymentAmount } : {}),
+        })
         .eq("id", row.id);
       if (error) throw error;
     }
@@ -136,6 +154,8 @@ export async function recordAttendance({
       person_id: personId,
       status: "attended",
       import_batch_id: importBatchId ?? null,
+      fee_amount: feeAmount ?? 0,
+      payment_amount: paymentAmount ?? null,
     });
     if (error) throw error;
   }
