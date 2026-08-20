@@ -78,6 +78,7 @@ function EventsPage() {
                   location: e.location ?? "",
                   program: e.program ?? "",
                   capacity: e.capacity ?? "",
+                  registration_fee: e.registration_fee ?? "",
                   staff_lead: e.staff_lead ?? "",
                   registered: (e.registrations ?? []).length,
                   attended: (e.registrations ?? []).filter((r) => r.status === "attended").length,
@@ -144,6 +145,11 @@ function EventsPage() {
                   {e.time ? ` · ${e.time}` : ""} · {e.location ?? "TBD"}
                 </p>
                 {e.program && <p className="mt-1 text-xs text-primary">{e.program}</p>}
+                {e.registration_fee !== null && (
+                  <p className="mt-1 text-xs text-money">
+                    ${Number(e.registration_fee).toLocaleString()} registration fee
+                  </p>
+                )}
               </div>
               <div className="text-right text-sm text-muted-foreground">
                 <p>
@@ -199,6 +205,7 @@ function EventsPage() {
             { key: "location", label: "Location" },
             { key: "program", label: "Program" },
             { key: "capacity", label: "Capacity", type: "number" },
+            { key: "registration_fee", label: "Registration fee", type: "number" },
             { key: "staff_lead", label: "Staff lead" },
             { key: "description", label: "Description", type: "textarea" },
           ]}

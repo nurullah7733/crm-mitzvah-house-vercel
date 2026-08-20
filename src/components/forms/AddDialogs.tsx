@@ -1206,6 +1206,7 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
     location: "",
     program: "",
     capacity: "",
+    registration_fee: "",
     staff_lead: "",
     description: "",
   });
@@ -1228,6 +1229,7 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
         location: form.location.trim() || null,
         program: program || null,
         capacity: form.capacity ? Number(form.capacity) : null,
+        registration_fee: form.registration_fee ? Number(form.registration_fee) : null,
         staff_lead: form.staff_lead.trim() || null,
         description: form.description.trim() || null,
       });
@@ -1244,6 +1246,7 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
         location: "",
         program: "",
         capacity: "",
+        registration_fee: "",
         staff_lead: "",
         description: "",
       });
@@ -1366,6 +1369,18 @@ export function AddEventDialog({ open, onOpenChange }: DialogProps) {
             min="0"
             value={form.capacity}
             onChange={(e) => set("capacity", e.target.value)}
+          />
+        </Field>
+        <Field label="Registration fee">
+          <Input
+            className="text-base"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            placeholder="$0.00"
+            value={form.registration_fee}
+            onChange={(e) => set("registration_fee", e.target.value)}
           />
         </Field>
         <Field label="Staff lead">

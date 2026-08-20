@@ -244,7 +244,7 @@ function ImportCenter() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("events")
-        .select("id, name, date")
+        .select("id, name, date, registration_fee")
         .is("deleted_at", null)
         .order("date", { ascending: false });
       if (error) throw error;
@@ -493,7 +493,7 @@ function ImportCenter() {
           matched_rows: counts.matched,
           new_rows: counts.new,
           ambiguous_rows: counts.ambiguous,
-          status: "imported",
+          status: "processing",
           mapping: mapping.reduce<Record<string, string>>((acc, m, i) => {
             acc[m.header || `Column ${i + 1}`] = m.field;
             return acc;
@@ -503,6 +503,34 @@ function ImportCenter() {
         .single();
       if (batchError) throw batchError;
       const batchId = batch.id;
+
+      const { error: outcomeSeedError } = await supabase.from("import_row_outcomes").insert(
+        analysed.map((item, index) => ({
+          batch_id: batchId,
+          row_number: index + 1,
+          row_data: item.values as never,
+          outcome: "processing",
+        })),
+      );
+      if (outcomeSeedError) throw outcomeSeedError;
+
+      async function recordOutcome(
+        index: number,
+        outcome: "created" | "matched" | "flagged" | "failed",
+        details: { personId?: string | null; reviewQueueId?: string | null; message?: string } = {},
+      ) {
+        const { error } = await supabase
+          .from("import_row_outcomes")
+          .update({
+            outcome,
+            person_id: details.personId ?? null,
+            review_queue_id: details.reviewQueueId ?? null,
+            message: details.message ?? null,
+          })
+          .eq("batch_id", batchId)
+          .eq("row_number", index + 1);
+        if (error) throw error;
+      }
 
       const fieldSources: {
         person_id: string;
@@ -538,10 +566,11 @@ function ImportCenter() {
         reason: string,
         candidateIds: string[],
         group: { key: string; address: string } | null,
-      ) {
+      ): Promise<string> {
         queued += 1;
-        await guard(
-          supabase.from("review_queue").insert({
+        const { data, error } = await supabase
+          .from("review_queue")
+          .insert({
             batch_id: batchId,
             filename: sheet!.name,
             reason,
@@ -553,9 +582,11 @@ function ImportCenter() {
             } as unknown as Record<string, string>,
             candidate_person_ids: candidateIds,
             status: "pending",
-          }),
-          { area: "import", action: "Save an imported detail" },
-        );
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        return data.id;
       }
 
       // Existing households, so people at the same address join one household
@@ -757,7 +788,7 @@ function ImportCenter() {
             giftsElsewhere.length > 0
           ) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
-            await queueForReview(
+            const reviewQueueId = await queueForReview(
               v,
               giftAlreadyImported
                 ? "This gift appears to have already been imported"
@@ -781,6 +812,15 @@ function ImportCenter() {
               ],
               groupInfo,
             );
+            await recordOutcome(index, "flagged", {
+              reviewQueueId,
+              message:
+                giftAlreadyImported
+                  ? "This gift appears to have already been imported"
+                  : live.status === "ambiguous"
+                    ? live.reason
+                    : item.match.reason,
+            });
             continue;
           }
 
@@ -926,7 +966,7 @@ function ImportCenter() {
             }
           }
 
-          if (!personId) continue;
+          if (!personId) throw new Error("No contact was created or matched for this row.");
 
           if (relationship) {
             await guard(
@@ -950,12 +990,17 @@ function ImportCenter() {
             "";
           if (targetEventId) {
             const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
+            const fee = Math.min(
+              Math.max(Number(linkedEvent?.registration_fee ?? 0), 0),
+              Number.isFinite(rowAmount) && rowAmount > 0 ? rowAmount : 0,
+            );
             await recordAttendance({
               personId,
               eventId: targetEventId,
               eventName: linkedEvent?.name ?? "an event",
               eventDate: linkedEvent?.date ?? null,
               importBatchId: batchId,
+              ...(fee > 0 ? { feeAmount: fee, paymentAmount: rowAmount } : {}),
             });
             // The attendance timeline entry is written by the database from the
             // registration, so removing the registration removes the entry too.
@@ -1032,7 +1077,7 @@ function ImportCenter() {
           if (spouseName && (spouseName.first || spouseName.last)) {
             const spouseLast = spouseName.last || last;
             if (!inHousehold(spouseName.first, spouseLast)) {
-              const { data: spouse } = await supabase
+            const { data: spouse, error: spouseError } = await supabase
                 .from("people")
                 .insert({
                   first_name: spouseName.first || null,
@@ -1047,6 +1092,7 @@ function ImportCenter() {
                 })
                 .select("id")
                 .single();
+              if (spouseError) throw spouseError;
               if (spouse?.id) {
                 const spouseMethods: MethodDraft[] = [];
                 if (v.spouse_phone)
@@ -1088,7 +1134,7 @@ function ImportCenter() {
             const childLast = (child.last ?? "").trim() || last;
             if (!childFirst && !childLast) continue;
             if (inHousehold(childFirst, childLast)) continue;
-            const { data: childRow } = await supabase
+            const { data: childRow, error: childError } = await supabase
               .from("people")
               .insert({
                 first_name: childFirst || null,
@@ -1104,6 +1150,7 @@ function ImportCenter() {
               })
               .select("id")
               .single();
+            if (childError) throw childError;
             if (childRow?.id)
               remember({
                 id: childRow.id,
@@ -1143,6 +1190,23 @@ function ImportCenter() {
               unreadableGiftDates += 1;
             } else if (Number.isFinite(amount) && amount > 0) {
               const giftDate = readDate ?? importDate;
+              const explicitEvent = targetEventId
+                ? (events ?? []).find((event) => event.id === targetEventId) ?? null
+                : null;
+              const nearbyGroup = giftEventGroups.find(
+                (g) =>
+                  g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+              );
+              const nearbyDecision = nearbyGroup
+                ? giftEventDecisions[nearbyGroup.event.id]
+                : undefined;
+              const feeEvent =
+                explicitEvent ?? (nearbyDecision === "attended" ? nearbyGroup?.event ?? null : null);
+              const registrationFee = Math.min(
+                Math.max(Number(feeEvent?.registration_fee ?? 0), 0),
+                amount,
+              );
+              const donationAmount = amount - registrationFee;
               const fingerprint = donationImportFingerprint(v, amount, giftDate);
               const rowCampaignId = await resolveCampaignId(v.campaign);
               // Re-importing the same file must not add the same gift twice, and a
@@ -1151,7 +1215,7 @@ function ImportCenter() {
                 .from("donations")
                 .select("id")
                 .eq("person_id", personId)
-                .eq("amount", amount)
+                .eq("amount", donationAmount)
                 .eq("date", giftDate)
                 .is("deleted_at", null);
               const { data: existingGift } = await (
@@ -1159,12 +1223,12 @@ function ImportCenter() {
                   ? dupeCheck.eq("campaign_id", rowCampaignId)
                   : dupeCheck.is("campaign_id", null)
               ).limit(1);
-              if (!existingGift?.length) {
-                const { data: newGift } = await supabase
+              if (!existingGift?.length && donationAmount > 0) {
+                const { data: newGift, error: giftError } = await supabase
                   .from("donations")
                   .insert({
                     person_id: personId,
-                    amount,
+                    amount: donationAmount,
                     date: giftDate,
                     campaign_id: rowCampaignId,
                     source,
@@ -1174,12 +1238,10 @@ function ImportCenter() {
                   })
                   .select("id")
                   .single();
+                if (giftError) throw giftError;
 
                 // Apply the reviewer's one decision about gifts made on an event date.
-                const giftEvent = giftEventGroups.find(
-                  (g) =>
-                    g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
-                );
+                const giftEvent = nearbyGroup;
                 const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
                 if (
                   newGift?.id &&
@@ -1192,6 +1254,9 @@ function ImportCenter() {
                     eventId: giftEvent.event.id,
                     attended: decision === "attended",
                     importBatchId: batchId,
+                    ...(decision === "attended" && registrationFee > 0
+                      ? { feeAmount: registrationFee, paymentAmount: amount }
+                      : {}),
                   });
                 } else if (newGift?.id && targetEventId) {
                   // The row named an event or a campaign that is an event, so the
@@ -1229,12 +1294,26 @@ function ImportCenter() {
               { area: "import", action: "Save an imported detail" },
             );
           }
+          await recordOutcome(index, match.status === "new" ? "created" : "matched", {
+            personId,
+          });
         } catch (rowError) {
           failures += 1;
           console.error("Import row failed", rowError);
           const why = await friendlyDbError(rowError, "We couldn't save this row.");
           const k = addressKey(composeAddress(v));
-          await queueForReview(v, why, [], k ? { key: k, address: composeAddress(v) ?? "" } : null);
+          let reviewQueueId: string | null = null;
+          try {
+            reviewQueueId = await queueForReview(
+              v,
+              why,
+              [],
+              k ? { key: k, address: composeAddress(v) ?? "" } : null,
+            );
+          } catch (queueError) {
+            console.error("Failed to preserve import row in review queue", queueError);
+          }
+          await recordOutcome(index, "failed", { reviewQueueId, message: why });
         }
 
         // Let the browser breathe so a long import never freezes the page.
@@ -1253,7 +1332,37 @@ function ImportCenter() {
         }
       }
 
-      const importedRows = Math.max(analysed.length - queued, 0);
+      const { data: outcomeRows, error: outcomeError } = await supabase
+        .from("import_row_outcomes")
+        .select("outcome")
+        .eq("batch_id", batchId);
+      if (outcomeError) throw outcomeError;
+      const reconciliation = {
+        created: (outcomeRows ?? []).filter((row) => row.outcome === "created").length,
+        matched: (outcomeRows ?? []).filter((row) => row.outcome === "matched").length,
+        flagged: (outcomeRows ?? []).filter((row) => row.outcome === "flagged").length,
+        failed: (outcomeRows ?? []).filter((row) => row.outcome === "failed").length,
+      };
+      const processed = Object.values(reconciliation).reduce((sum, count) => sum + count, 0);
+      const reconciled = processed === analysed.length;
+      const { error: batchFinishError } = await supabase
+        .from("import_batches")
+        .update({
+          processed_rows: processed,
+          created_rows: reconciliation.created,
+          matched_rows: reconciliation.matched,
+          flagged_rows: reconciliation.flagged,
+          failed_rows: reconciliation.failed,
+          completed_at: new Date().toISOString(),
+          status: reconciled && reconciliation.failed === 0 ? "imported" : "needs_attention",
+        })
+        .eq("id", batchId);
+      if (batchFinishError) throw batchFinishError;
+      if (!reconciled) {
+        throw new Error(
+          `Import stopped before reconciliation: ${processed} of ${analysed.length} rows have a final outcome.`,
+        );
+      }
       const notes = [
         queued > 0
           ? "The rows that need a person to look at them are waiting in the Data Inbox."
@@ -1265,7 +1374,7 @@ function ImportCenter() {
           : "",
       ].filter(Boolean);
       toast.success(
-        `${importedRows} imported · ${queued} need review${
+        `${analysed.length} rows reconciled · ${reconciliation.created} created · ${reconciliation.matched} matched · ${reconciliation.flagged} flagged · ${reconciliation.failed} failed${
           counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
         }`,
         {
@@ -1953,8 +2062,16 @@ function ImportHistory() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-foreground">{b.filename}</p>
               <p className="text-xs text-muted-foreground">
-                {b.import_date} · {b.total_rows} rows · {b.new_rows} new · {b.matched_rows} matched
-                {b.status === "reverted" ? " · undone" : ""}
+                {b.import_date} · {b.total_rows} rows · {b.created_rows} created · {b.matched_rows}{" "}
+                matched · {b.flagged_rows} flagged · {b.failed_rows} failed
+                {b.processed_rows !== b.total_rows ? ` · ${b.processed_rows} processed` : ""}
+                {b.status === "reverted"
+                  ? " · undone"
+                  : b.status === "processing"
+                    ? " · interrupted"
+                    : b.status === "needs_attention"
+                      ? " · needs attention"
+                      : " · reconciled"}
               </p>
             </div>
             {b.status === "reverted" ? (

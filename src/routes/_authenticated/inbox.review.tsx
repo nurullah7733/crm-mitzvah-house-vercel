@@ -33,12 +33,13 @@ import { showError, guard } from "@/lib/app-errors";
 type Bucket = { id: string; title: string; help: string };
 
 /** What the reviewer decided about one person on a shared-address card. */
-type GroupAction = "same" | "related" | "separate" | "later";
+type GroupAction = "same" | "related" | "separate" | "discard" | "later";
 
 const GROUP_ACTIONS: { value: GroupAction; label: string }[] = [
   { value: "same", label: "Same person we already have" },
   { value: "related", label: "Related — lives here" },
   { value: "separate", label: "Not related — own contact" },
+  { value: "discard", label: "Discard this row" },
   { value: "later", label: "Not sure — leave for later" },
 ];
 
@@ -507,6 +508,11 @@ function DataInbox() {
           );
           continue;
         }
+        if (action === "discard") {
+          await discardRow(r.id, "Discarded while reviewing this address group");
+          saved += 1;
+          continue;
+        }
         if (action === "same") {
           const existing = chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]);
           if (!existing)
@@ -720,43 +726,10 @@ function DataInbox() {
             </p>
             <div className="mt-2 space-y-3">
               {addressCards.map((card) => {
-                const setAll = (action: GroupAction) =>
-                  setChoices((c) => {
-                    const next = { ...c };
-                    for (const r of card.rows)
-                      next[r.id] = { action, relationship: c[r.id]?.relationship ?? "" };
-                    return next;
-                  });
                 const answered = card.rows.filter((r) => choices[r.id]).length;
                 const missingRelationship = card.rows.some(
                   (r) => choices[r.id]?.action === "related" && !choices[r.id]?.relationship,
                 );
-                const chosenInCard = card.rows.filter((r) => selection.has(r.id));
-                /** Apply one answer to just the rows ticked inside this card. */
-                const setSelected = (action: GroupAction, relationship = "") =>
-                  setChoices((c) => {
-                    const next = { ...c };
-                    for (const r of chosenInCard)
-                      next[r.id] = {
-                        action,
-                        relationship: relationship || (c[r.id]?.relationship ?? ""),
-                      };
-                    return next;
-                  });
-                const selectedTarget = chosenInCard
-                  .map((r) => chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]))
-                  .find((person) => Boolean(person));
-                const mergeSelectedIntoTarget = () => {
-                  if (!selectedTarget) {
-                    toast.error("Choose an existing contact on one of the ticked rows first.");
-                    return;
-                  }
-                  setChosenPeople((current) => ({
-                    ...current,
-                    ...Object.fromEntries(chosenInCard.map((row) => [row.id, selectedTarget])),
-                  }));
-                  setSelected("same");
-                };
                 return (
                   <div
                     key={card.key}
@@ -768,72 +741,6 @@ function DataInbox() {
                     <p className="text-sm text-muted-foreground">
                       {card.rows.length} people in the upload share this address.
                     </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => setAll("related")}
-                      >
-                        All related
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => setAll("separate")}
-                      >
-                        None related
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="rounded-xl"
-                        onClick={() => setAll("later")}
-                      >
-                        Decide later
-                      </Button>
-                    </div>
-
-                    {chosenInCard.length > 0 && (
-                      <div className="mt-2 rounded-xl border border-primary/40 bg-primary/5 p-3">
-                        <p className="text-sm font-medium text-foreground">
-                          {chosenInCard.length} ticked on this card — answer just those
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Use this when a group is mixed: tick the rows that are the same person as
-                          someone we already have, answer them here, then tick the rest and say how
-                          they're related.
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="rounded-xl"
-                            onClick={mergeSelectedIntoTarget}
-                          >
-                            Merge all ticked into {selectedTarget ? personName(selectedTarget) : "one contact"}
-                          </Button>
-                          {RELATIONSHIP_OPTIONS.map((rel) => (
-                            <Button
-                              key={rel}
-                              size="sm"
-                              variant="outline"
-                              className="rounded-xl"
-                              onClick={() => setSelected("related", rel)}
-                            >
-                              Ticked are {rel.toLowerCase()}
-                            </Button>
-                          ))}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="rounded-xl"
-                            onClick={() => setSelected("separate")}
-                          >
-                            Ticked: not related
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
                     <div className="mt-3 space-y-2">
                       {card.rows.map((r) => {
                         const row = (r.row_data ?? {}) as RowValues;
@@ -873,7 +780,7 @@ function DataInbox() {
                                   }))
                                 }
                               >
-                                <option value="">What should we do?</option>
+                                <option value="">Choose this row's action</option>
                                 {GROUP_ACTIONS.filter(
                                   (a) => a.value !== "same" || selectedPerson,
                                 ).map((a) => (
@@ -954,13 +861,15 @@ function DataInbox() {
                                   </div>
                                 )}
                             </div>
-                            <button
+                            <Button
                               type="button"
-                              className="mt-2 text-xs text-primary underline"
+                              size="sm"
+                              variant="ghost"
+                              className="mt-2 rounded-xl text-primary"
                               onClick={() => setReviewId(r.id)}
                             >
-                              Open row
-                            </button>
+                              Edit row details
+                            </Button>
                           </div>
                         );
                       })}
@@ -976,7 +885,7 @@ function DataInbox() {
                         }
                         onClick={() => applyCard.mutate(card)}
                       >
-                        {applyCard.isPending ? "Applying…" : "Apply household decisions"}
+                        {applyCard.isPending ? "Applying…" : "Apply all row actions"}
                       </Button>
                       <span className="text-xs text-muted-foreground">
                         {answered} of {card.rows.length} answered

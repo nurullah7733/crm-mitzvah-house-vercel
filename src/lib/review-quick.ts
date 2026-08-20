@@ -53,11 +53,13 @@ async function addRowActivity(
     interactionIds: [],
     addedActivity: [],
   };
+  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  let eventFee = 0;
 
   if ((row.event_name ?? "").trim()) {
     const { data: events } = await supabase
       .from("events")
-      .select("id, name, date")
+      .select("id, name, date, registration_fee")
       .is("deleted_at", null);
     const match = matchEventByName(row.event_name!, (events ?? []) as EventOption[]);
     if (match) {
@@ -76,7 +78,16 @@ async function addRowActivity(
         eventName: match.name,
         eventDate: (match as { date?: string | null }).date ?? null,
         importBatchId: batchId,
+        feeAmount: Math.min(
+          Math.max(Number(match.registration_fee ?? 0), 0),
+          Number.isFinite(paymentAmount) ? paymentAmount : 0,
+        ),
+        paymentAmount: Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : null,
       });
+      eventFee = Math.min(
+        Math.max(Number(match.registration_fee ?? 0), 0),
+        Number.isFinite(paymentAmount) ? paymentAmount : 0,
+      );
       if (!existing) {
         const { data: reg } = await supabase
           .from("registrations")
@@ -95,7 +106,7 @@ async function addRowActivity(
   }
 
   if ((row.amount ?? "").toString().trim()) {
-    const amount = Number(String(row.amount).replace(/[^0-9.-]/g, ""));
+    const amount = paymentAmount - eventFee;
     if (Number.isFinite(amount) && amount > 0) {
       const giftDate = isoDate(row.date) ?? today();
       const fingerprint = donationImportFingerprint(row, amount, giftDate);

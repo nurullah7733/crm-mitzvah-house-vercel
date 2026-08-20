@@ -3,6 +3,8 @@ import { parseImportDate } from "@/lib/import-dates";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { guard, mustWrite } from "@/lib/app-errors";
 import { resolveCampaignId } from "@/lib/campaigns";
+import { matchEventByName, type EventOption } from "@/lib/import-links";
+import { recordAttendance } from "@/lib/gift-events";
 import {
   addressKey,
   composeAddress,
@@ -161,11 +163,46 @@ export async function createPersonFromRow(
       fallback: "The details saved, but we couldn't record where they came from.",
     });
 
-  const amount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  let eventFee = 0;
+  const eventName = (row.event_name ?? "").trim();
+  if (eventName) {
+    const { data: events } = await supabase
+      .from("events")
+      .select("id, name, date, registration_fee")
+      .is("deleted_at", null);
+    const match = matchEventByName(eventName, (events ?? []) as EventOption[]);
+    if (match) {
+      eventFee = Math.min(
+        Math.max(Number(match.registration_fee ?? 0), 0),
+        Number.isFinite(paymentAmount) ? paymentAmount : 0,
+      );
+      await recordAttendance({
+        personId,
+        eventId: match.id,
+        eventName: match.name,
+        eventDate: match.date ?? null,
+        importBatchId: batchId,
+        feeAmount: eventFee,
+        paymentAmount: Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : null,
+      });
+    }
+  }
+  const amount = paymentAmount - eventFee;
   if (Number.isFinite(amount) && amount > 0) {
     const giftDate = isoDate(row.date) ?? today();
-    await mustWrite(
-      supabase.from("donations").insert({
+    const fingerprint = donationImportFingerprint(row, amount, giftDate);
+    const { data: duplicate } = fingerprint
+      ? await supabase
+          .from("donations")
+          .select("id")
+          .eq("import_fingerprint", fingerprint)
+          .is("deleted_at", null)
+          .limit(1)
+      : { data: [] };
+    if (!duplicate?.length)
+      await mustWrite(
+        supabase.from("donations").insert({
         person_id: personId,
         amount,
         date: giftDate,
@@ -173,10 +210,10 @@ export async function createPersonFromRow(
         source,
         notes: row.notes ?? null,
         import_batch_id: batchId,
-        import_fingerprint: donationImportFingerprint(row, amount, giftDate),
-      } as never),
-      "The gift couldn't be saved.",
-    );
+          import_fingerprint: fingerprint,
+        } as never),
+        "The gift couldn't be saved.",
+      );
   } else {
     const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
       .filter(Boolean)
