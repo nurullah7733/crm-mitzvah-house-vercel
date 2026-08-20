@@ -57,7 +57,7 @@ function EventPage() {
         fetchAll((f, t) =>
           supabase
             .from("registrations")
-            .select("id, status, people(id, display_name, first_name, last_name, email, phone)")
+            .select("id, status, fee_amount, payment_amount, people(id, display_name, first_name, last_name, email, phone)")
             .eq("event_id", eventId)
             .order("id")
             .range(f, t),
@@ -127,6 +127,7 @@ function EventPage() {
   const registered = data?.registrations ?? [];
   const gifts = data?.gifts ?? [];
   const giftTotal = gifts.reduce((sum, g) => sum + Number(g.amount ?? 0), 0);
+  const registrationRevenue = registered.reduce((sum, r) => sum + Number(r.fee_amount ?? 0), 0);
   const attendedCount = registered.filter(
     (r) => (r.status ?? "").toLowerCase() === "attended",
   ).length;
@@ -170,6 +171,7 @@ function EventPage() {
           { key: "location", label: "Location" },
           { key: "program", label: "Program" },
           { key: "capacity", label: "Capacity", type: "number" },
+          { key: "registration_fee", label: "Registration fee", type: "number" },
           { key: "staff_lead", label: "Staff lead" },
           { key: "description", label: "Description", type: "textarea" },
         ]}
@@ -189,7 +191,7 @@ function EventPage() {
           {e.staff_lead ? ` · Lead: ${e.staff_lead}` : ""}
         </p>
         {e.description && <p className="mt-2 text-sm text-muted-foreground">{e.description}</p>}
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-border p-3">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Registered</p>
             <p className="font-heading text-lg font-semibold text-foreground">
@@ -208,6 +210,13 @@ function EventPage() {
             <p className="text-xs text-muted-foreground">
               {gifts.length} {gifts.length === 1 ? "gift" : "gifts"} attributed
             </p>
+          </div>
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Event revenue</p>
+            <p className="font-heading text-lg font-semibold text-primary">
+              {currency(registrationRevenue)}
+            </p>
+            <p className="text-xs text-muted-foreground">Registration fees, not donations</p>
           </div>
         </div>
       </section>
@@ -241,6 +250,14 @@ function EventPage() {
                     <p className="truncate text-xs text-muted-foreground">
                       {r.people.email ?? (formatPhone(r.people.phone) || "No contact on file")}
                     </p>
+                    {Number(r.fee_amount ?? 0) > 0 && (
+                      <p className="text-xs text-money">
+                        {currency(Number(r.fee_amount))} registration fee
+                        {Number(r.payment_amount ?? 0) > Number(r.fee_amount ?? 0)
+                          ? ` · ${currency(Number(r.payment_amount) - Number(r.fee_amount))} donation`
+                          : ""}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-1 rounded-xl border border-border p-1">

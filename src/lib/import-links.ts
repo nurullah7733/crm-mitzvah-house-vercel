@@ -1,7 +1,7 @@
 import { addressKey } from "@/lib/import-mapping";
 
 /** An event as the import screen needs it. */
-export type EventOption = { id: string; name: string; date: string };
+export type EventOption = { id: string; name: string; date: string; registration_fee?: number | null };
 
 export function normalizeLabel(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
