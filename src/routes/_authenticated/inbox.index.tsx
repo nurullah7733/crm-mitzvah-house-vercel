@@ -1077,7 +1077,7 @@ function ImportCenter() {
           if (spouseName && (spouseName.first || spouseName.last)) {
             const spouseLast = spouseName.last || last;
             if (!inHousehold(spouseName.first, spouseLast)) {
-              const { data: spouse } = await supabase
+            const { data: spouse, error: spouseError } = await supabase
                 .from("people")
                 .insert({
                   first_name: spouseName.first || null,
@@ -1092,6 +1092,7 @@ function ImportCenter() {
                 })
                 .select("id")
                 .single();
+              if (spouseError) throw spouseError;
               if (spouse?.id) {
                 const spouseMethods: MethodDraft[] = [];
                 if (v.spouse_phone)
@@ -1133,7 +1134,7 @@ function ImportCenter() {
             const childLast = (child.last ?? "").trim() || last;
             if (!childFirst && !childLast) continue;
             if (inHousehold(childFirst, childLast)) continue;
-            const { data: childRow } = await supabase
+            const { data: childRow, error: childError } = await supabase
               .from("people")
               .insert({
                 first_name: childFirst || null,
@@ -1149,6 +1150,7 @@ function ImportCenter() {
               })
               .select("id")
               .single();
+            if (childError) throw childError;
             if (childRow?.id)
               remember({
                 id: childRow.id,
@@ -1222,7 +1224,7 @@ function ImportCenter() {
                   : dupeCheck.is("campaign_id", null)
               ).limit(1);
               if (!existingGift?.length && donationAmount > 0) {
-                const { data: newGift } = await supabase
+                const { data: newGift, error: giftError } = await supabase
                   .from("donations")
                   .insert({
                     person_id: personId,
@@ -1236,6 +1238,7 @@ function ImportCenter() {
                   })
                   .select("id")
                   .single();
+                if (giftError) throw giftError;
 
                 // Apply the reviewer's one decision about gifts made on an event date.
                 const giftEvent = nearbyGroup;
@@ -1251,6 +1254,9 @@ function ImportCenter() {
                     eventId: giftEvent.event.id,
                     attended: decision === "attended",
                     importBatchId: batchId,
+                    ...(decision === "attended" && registrationFee > 0
+                      ? { feeAmount: registrationFee, paymentAmount: amount }
+                      : {}),
                   });
                 } else if (newGift?.id && targetEventId) {
                   // The row named an event or a campaign that is an event, so the

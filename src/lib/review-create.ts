@@ -164,8 +164,18 @@ export async function createPersonFromRow(
   const amount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
   if (Number.isFinite(amount) && amount > 0) {
     const giftDate = isoDate(row.date) ?? today();
-    await mustWrite(
-      supabase.from("donations").insert({
+    const fingerprint = donationImportFingerprint(row, amount, giftDate);
+    const { data: duplicate } = fingerprint
+      ? await supabase
+          .from("donations")
+          .select("id")
+          .eq("import_fingerprint", fingerprint)
+          .is("deleted_at", null)
+          .limit(1)
+      : { data: [] };
+    if (!duplicate?.length)
+      await mustWrite(
+        supabase.from("donations").insert({
         person_id: personId,
         amount,
         date: giftDate,
@@ -173,10 +183,10 @@ export async function createPersonFromRow(
         source,
         notes: row.notes ?? null,
         import_batch_id: batchId,
-        import_fingerprint: donationImportFingerprint(row, amount, giftDate),
-      } as never),
-      "The gift couldn't be saved.",
-    );
+          import_fingerprint: fingerprint,
+        } as never),
+        "The gift couldn't be saved.",
+      );
   } else {
     const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
       .filter(Boolean)

@@ -49,12 +49,16 @@ export async function attributeGiftToEvent({
   eventId,
   attended,
   importBatchId,
+  feeAmount,
+  paymentAmount,
 }: {
   donationId: string;
   personId: string;
   eventId: string;
   attended: boolean;
   importBatchId?: string | null;
+  feeAmount?: number;
+  paymentAmount?: number | null;
 }) {
   const { data: event } = await supabase
     .from("events")
@@ -98,6 +102,8 @@ export async function attributeGiftToEvent({
     eventName: event?.name ?? "an event",
     eventDate: event?.date ?? null,
     ...(importBatchId !== undefined ? { importBatchId } : {}),
+    ...(feeAmount !== undefined ? { feeAmount } : {}),
+    ...(paymentAmount !== undefined ? { paymentAmount } : {}),
   });
 }
 
