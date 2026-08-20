@@ -355,6 +355,7 @@ export type Database = {
           location: string | null
           name: string
           program: string | null
+          registration_fee: number | null
           staff_lead: string | null
           time: string | null
         }
@@ -368,6 +369,7 @@ export type Database = {
           location?: string | null
           name: string
           program?: string | null
+          registration_fee?: number | null
           staff_lead?: string | null
           time?: string | null
         }
@@ -381,6 +383,7 @@ export type Database = {
           location?: string | null
           name?: string
           program?: string | null
+          registration_fee?: number | null
           staff_lead?: string | null
           time?: string | null
         }
@@ -572,44 +575,120 @@ export type Database = {
       import_batches: {
         Row: {
           ambiguous_rows: number
+          completed_at: string | null
           created_at: string
+          created_rows: number
+          failed_rows: number
           filename: string
+          flagged_rows: number
           id: string
           import_date: string
           mapping: Json
           matched_rows: number
           new_rows: number
+          processed_rows: number
           status: string
           total_rows: number
           uploaded_by: string | null
         }
         Insert: {
           ambiguous_rows?: number
+          completed_at?: string | null
           created_at?: string
+          created_rows?: number
+          failed_rows?: number
           filename: string
+          flagged_rows?: number
           id?: string
           import_date?: string
           mapping?: Json
           matched_rows?: number
           new_rows?: number
+          processed_rows?: number
           status?: string
           total_rows?: number
           uploaded_by?: string | null
         }
         Update: {
           ambiguous_rows?: number
+          completed_at?: string | null
           created_at?: string
+          created_rows?: number
+          failed_rows?: number
           filename?: string
+          flagged_rows?: number
           id?: string
           import_date?: string
           mapping?: Json
           matched_rows?: number
           new_rows?: number
+          processed_rows?: number
           status?: string
           total_rows?: number
           uploaded_by?: string | null
         }
         Relationships: []
+      }
+      import_row_outcomes: {
+        Row: {
+          batch_id: string
+          created_at: string
+          id: string
+          message: string | null
+          outcome: string
+          person_id: string | null
+          review_queue_id: string | null
+          row_data: Json
+          row_number: number
+          updated_at: string
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          outcome?: string
+          person_id?: string | null
+          review_queue_id?: string | null
+          row_data?: Json
+          row_number: number
+          updated_at?: string
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          outcome?: string
+          person_id?: string | null
+          review_queue_id?: string | null
+          row_data?: Json
+          row_number?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_row_outcomes_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "import_row_outcomes_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "import_row_outcomes_review_queue_id_fkey"
+            columns: ["review_queue_id"]
+            isOneToOne: false
+            referencedRelation: "review_queue"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       integration_credentials: {
         Row: {
@@ -1121,24 +1200,30 @@ export type Database = {
         Row: {
           created_at: string
           event_id: string
+          fee_amount: number
           id: string
           import_batch_id: string | null
+          payment_amount: number | null
           person_id: string
           status: string
         }
         Insert: {
           created_at?: string
           event_id: string
+          fee_amount?: number
           id?: string
           import_batch_id?: string | null
+          payment_amount?: number | null
           person_id: string
           status?: string
         }
         Update: {
           created_at?: string
           event_id?: string
+          fee_amount?: number
           id?: string
           import_batch_id?: string | null
+          payment_amount?: number | null
           person_id?: string
           status?: string
         }
