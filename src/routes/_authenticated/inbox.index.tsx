@@ -48,7 +48,7 @@ import {
   REPEATABLE_FIELDS,
   addressKey,
   composeAddress,
-  donationImportFingerprint,
+  donationFingerprintAfterRegistrationFee,
   guessMapping,
   namesAreClose,
   matchRowOnce,
@@ -67,7 +67,7 @@ import {
 import { buildRowValues, mainName } from "@/lib/import-rows";
 import { FieldPicker } from "@/components/import/FieldPicker";
 import { RouteError } from "@/components/RouteError";
-import { guard } from "@/lib/app-errors";
+import { guard, mustWrite } from "@/lib/app-errors";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -734,6 +734,37 @@ function ImportCenter() {
       // against the contacts this import has created as it goes.
       const loopSeen = newRowIdentityRegistry();
 
+      /** Resolve fee allocation once so the duplicate pre-check and insert cannot drift. */
+      function planRowDonation(v: RowValues, paymentAmount: number, giftDate: string) {
+        const eventKey = normalizeLabel(v.event_name ?? "");
+        const campaignKey = normalizeLabel(v.campaign ?? "");
+        const targetEventId =
+          (eventKey ? eventIdByKey.get(eventKey) : undefined) ??
+          (campaignKey ? eventIdByKey.get(campaignKey) : undefined) ??
+          bulkTarget.eventId ??
+          "";
+        const explicitEvent = targetEventId
+          ? ((events ?? []).find((event) => event.id === targetEventId) ?? null)
+          : null;
+        const nearbyGroup = giftEventGroups.find(
+          (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+        );
+        const nearbyDecision = nearbyGroup ? giftEventDecisions[nearbyGroup.event.id] : undefined;
+        const feeEvent =
+          explicitEvent ?? (nearbyDecision === "attended" ? (nearbyGroup?.event ?? null) : null);
+        const registrationFee = Math.min(
+          Math.max(Number(feeEvent?.registration_fee ?? 0), 0),
+          Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0,
+        );
+        return {
+          targetEventId,
+          nearbyGroup,
+          nearbyDecision,
+          registrationFee,
+          ...donationFingerprintAfterRegistrationFee(v, paymentAmount, registrationFee, giftDate),
+        };
+      }
+
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
@@ -755,7 +786,8 @@ function ImportCenter() {
 
           const rowAmount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
           const rowGiftDate = isoDate(v.date) ?? importDate;
-          const giftFingerprint = donationImportFingerprint(v, rowAmount, rowGiftDate);
+          const giftPlan = planRowDonation(v, rowAmount, rowGiftDate);
+          const giftFingerprint = giftPlan.fingerprint;
           const giftAlreadyImported = Boolean(
             giftFingerprint && existingGiftFingerprints.has(giftFingerprint),
           );
@@ -792,7 +824,7 @@ function ImportCenter() {
               v,
               giftAlreadyImported
                 ? "This gift appears to have already been imported"
-                 : (flaggedByPreview && live.status !== "matched") || live.status === "ambiguous"
+                : (flaggedByPreview && live.status !== "matched") || live.status === "ambiguous"
                   ? reason
                   : giftsElsewhere.length > 0
                     ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
@@ -814,12 +846,11 @@ function ImportCenter() {
             );
             await recordOutcome(index, "flagged", {
               reviewQueueId,
-              message:
-                giftAlreadyImported
-                  ? "This gift appears to have already been imported"
-                  : live.status === "ambiguous"
-                    ? live.reason
-                    : item.match.reason,
+              message: giftAlreadyImported
+                ? "This gift appears to have already been imported"
+                : live.status === "ambiguous"
+                  ? live.reason
+                  : item.match.reason,
             });
             continue;
           }
@@ -917,10 +948,10 @@ function ImportCenter() {
             if (v.school) patch["school"] = v.school;
             if (v.person_notes) patch["notes"] = v.person_notes;
             if (Object.keys(patch).length > 0) {
-              await guard(supabase.from("people").update(patch).eq("id", personId), {
-                area: "import",
-                action: "Update the matched contact",
-              });
+              await mustWrite(
+                supabase.from("people").update(patch).eq("id", personId),
+                "The matched contact couldn't be updated.",
+              );
             }
             remember({
               id: personId,
@@ -939,10 +970,10 @@ function ImportCenter() {
             if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
               householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
               if (householdId)
-                await supabase
-                  .from("people")
-                  .update({ household_id: householdId })
-                  .eq("id", personId);
+                await mustWrite(
+                  supabase.from("people").update({ household_id: householdId }).eq("id", personId),
+                  "The contact couldn't be linked to the household.",
+                );
             } else if (householdId && fullAddress) {
               const housePatch: {
                 address?: string;
@@ -959,41 +990,32 @@ function ImportCenter() {
                 if (v.postal_code) housePatch["postal_code"] = v.postal_code;
               }
               if (Object.keys(housePatch).length > 0)
-                await guard(supabase.from("households").update(housePatch).eq("id", householdId), {
-                  area: "import",
-                  action: "Save an imported detail",
-                });
+                await mustWrite(
+                  supabase.from("households").update(housePatch).eq("id", householdId),
+                  "The household couldn't be updated.",
+                );
             }
           }
 
           if (!personId) throw new Error("No contact was created or matched for this row.");
 
           if (relationship) {
-            await guard(
+            await mustWrite(
               supabase
                 .from("people")
                 .update({ household_relationship: relationship })
                 .eq("id", personId),
-              { area: "import", action: "Save an imported detail" },
+              "The household relationship couldn't be saved.",
             );
           }
 
           // Link this contact to the event named on the row, or to the event the
           // reviewer chose for the whole file. One shared attendance function, so an
           // existing RSVP is upgraded to Attended instead of being left as-is.
-          const rowEventKey = normalizeLabel(v.event_name ?? "");
-          const rowCampaignKey = normalizeLabel(v.campaign ?? "");
-          const targetEventId =
-            (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ??
-            (rowCampaignKey ? eventIdByKey.get(rowCampaignKey) : undefined) ??
-            bulkTarget.eventId ??
-            "";
+          const targetEventId = giftPlan.targetEventId;
           if (targetEventId) {
             const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
-            const fee = Math.min(
-              Math.max(Number(linkedEvent?.registration_fee ?? 0), 0),
-              Number.isFinite(rowAmount) && rowAmount > 0 ? rowAmount : 0,
-            );
+            const fee = giftPlan.registrationFee;
             await recordAttendance({
               personId,
               eventId: targetEventId,
@@ -1077,7 +1099,7 @@ function ImportCenter() {
           if (spouseName && (spouseName.first || spouseName.last)) {
             const spouseLast = spouseName.last || last;
             if (!inHousehold(spouseName.first, spouseLast)) {
-            const { data: spouse, error: spouseError } = await supabase
+              const { data: spouse, error: spouseError } = await supabase
                 .from("people")
                 .insert({
                   first_name: spouseName.first || null,
@@ -1190,24 +1212,8 @@ function ImportCenter() {
               unreadableGiftDates += 1;
             } else if (Number.isFinite(amount) && amount > 0) {
               const giftDate = readDate ?? importDate;
-              const explicitEvent = targetEventId
-                ? (events ?? []).find((event) => event.id === targetEventId) ?? null
-                : null;
-              const nearbyGroup = giftEventGroups.find(
-                (g) =>
-                  g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
-              );
-              const nearbyDecision = nearbyGroup
-                ? giftEventDecisions[nearbyGroup.event.id]
-                : undefined;
-              const feeEvent =
-                explicitEvent ?? (nearbyDecision === "attended" ? nearbyGroup?.event ?? null : null);
-              const registrationFee = Math.min(
-                Math.max(Number(feeEvent?.registration_fee ?? 0), 0),
-                amount,
-              );
-              const donationAmount = amount - registrationFee;
-              const fingerprint = donationImportFingerprint(v, amount, giftDate);
+              const { nearbyGroup, nearbyDecision, registrationFee, donationAmount, fingerprint } =
+                giftPlan;
               const rowCampaignId = await resolveCampaignId(v.campaign);
               // Re-importing the same file must not add the same gift twice, and a
               // gift only ever gets one timeline entry — the donation itself.
@@ -1553,9 +1559,7 @@ function ImportCenter() {
                           rows={fe.rows}
                           events={events ?? []}
                           decision={decision}
-                          onApply={(next) =>
-                            setEventDecisions((d) => ({ ...d, [fe.key]: next }))
-                          }
+                          onApply={(next) => setEventDecisions((d) => ({ ...d, [fe.key]: next }))}
                           onClear={() =>
                             setEventDecisions((d) => {
                               const nextState = { ...d };

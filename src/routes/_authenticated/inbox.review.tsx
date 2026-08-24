@@ -27,7 +27,8 @@ import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { SelectAllToggle, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { ChevronDown } from "lucide-react";
 import { RouteError } from "@/components/RouteError";
-import { showError, guard } from "@/lib/app-errors";
+import { showError, mustWrite } from "@/lib/app-errors";
+import { linkHouseholdBeforeFinalize } from "@/lib/review-household";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -495,8 +496,7 @@ function DataInbox() {
         const row = (r.row_data ?? {}) as RowValues;
         const item = { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: row };
         if (action === "later") {
-          left += 1;
-          await guard(
+          await mustWrite(
             supabase
               .from("review_queue")
               .update({
@@ -504,8 +504,9 @@ function DataInbox() {
                 resolution_note: "Left for later from the address card",
               })
               .eq("id", r.id),
-            { area: "import", action: "Update the review queue" },
+            "The review queue couldn't be updated.",
           );
+          left += 1;
           continue;
         }
         if (action === "discard") {
@@ -519,21 +520,18 @@ function DataInbox() {
             throw new Error(
               "We don't have a matching contact for that person — open and decide instead.",
             );
-          await quickMerge(item, existing, personName(existing));
           if (householdId) {
-            await guard(
+            await linkHouseholdBeforeFinalize(
               supabase
                 .from("people")
                 .update({
                   household_id: householdId,
-                  ...(choice?.relationship
-                    ? { household_relationship: choice.relationship }
-                    : {}),
+                  ...(choice?.relationship ? { household_relationship: choice.relationship } : {}),
                 } as never)
                 .eq("id", existing.id),
-              { area: "import", action: "Link this person to the household" },
+              () => quickMerge(item, existing, personName(existing)),
             );
-          }
+          } else await quickMerge(item, existing, personName(existing));
           saved += 1;
           continue;
         }

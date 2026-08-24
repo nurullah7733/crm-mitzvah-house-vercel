@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
+import {
+  donationFingerprintAfterRegistrationFee,
+  donationImportFingerprint,
+  type RowValues,
+} from "@/lib/import-mapping";
 
 /**
  * Regression cover for the duplicate-donation bug: the same gift arriving twice
@@ -110,5 +114,15 @@ describe("imports and hand-typed gifts agree on the format", () => {
 
   it("leaves the campaign part empty when there is no campaign", () => {
     expect(donationImportFingerprint(row(), 18, "2026-03-01")!.endsWith("|")).toBe(true);
+  });
+
+  it("fingerprints the net donation after allocating a registration fee", () => {
+    const precheckPlan = donationFingerprintAfterRegistrationFee(row(), 100, 25, "2026-03-01");
+    const finalPlan = donationFingerprintAfterRegistrationFee(row(), 100, 25, "2026-03-01");
+
+    expect(precheckPlan).toEqual(finalPlan);
+    expect(precheckPlan.donationAmount).toBe(75);
+    expect(precheckPlan.fingerprint!.split("|")[2]).toBe("75.00");
+    expect(precheckPlan.fingerprint).not.toContain("|100.00|");
   });
 });

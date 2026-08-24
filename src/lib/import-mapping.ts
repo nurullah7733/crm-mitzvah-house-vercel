@@ -1,5 +1,6 @@
 import { parseImportDate } from "@/lib/import-dates";
 import { fuzzyScore } from "@/lib/nl-search";
+import { PencilOff } from "lucide-react";
 
 /** Fields a spreadsheet column can be mapped to. */
 export type FieldKey =
@@ -607,9 +608,7 @@ export function rowOccurrenceKeys(v: RowValues): string[] {
   const hasGift = Number.isFinite(amount) && amount > 0 && Boolean(date);
   if (!hasGift) return identities;
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  return identities.map((identity) =>
-    [identity, date, amount.toFixed(2), campaign].join("|"),
-  );
+  return identities.map((identity) => [identity, date, amount.toFixed(2), campaign].join("|"));
 }
 
 /**
@@ -626,6 +625,25 @@ export function donationImportFingerprint(
   if (!donor || !Number.isFinite(amount) || amount <= 0 || !date) return null;
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   return [donor, date, amount.toFixed(2), campaign].join("|");
+}
+
+/** The gift portion of a payment after any event registration fee is allocated. */
+export function donationAmountAfterRegistrationFee(paymentAmount: number, registrationFee: number) {
+  return paymentAmount - registrationFee;
+}
+
+/** One amount/fingerprint pair, shared by duplicate pre-checks and the eventual insert. */
+export function donationFingerprintAfterRegistrationFee(
+  v: RowValues,
+  paymentAmount: number,
+  registrationFee: number,
+  date: string,
+) {
+  const donationAmount = donationAmountAfterRegistrationFee(paymentAmount, registrationFee);
+  return {
+    donationAmount,
+    fingerprint: donationImportFingerprint(v, donationAmount, date),
+  };
 }
 
 /**
@@ -720,11 +738,7 @@ function editDistance(a: string, b: string) {
     prev[0] = i;
     for (let j = 1; j <= b.length; j++) {
       const cur = prev[j]!;
-      prev[j] = Math.min(
-        prev[j]! + 1,
-        prev[j - 1]! + 1,
-        last + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, last + (a[i - 1] === b[j - 1] ? 0 : 1));
       last = cur;
     }
   }
@@ -749,6 +763,8 @@ export function namesAreClose(a: string, b: string) {
  * have. Being an adult, sharing a program or sharing a role is never a signal, and
  * two different birth dates rule a match out even when the names look alike.
  */
+
+// Mathc aspreadsheet row to existing people. only real signals count: the same email, the same phone number, the same name with the same address or birth data, or a name that si a typo away form one we have. being an adult, sharing a program or sharing a role is never a signal, and two different brith dates rule a  match out even when the names look alike.
 export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResult {
   const rowEmails = (values.emails ?? []).map((e) => e.value.trim().toLowerCase()).filter(Boolean);
   if ((values.email ?? "").trim()) rowEmails.unshift(values.email!.trim().toLowerCase());
@@ -781,8 +797,7 @@ export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResu
     /** A different birth date means a different person, full stop. */
     const birthRulesOut = (p: ExistingPerson) =>
       Boolean(rowBirth) && Boolean(storedBirth(p)) && storedBirth(p) !== rowBirth;
-    const sameBirth = (p: ExistingPerson) =>
-      Boolean(rowBirth) && storedBirth(p) === rowBirth;
+    const sameBirth = (p: ExistingPerson) => Boolean(rowBirth) && storedBirth(p) === rowBirth;
     const fullName = (p: ExistingPerson) =>
       [(p.first_name ?? "").trim(), (p.last_name ?? "").trim()].filter(Boolean).join(" ");
     const exact = (p: ExistingPerson) =>

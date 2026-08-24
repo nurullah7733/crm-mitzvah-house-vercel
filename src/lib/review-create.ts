@@ -8,6 +8,7 @@ import { recordAttendance } from "@/lib/gift-events";
 import {
   addressKey,
   composeAddress,
+  donationAmountAfterRegistrationFee,
   roleFromRow,
   donationImportFingerprint,
   splitName,
@@ -188,7 +189,7 @@ export async function createPersonFromRow(
       });
     }
   }
-  const amount = paymentAmount - eventFee;
+  const amount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
   if (Number.isFinite(amount) && amount > 0) {
     const giftDate = isoDate(row.date) ?? today();
     const fingerprint = donationImportFingerprint(row, amount, giftDate);
@@ -203,13 +204,13 @@ export async function createPersonFromRow(
     if (!duplicate?.length)
       await mustWrite(
         supabase.from("donations").insert({
-        person_id: personId,
-        amount,
-        date: giftDate,
-        campaign_id: await resolveCampaignId(row.campaign),
-        source,
-        notes: row.notes ?? null,
-        import_batch_id: batchId,
+          person_id: personId,
+          amount,
+          date: giftDate,
+          campaign_id: await resolveCampaignId(row.campaign),
+          source,
+          notes: row.notes ?? null,
+          import_batch_id: batchId,
           import_fingerprint: fingerprint,
         } as never),
         "The gift couldn't be saved.",

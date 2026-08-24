@@ -1,14 +1,19 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { parseImportDate } from "@/lib/import-dates";
-import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
+import {
+  donationAmountAfterRegistrationFee,
+  donationImportFingerprint,
+  type RowValues,
+} from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import { recordAttendance } from "@/lib/gift-events";
 import { resolveCampaignId } from "@/lib/campaigns";
-import { guard } from "@/lib/app-errors";
+import { guard, must } from "@/lib/app-errors";
 import {
-  applyIncoming,
   compareRecords,
   hasConflict,
+  incomingPatch,
   incomingPerson,
   type CompareKey,
   type ReviewPerson,
@@ -38,7 +43,7 @@ export type QuickMergeResult = {
  * a gift, or a written note — to a contact we already have. Anything already
  * on file is skipped, so the same row can never add the same thing twice.
  */
-async function addRowActivity(
+export async function processReviewRowActivity(
   personId: string,
   row: RowValues,
   source: string,
@@ -106,7 +111,7 @@ async function addRowActivity(
   }
 
   if ((row.amount ?? "").toString().trim()) {
-    const amount = paymentAmount - eventFee;
+    const amount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
     if (Number.isFinite(amount) && amount > 0) {
       const giftDate = isoDate(row.date) ?? today();
       const fingerprint = donationImportFingerprint(row, amount, giftDate);
@@ -130,22 +135,25 @@ async function addRowActivity(
             .limit(1)
         : { data: [] };
       if (!existingGift?.length && !fingerprintGift?.length) {
-        const { data: gift } = await supabase
-          .from("donations")
-          .insert({
-            person_id: personId,
-            amount,
-            date: giftDate,
-            campaign_id: campaignId,
-            source,
-            notes: row.notes ?? null,
-            import_batch_id: batchId,
-            import_fingerprint: fingerprint,
-          } as never)
-          .select("id")
-          .single();
-        created.donationId = gift?.id ?? null;
-        if (gift?.id) created.addedActivity.push(`a $${amount.toLocaleString()} gift`);
+        const gift = await must(
+          supabase
+            .from("donations")
+            .insert({
+              person_id: personId,
+              amount,
+              date: giftDate,
+              campaign_id: campaignId,
+              source,
+              notes: row.notes ?? null,
+              import_batch_id: batchId,
+              import_fingerprint: fingerprint,
+            } as never)
+            .select("id")
+            .single(),
+          "The donation",
+        );
+        created.donationId = gift.id;
+        created.addedActivity.push(`a $${amount.toLocaleString()} gift`);
       }
     }
   }
@@ -194,24 +202,99 @@ export async function quickMerge(
   for (const f of fields) if (f.state === "fill") before[f.key] = f.existing ?? null;
 
   const source = `${item.filename ?? "Import"} quick update`;
-  const filledFields = await applyIncoming(existing.id, fields, {}, source, item.batch_id ?? null);
-  const activity = await addRowActivity(existing.id, item.row_data, source, item.batch_id ?? null);
+  const { patch, changedFields } = incomingPatch(fields, {});
+  const traceableFields = changedFields.filter((key) =>
+    ["email", "phone", "school", "notes"].includes(key),
+  );
+  const paymentAmount = Number(String(item.row_data.amount ?? "").replace(/[^0-9.-]/g, ""));
+  let event: Json = null;
+  let eventFee = 0;
+  if ((item.row_data.event_name ?? "").trim()) {
+    const { data: events } = await supabase
+      .from("events")
+      .select("id, name, date, registration_fee")
+      .is("deleted_at", null);
+    const match = matchEventByName(item.row_data.event_name!, (events ?? []) as EventOption[]);
+    if (match) {
+      const positivePayment =
+        Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0;
+      eventFee = Math.min(Math.max(Number(match.registration_fee ?? 0), 0), positivePayment);
+      event = {
+        event_id: match.id,
+        fee_amount: eventFee,
+        payment_amount: Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : null,
+      };
+    }
+  }
 
-  const { error } = await supabase.rpc("log_review_decision", {
+  const donationAmount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
+  let donation: Json = null;
+  if (
+    (item.row_data.amount ?? "").toString().trim() &&
+    Number.isFinite(donationAmount) &&
+    donationAmount > 0
+  ) {
+    const giftDate = isoDate(item.row_data.date) ?? today();
+    donation = {
+      amount: donationAmount,
+      date: giftDate,
+      campaign_id: await resolveCampaignId(item.row_data.campaign),
+      source,
+      notes: item.row_data.notes ?? null,
+      import_batch_id: item.batch_id ?? null,
+      import_fingerprint: donationImportFingerprint(item.row_data, donationAmount, giftDate),
+    };
+  }
+  const noteText = [
+    item.row_data.notes,
+    item.row_data.person_notes ? `Note: ${item.row_data.person_notes}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const note =
+    noteText && !(item.row_data.amount ?? "").toString().trim()
+      ? { text: noteText, date: today(), author: "Import review" }
+      : null;
+
+  const { data, error } = await supabase.rpc("resolve_review_quick_merge", {
     _item_id: item.id,
-    _decision: "merged",
-    _reason: "Same person — contact updated in one tap, no conflicting fields",
     _person_id: existing.id,
+    _person_patch: patch,
+    _traceable_fields: traceableFields,
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: event,
+    _donation: donation,
+    _note: note,
   });
   if (error) throw error;
+  const result = (data ?? {}) as Record<string, unknown>;
+  const addedActivity: string[] = [];
+  if (result["registration_created"] || result["registration_upgraded"])
+    addedActivity.push(`attendance at ${String(result["event_name"] ?? "the event")}`);
+  if (result["donation_created"]) addedActivity.push(`a $${donationAmount.toLocaleString()} gift`);
+  if (result["note_created"]) addedActivity.push("a note");
 
   return {
     itemId: item.id,
     personId: existing.id,
     personName: existingName,
     before,
-    filledFields,
-    ...activity,
+    filledFields: changedFields.length,
+    donationId: (result["donation_id"] as string | null) ?? null,
+    registrationId: result["registration_created"]
+      ? ((result["registration_id"] as string | null) ?? null)
+      : null,
+    ...(result["registration_upgraded"] && result["registration_id"]
+      ? {
+          upgradedRegistration: {
+            id: result["registration_id"] as string,
+            status: (result["registration_previous_status"] as string | null) ?? null,
+          },
+        }
+      : {}),
+    interactionIds: result["note_id"] ? [result["note_id"] as string] : [],
+    addedActivity,
   };
 }
 
