@@ -16,6 +16,7 @@ import {
   incomingPatch,
   incomingPerson,
   type CompareKey,
+  type FieldComparison,
   type ReviewPerson,
 } from "@/lib/review-merge";
 
@@ -37,6 +38,131 @@ export type QuickMergeResult = {
   interactionIds: string[];
   addedActivity: string[];
 };
+
+type ResolvedMergePayload = {
+  event: Json;
+  donation: Json;
+  note: Json;
+  donationAmount: number;
+};
+
+/** Resolve imported activity on the client; SQL only applies this already-decided payload. */
+export async function resolveReviewMergePayload(
+  row: RowValues,
+  source: string,
+  batchId: string | null,
+): Promise<ResolvedMergePayload> {
+  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  let event: Json = null;
+  let eventFee = 0;
+  if ((row.event_name ?? "").trim()) {
+    const { data: events } = await supabase
+      .from("events")
+      .select("id, name, date, registration_fee")
+      .is("deleted_at", null);
+    const match = matchEventByName(row.event_name!, (events ?? []) as EventOption[]);
+    if (match) {
+      const positivePayment =
+        Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0;
+      eventFee = Math.min(Math.max(Number(match.registration_fee ?? 0), 0), positivePayment);
+      event = {
+        event_id: match.id,
+        fee_amount: eventFee,
+        payment_amount: positivePayment || null,
+      };
+    }
+  }
+
+  const donationAmount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
+  let donation: Json = null;
+  if (
+    (row.amount ?? "").toString().trim() &&
+    Number.isFinite(donationAmount) &&
+    donationAmount > 0
+  ) {
+    const giftDate = isoDate(row.date) ?? today();
+    donation = {
+      amount: donationAmount,
+      date: giftDate,
+      campaign_id: await resolveCampaignId(row.campaign),
+      source,
+      notes: row.notes ?? null,
+      import_batch_id: batchId,
+      import_fingerprint: donationImportFingerprint(row, donationAmount, giftDate),
+    };
+  }
+  const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const note =
+    noteText && !(row.amount ?? "").toString().trim()
+      ? { text: noteText, date: today(), author: "Import review" }
+      : null;
+  return { event, donation, note, donationAmount };
+}
+
+/** Complete a reviewer-directed merge through one atomic database boundary. */
+export async function manualMerge(
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
+  personId: string,
+  fields: FieldComparison[],
+  choices: Partial<Record<CompareKey, "existing" | "incoming">>,
+  audit: { existingBefore: Json; survivingAfter: Json },
+) {
+  const source = `${item.filename ?? "Import"} review`;
+  const { patch, changedFields } = incomingPatch(fields, choices);
+  const traceableFields = changedFields.filter((key) =>
+    ["email", "phone", "school", "notes"].includes(key),
+  );
+  const { event, donation, note } = await resolveReviewMergePayload(
+    item.row_data,
+    source,
+    item.batch_id ?? null,
+  );
+  const { error } = await supabase.rpc("resolve_review_manual_merge", {
+    _item_id: item.id,
+    _person_id: personId,
+    _person_patch: patch,
+    _traceable_fields: traceableFields,
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: event,
+    _donation: donation,
+    _note: note,
+    _existing_before: audit.existingBefore,
+    _incoming: item.row_data,
+    _surviving_after: audit.survivingAfter,
+    _choices: choices,
+  });
+  if (error) throw error;
+  return changedFields.length;
+}
+
+/** Create a separate contact, its imported activity, and its review decision atomically. */
+export async function createReviewPerson(
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
+  incoming: Record<CompareKey, string | null>,
+  householdId: string | null,
+) {
+  const source = `${item.filename ?? "Import"} review`;
+  const { event, donation, note } = await resolveReviewMergePayload(
+    item.row_data,
+    source,
+    item.batch_id ?? null,
+  );
+  const { data, error } = await supabase.rpc("resolve_review_create", {
+    _item_id: item.id,
+    _person: { ...incoming, household_id: householdId },
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: event,
+    _donation: donation,
+    _note: note,
+  });
+  if (error) throw error;
+  if (!data) throw new Error("The new contact didn't come back from the database.");
+  return data;
+}
 
 /**
  * Add the extra activity sitting on an imported row — an event registration,
@@ -206,55 +332,11 @@ export async function quickMerge(
   const traceableFields = changedFields.filter((key) =>
     ["email", "phone", "school", "notes"].includes(key),
   );
-  const paymentAmount = Number(String(item.row_data.amount ?? "").replace(/[^0-9.-]/g, ""));
-  let event: Json = null;
-  let eventFee = 0;
-  if ((item.row_data.event_name ?? "").trim()) {
-    const { data: events } = await supabase
-      .from("events")
-      .select("id, name, date, registration_fee")
-      .is("deleted_at", null);
-    const match = matchEventByName(item.row_data.event_name!, (events ?? []) as EventOption[]);
-    if (match) {
-      const positivePayment =
-        Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0;
-      eventFee = Math.min(Math.max(Number(match.registration_fee ?? 0), 0), positivePayment);
-      event = {
-        event_id: match.id,
-        fee_amount: eventFee,
-        payment_amount: Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : null,
-      };
-    }
-  }
-
-  const donationAmount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
-  let donation: Json = null;
-  if (
-    (item.row_data.amount ?? "").toString().trim() &&
-    Number.isFinite(donationAmount) &&
-    donationAmount > 0
-  ) {
-    const giftDate = isoDate(item.row_data.date) ?? today();
-    donation = {
-      amount: donationAmount,
-      date: giftDate,
-      campaign_id: await resolveCampaignId(item.row_data.campaign),
-      source,
-      notes: item.row_data.notes ?? null,
-      import_batch_id: item.batch_id ?? null,
-      import_fingerprint: donationImportFingerprint(item.row_data, donationAmount, giftDate),
-    };
-  }
-  const noteText = [
-    item.row_data.notes,
-    item.row_data.person_notes ? `Note: ${item.row_data.person_notes}` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const note =
-    noteText && !(item.row_data.amount ?? "").toString().trim()
-      ? { text: noteText, date: today(), author: "Import review" }
-      : null;
+  const { event, donation, note, donationAmount } = await resolveReviewMergePayload(
+    item.row_data,
+    source,
+    item.batch_id ?? null,
+  );
 
   const { data, error } = await supabase.rpc("resolve_review_quick_merge", {
     _item_id: item.id,

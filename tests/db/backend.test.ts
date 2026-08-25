@@ -8,7 +8,8 @@ import { createClient } from "@supabase/supabase-js";
  */
 const url = process.env["TEST_SUPABASE_URL"];
 const token = process.env["TEST_SUPABASE_ACCESS_TOKEN"];
-const key = process.env["TEST_SUPABASE_PUBLISHABLE_KEY"] ?? process.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
+const key =
+  process.env["TEST_SUPABASE_PUBLISHABLE_KEY"] ?? process.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
 const configured = Boolean(url && token && key);
 
 const tag = `vitest-${Date.now()}`;
@@ -27,7 +28,13 @@ describe.skipIf(!configured)("database rules", () => {
   async function addPerson(first: string, over: Record<string, unknown> = {}) {
     const { data, error } = await db
       .from("people")
-      .insert({ first_name: first, last_name: tag, contact_type: "individual", role: "Adult", ...over })
+      .insert({
+        first_name: first,
+        last_name: tag,
+        contact_type: "individual",
+        role: "Adult",
+        ...over,
+      })
       .select("id")
       .single();
     expect(error).toBeNull();
@@ -35,7 +42,12 @@ describe.skipIf(!configured)("database rules", () => {
     return data!.id as string;
   }
 
-  async function addGift(personId: string, amount: number, date: string, over: Record<string, unknown> = {}) {
+  async function addGift(
+    personId: string,
+    amount: number,
+    date: string,
+    over: Record<string, unknown> = {},
+  ) {
     const { data, error } = await db
       .from("donations")
       .insert({ person_id: personId, amount, date, source: tag, ...over })
@@ -50,7 +62,11 @@ describe.skipIf(!configured)("database rules", () => {
   }
 
   const totals = async (personId: string) => {
-    const { data } = await db.from("people").select("lifetime_giving, this_year_giving").eq("id", personId).single();
+    const { data } = await db
+      .from("people")
+      .select("lifetime_giving, this_year_giving")
+      .eq("id", personId)
+      .single();
     return { lifetime: Number(data!.lifetime_giving), thisYear: Number(data!.this_year_giving) };
   };
 
@@ -117,18 +133,35 @@ describe.skipIf(!configured)("database rules", () => {
 
       await addGift(keep, 100, `${year}-06-01`);
       await addGift(dupe, 25, `${year}-06-02`);
-      await db.from("registrations").insert({ event_id: event!.id, person_id: keep, status: "registered" });
-      await db.from("registrations").insert({ event_id: event!.id, person_id: dupe, status: "attended" });
-      const task = await db.from("tasks").insert({ person_id: dupe, text: `${tag} follow up`, status: "upcoming" });
+      await db
+        .from("registrations")
+        .insert({ event_id: event!.id, person_id: keep, status: "registered" });
+      await db
+        .from("registrations")
+        .insert({ event_id: event!.id, person_id: dupe, status: "attended" });
+      const task = await db
+        .from("tasks")
+        .insert({ person_id: dupe, text: `${tag} follow up`, status: "upcoming" });
       expect(task.error).toBeNull();
 
-      const { error } = await db.rpc("merge_people", { _surviving_id: keep, _merged_id: dupe, _field_values: {} });
+      const { error } = await db.rpc("merge_people", {
+        _surviving_id: keep,
+        _merged_id: dupe,
+        _field_values: {},
+      });
       expect(error).toBeNull();
 
-      const { data: gifts } = await db.from("donations").select("id").eq("person_id", keep).is("deleted_at", null);
+      const { data: gifts } = await db
+        .from("donations")
+        .select("id")
+        .eq("person_id", keep)
+        .is("deleted_at", null);
       expect(gifts).toHaveLength(2);
 
-      const { data: regs } = await db.from("registrations").select("status").eq("event_id", event!.id);
+      const { data: regs } = await db
+        .from("registrations")
+        .select("status")
+        .eq("event_id", event!.id);
       expect(regs).toHaveLength(1);
       expect(regs![0]!.status).toBe("attended"); // the stronger status wins
 
@@ -149,7 +182,10 @@ describe.skipIf(!configured)("database rules", () => {
       expect(gift.id).toBeTruthy();
       if (!gift.id) throw new Error("Test gift was not created");
 
-      const markedResult = await db.rpc("mark_thank_you_sent", { _donation_id: gift.id, _sent: true });
+      const markedResult = await db.rpc("mark_thank_you_sent", {
+        _donation_id: gift.id,
+        _sent: true,
+      });
       expect(markedResult.error).toBeNull();
       const marked = await db
         .from("interactions")
@@ -159,7 +195,10 @@ describe.skipIf(!configured)("database rules", () => {
       expect(marked.error).toBeNull();
       expect(marked.data!.length).toBe(1);
 
-      const unmarkedResult = await db.rpc("mark_thank_you_sent", { _donation_id: gift.id, _sent: false });
+      const unmarkedResult = await db.rpc("mark_thank_you_sent", {
+        _donation_id: gift.id,
+        _sent: false,
+      });
       expect(unmarkedResult.error).toBeNull();
       const { data: donation } = await db
         .from("donations")
@@ -199,7 +238,9 @@ describe.skipIf(!configured)("database rules", () => {
         .eq("source_id", gift.id)
         .eq("source_kind", "donation_receipt");
       expect(created.error).toBeNull();
-      expect(created.data).toMatchObject([{ person_id: id, type: "note", source_kind: "donation_receipt" }]);
+      expect(created.data).toMatchObject([
+        { person_id: id, type: "note", source_kind: "donation_receipt" },
+      ]);
 
       const unmarked = await db.rpc("mark_receipt_sent", { _donation_id: gift.id, _sent: false });
       expect(unmarked.error).toBeNull();

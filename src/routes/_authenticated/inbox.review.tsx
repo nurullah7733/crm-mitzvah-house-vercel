@@ -11,14 +11,21 @@ import { personName } from "@/lib/names";
 import {
   compareRecords,
   hasConflict,
+  incomingPatch,
   incomingPerson,
   showValue,
   type ReviewPerson,
 } from "@/lib/review-merge";
 import type { RowValues } from "@/lib/import-mapping";
 import { friendlyDbError } from "@/lib/db-errors";
-import { discardRow, quickMerge, undoQuickMerge, type QuickMergeResult } from "@/lib/review-quick";
-import { createPersonFromRow, ensureHouseholdAtAddress, rowDisplayName } from "@/lib/review-create";
+import {
+  discardRow,
+  quickMerge,
+  resolveReviewMergePayload,
+  undoQuickMerge,
+  type QuickMergeResult,
+} from "@/lib/review-quick";
+import { rowAddress, rowDisplayName } from "@/lib/review-create";
 import { RELATIONSHIP_OPTIONS, rowGroup } from "@/lib/import-links";
 import { logChange } from "@/lib/session-log";
 import { Input } from "@/components/ui/input";
@@ -27,8 +34,13 @@ import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { SelectAllToggle, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { ChevronDown } from "lucide-react";
 import { RouteError } from "@/components/RouteError";
-import { showError, mustWrite } from "@/lib/app-errors";
-import { linkHouseholdBeforeFinalize } from "@/lib/review-household";
+import { showError } from "@/lib/app-errors";
+import {
+  applyHouseholdReviewCard,
+  findHouseholdIdAtAddress,
+  type HouseholdReviewMember,
+} from "@/lib/review-household";
+import { normalizeEmail } from "@/lib/proper-case";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -479,75 +491,108 @@ function DataInbox() {
       }
       let householdId = existingHouseholdIds[0] ?? null;
       const togetherRows = [...sameRows, ...relatedRows];
-      if (!householdId && togetherRows.length > 1) {
-        const firstTogether = togetherRows[0]!;
-        const surname = rowDisplayName((firstTogether.row_data ?? {}) as RowValues).surname;
-        householdId = await ensureHouseholdAtAddress(
-          card.address || null,
-          surname ? `${surname} household` : "Household",
-          firstTogether.batch_id,
-        );
-      }
-      let saved = 0;
-      let left = 0;
+      if (!householdId && togetherRows.length > 1)
+        householdId = await findHouseholdIdAtAddress(card.address || null);
+      const firstTogether = togetherRows[0];
+      const surname = firstTogether
+        ? rowDisplayName((firstTogether.row_data ?? {}) as RowValues).surname
+        : "";
+      const members: HouseholdReviewMember[] = [];
       for (const r of card.rows) {
         const choice = choices[r.id];
         const action = choice?.action ?? "later";
         const row = (r.row_data ?? {}) as RowValues;
-        const item = { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: row };
         if (action === "later") {
-          await mustWrite(
-            supabase
-              .from("review_queue")
-              .update({
-                status: "skipped",
-                resolution_note: "Left for later from the address card",
-              })
-              .eq("id", r.id),
-            "The review queue couldn't be updated.",
-          );
-          left += 1;
+          members.push({ action, item_id: r.id });
           continue;
         }
         if (action === "discard") {
-          await discardRow(r.id, "Discarded while reviewing this address group");
-          saved += 1;
+          members.push({ action, item_id: r.id });
           continue;
         }
+        const source = `${r.filename ?? "Import"} ${action === "same" ? "quick update" : "review"}`;
+        const { event, donation, note } = await resolveReviewMergePayload(row, source, r.batch_id);
         if (action === "same") {
           const existing = chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]);
           if (!existing)
             throw new Error(
               "We don't have a matching contact for that person — open and decide instead.",
             );
-          if (householdId) {
-            await linkHouseholdBeforeFinalize(
-              supabase
-                .from("people")
-                .update({
-                  household_id: householdId,
-                  ...(choice?.relationship ? { household_relationship: choice.relationship } : {}),
-                } as never)
-                .eq("id", existing.id),
-              () => quickMerge(item, existing, personName(existing)),
-            );
-          } else await quickMerge(item, existing, personName(existing));
-          saved += 1;
-          continue;
-        }
-        if (action === "related") {
-          await createPersonFromRow(item, {
-            householdId,
-            relationship: choice?.relationship || null,
-            note: "Related — added to the household at this address",
+          const comparisons = compareRecords(existing, incomingPerson(row));
+          if (hasConflict(comparisons))
+            throw new Error("This row disagrees with what we have — open it and decide.");
+          const { patch, changedFields } = incomingPatch(comparisons, {});
+          members.push({
+            action,
+            item_id: r.id,
+            person_id: existing.id,
+            relationship: choice?.relationship || "",
+            person_patch: patch,
+            traceable_fields: changedFields.filter((key) =>
+              ["email", "phone", "school", "notes"].includes(key),
+            ),
+            source,
+            batch_id: r.batch_id,
+            event,
+            donation,
+            note,
           });
-          saved += 1;
           continue;
         }
-        await createPersonFromRow(item, { note: "Not related — saved as their own contact" });
-        saved += 1;
+        const person = incomingPerson(row);
+        if (!person.first_name && !person.last_name)
+          throw new Error("This row has no name, so it can't be saved as a contact.");
+        const contactMethods = [
+          ...(row.phones ?? []).map((method, index) => ({
+            kind: "phone",
+            value: method.value.trim(),
+            method_type: method.method_type,
+            is_primary: index === 0,
+          })),
+          ...(row.emails ?? []).map((method, index) => ({
+            kind: "email",
+            value: normalizeEmail(method.value),
+            method_type: method.method_type,
+            is_primary: index === 0,
+          })),
+        ];
+        const traceableFields = [
+          row.email && "email",
+          row.phone && "phone",
+          rowAddress(row) && "address",
+          row.birth_date && "birth_date",
+          row.anniversary_date && "anniversary_date",
+          row.school && "school",
+          row.met_source && "met_source",
+        ].filter((field): field is string => Boolean(field));
+        members.push({
+          action,
+          item_id: r.id,
+          person: { ...person, notes: row.person_notes ?? null },
+          relationship: choice?.relationship || "",
+          contact_methods: contactMethods,
+          traceable_fields: traceableFields,
+          reason:
+            action === "related"
+              ? "Related — added to the household at this address"
+              : "Not related — saved as their own contact",
+          source: `${source}, ${new Date().toISOString().slice(0, 10)}`,
+          batch_id: r.batch_id,
+          event,
+          donation,
+          note,
+        });
       }
-      return { saved, left };
+      return applyHouseholdReviewCard(
+        {
+          id: householdId,
+          create: !householdId && togetherRows.length > 1,
+          name: surname ? `${surname} household` : "Household",
+          address: card.address || null,
+          batch_id: firstTogether?.batch_id ?? null,
+        },
+        members,
+      );
     },
     onSuccess: ({ saved, left }) => {
       queryClient.invalidateQueries();

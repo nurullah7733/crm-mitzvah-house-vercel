@@ -15,9 +15,7 @@ import { ExistingRecordPanel } from "@/components/ExistingRecordPanel";
 import { fetchFullRecord } from "@/lib/review-record";
 import {
   COMPARE_FIELDS,
-  applyIncoming,
   compareRecords,
-  createFromIncoming,
   fetchHistory,
   hasConflict,
   incomingPerson,
@@ -29,8 +27,8 @@ import {
   type ReviewPerson,
 } from "@/lib/review-merge";
 import type { RowValues } from "@/lib/import-mapping";
-import { showError, guard } from "@/lib/app-errors";
-import { processActivityBeforeFinalize } from "@/lib/review-activity";
+import { showError } from "@/lib/app-errors";
+import { createReviewPerson, manualMerge } from "@/lib/review-quick";
 
 type Mode = "compare" | "edit" | "discard";
 type Side = "existing" | "incoming";
@@ -101,8 +99,6 @@ export function ReviewCompareDialog({
   const blank = fields.filter((f) => !f.existing && !f.incoming);
   const preview = mergedValues(fields, choices);
   const undecided = conflicts.filter((f) => !choices[f.key]);
-  const source = `${item.filename ?? "Import"} review`;
-
   const { data: history } = useQuery({
     queryKey: ["review-history", selectedExisting?.id],
     enabled: open && Boolean(selectedExisting?.id),
@@ -159,32 +155,10 @@ export function ReviewCompareDialog({
       if (undecided.length > 0)
         throw new Error(`Pick the right ${undecided[0]!.label.toLowerCase()} first.`);
       const before = { ...selectedExisting };
-      const changed = await applyIncoming(
-        selectedExisting.id,
-        fields,
-        choices,
-        source,
-        item.batch_id ?? null,
-      );
-      await guard(
-        supabase.rpc("log_import_review_merge", {
-          _item_id: item.id,
-          _person_id: selectedExisting.id,
-          _existing_before: before as never,
-          _incoming: edited as never,
-          _surviving_after: preview as never,
-          _choices: choices as never,
-        }),
-        { area: "import", action: "Record the merge in history" },
-      );
-      await processActivityBeforeFinalize(
-        selectedExisting.id,
-        edited,
-        source,
-        item.batch_id ?? null,
-        () => finish("merged", selectedExisting.id),
-      );
-      return changed;
+      return manualMerge({ ...item, row_data: edited }, selectedExisting.id, fields, choices, {
+        existingBefore: before,
+        survivingAfter: preview,
+      });
     },
     onSuccess: (changed) => {
       queryClient.invalidateQueries();
@@ -201,18 +175,12 @@ export function ReviewCompareDialog({
   });
 
   const keepBoth = useMutation({
-    mutationFn: async () => {
-      const id = await createFromIncoming(
+    mutationFn: () =>
+      createReviewPerson(
+        { ...item, row_data: edited },
         incoming,
         selectedExisting?.household_id ?? null,
-        source,
-        item.batch_id ?? null,
-      );
-      if (!id) throw new Error("The new contact didn't come back from the database.");
-      await processActivityBeforeFinalize(id, edited, source, item.batch_id ?? null, () =>
-        finish("kept_both", id),
-      );
-    },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries();
       toast.success("Saved as a separate contact — both records kept");

@@ -1536,6 +1536,7 @@ export type Database = {
         Returns: boolean;
       };
       is_admin: { Args: never; Returns: boolean };
+      deactivate_staff_member: { Args: { _staff_id: string }; Returns: string | null };
       issue_acknowledgment: {
         Args: { _delivery_method?: string; _donation_id: string };
         Returns: string;
@@ -1590,6 +1591,29 @@ export type Database = {
         };
         Returns: undefined;
       };
+      record_import_row_failure: {
+        Args: {
+          _batch_id: string;
+          _message: string;
+          _row_data: Json;
+          _row_number: number;
+        };
+        Returns: string;
+      };
+      resolve_import_row: {
+        Args: {
+          _activity?: Json;
+          _batch_id?: string | null;
+          _children?: Json;
+          _contact_methods?: Json;
+          _household?: Json;
+          _labels?: Json;
+          _person: Json;
+          _provenance?: Json;
+          _spouse?: Json;
+        };
+        Returns: Json;
+      };
       resolve_review_quick_merge: {
         Args: {
           _batch_id?: string | null;
@@ -1602,6 +1626,40 @@ export type Database = {
           _source: string;
           _traceable_fields?: string[];
         };
+        Returns: Json;
+      };
+      resolve_review_manual_merge: {
+        Args: {
+          _batch_id?: string | null;
+          _choices?: Json;
+          _donation?: Json;
+          _event?: Json;
+          _existing_before?: Json;
+          _incoming?: Json;
+          _item_id: string;
+          _note?: Json;
+          _person_id: string;
+          _person_patch?: Json;
+          _source?: string;
+          _surviving_after?: Json;
+          _traceable_fields?: string[];
+        };
+        Returns: Json;
+      };
+      resolve_review_create: {
+        Args: {
+          _batch_id?: string | null;
+          _donation?: Json;
+          _event?: Json;
+          _item_id: string;
+          _note?: Json;
+          _person: Json;
+          _source?: string;
+        };
+        Returns: string;
+      };
+      resolve_review_household_card: {
+        Args: { _household: Json; _members: Json };
         Returns: Json;
       };
       mark_receipt_sent: {

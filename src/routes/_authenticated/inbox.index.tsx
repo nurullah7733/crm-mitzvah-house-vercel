@@ -14,6 +14,7 @@ import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { parseImportDate } from "@/lib/import-dates";
 import { resolveCampaignId } from "@/lib/campaigns";
 import { useIsAdmin } from "@/lib/is-admin";
@@ -25,6 +26,7 @@ import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
 import { attributeGiftToEvent, recordAttendance } from "@/lib/gift-events";
+import { recordImportRowFailureAndRethrow } from "@/lib/import-row-failure";
 import { findGiftsOnOtherContacts, sameGiftElsewhereReason } from "@/lib/donation-dupes";
 import {
   EMPTY_BULK_TARGET,
@@ -689,45 +691,45 @@ function ImportCenter() {
         postal_code: string | null;
       };
 
-      /** Find the household for this row, or create it once and remember it. */
-      async function ensureHousehold(
+      /** Resolve household intent without writing; the row RPC applies it. */
+      function resolveHouseholdIntent(
         name: string,
         parts: HouseParts,
         allowAddressLink = true,
-      ): Promise<string | null> {
+      ) {
         const key = allowAddressLink ? addressKey(parts.address) : null;
         const nameKey = `name:${name.trim().toLowerCase()}`;
         const found =
           (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
         if (found) {
-          // Fill in any address details the stored household is missing.
           const patch: Partial<HouseParts> = {};
           if (parts.address) patch.address = parts.address;
           if (parts.address_line2) patch.address_line2 = parts.address_line2;
           if (parts.city) patch.city = parts.city;
           if (parts.state) patch.state = parts.state;
           if (parts.postal_code) patch.postal_code = parts.postal_code;
-          // People are joining this address, so an address-only record becomes a real household.
-          await guard(
-            supabase
-              .from("households")
-              .update({ ...patch, status: "active" } as never)
-              .eq("id", found),
-            { area: "import", action: "Save an imported detail" },
-          );
-          return found;
+          return {
+            id: found,
+            key,
+            nameKey,
+            payload: { action: "update", id: found, values: { ...patch, status: "active" } },
+          };
         }
-        const { data: household } = await supabase
-          .from("households")
-          .insert({ name, ...parts, import_batch_id: batchId })
-          .select("id")
-          .single();
-        if (household?.id) {
-          if (key) houseByKey.set(key, household.id);
-          if (name) houseByKey.set(nameKey, household.id);
-          return household.id;
-        }
-        return null;
+        return {
+          id: null,
+          key,
+          nameKey,
+          payload: { action: "create", values: { name, ...parts, status: "active" } },
+        };
+      }
+
+      /** Compile-only legacy branch guard; direct rows never call this path. */
+      async function ensureHousehold(
+        _name: string,
+        _parts: HouseParts,
+        _allowAddressLink = true,
+      ): Promise<string | null> {
+        throw new Error("Legacy household write path is disabled");
       }
 
       // The same in-file identity registry the preview used, applied again here
@@ -768,6 +770,7 @@ function ImportCenter() {
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
+        let rowCommitted = false;
 
         try {
           // Exactly the same check the preview ran, now against the contacts this
@@ -885,6 +888,314 @@ function ImportCenter() {
           const allowAddressLink = !addressAnswer || addressAnswer.action === "household";
           const relationship = addressAnswer?.relationship || null;
 
+          const transactionalRow = true as const;
+          if (transactionalRow) {
+            const existing = match.candidates[0] ?? null;
+            const personValues: Record<string, unknown> =
+              match.status === "new"
+                ? {
+                    first_name: first || null,
+                    last_name: last || null,
+                    display_name: displayName,
+                    email: v.email ?? null,
+                    phone: v.phone ?? null,
+                    birth_date: isoDate(v.birth_date),
+                    anniversary_date: isoDate(v.anniversary_date),
+                    met_source: v.met_source ?? null,
+                    school: v.school ?? null,
+                    notes: v.person_notes ?? null,
+                    role: personRole,
+                    tags: splitList(v.tags),
+                    programs: splitList(v.programs),
+                    ...(relationship ? { household_relationship: relationship } : {}),
+                  }
+                : {};
+            if (match.status !== "new" && existing) {
+              if (v.email && !existing.email) personValues["email"] = v.email;
+              if (v.phone && !existing.phone) personValues["phone"] = v.phone;
+              const dob = isoDate(v.birth_date);
+              if (dob) personValues["birth_date"] = dob;
+              const anniversary = isoDate(v.anniversary_date);
+              if (anniversary) personValues["anniversary_date"] = anniversary;
+              if (v.met_source) personValues["met_source"] = v.met_source;
+              if (v.school) personValues["school"] = v.school;
+              if (v.person_notes) personValues["notes"] = v.person_notes;
+              if (relationship) personValues["household_relationship"] = relationship;
+            }
+
+            let householdPlan: ReturnType<typeof resolveHouseholdIntent> | null = null;
+            let householdPayload: Record<string, unknown> = { action: "none" };
+            if (match.status === "new" && hasFamily) {
+              householdPlan = resolveHouseholdIntent(
+                householdName,
+                addressParts,
+                allowAddressLink,
+              );
+              householdPayload = householdPlan.payload;
+              householdId = householdPlan.id;
+            } else if (match.status !== "new" && !householdId && hasFamily) {
+              householdPlan = resolveHouseholdIntent(
+                householdName,
+                addressParts,
+                allowAddressLink,
+              );
+              householdPayload = householdPlan.payload;
+              householdId = householdPlan.id;
+            } else if (match.status !== "new" && householdId && fullAddress) {
+              householdPayload = { action: "update", id: householdId, values: addressParts };
+            }
+
+            const contactMethods = [
+              ...(v.phones ?? []).map((method, methodIndex) => ({
+                kind: "phone",
+                value: method.value,
+                method_type: method.method_type,
+                is_primary: methodIndex === 0 && match.status === "new",
+              })),
+              ...(v.emails ?? []).map((method, methodIndex) => ({
+                kind: "email",
+                value: method.value,
+                method_type: method.method_type,
+                is_primary: methodIndex === 0 && match.status === "new",
+              })),
+            ];
+
+            const spouseName = v.spouse_first_name
+              ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
+              : v.spouse_full_name
+                ? splitFullName(v.spouse_full_name)
+                : null;
+            const houseMembers = householdId
+              ? ((
+                  await supabase
+                    .from("people")
+                    .select("first_name, last_name")
+                    .eq("household_id", householdId)
+                ).data ?? [])
+              : [];
+            const inHousehold = (relativeFirst: string, relativeLast: string) =>
+              houseMembers.some(
+                (member) =>
+                  (member.first_name ?? "").trim().toLowerCase() ===
+                    relativeFirst.trim().toLowerCase() &&
+                  (member.last_name ?? "").trim().toLowerCase() ===
+                    relativeLast.trim().toLowerCase(),
+              );
+
+            let spousePayload: Record<string, unknown> = { action: "skip" };
+            if (spouseName && (spouseName.first || spouseName.last)) {
+              const spouseLast = spouseName.last || last;
+              if (!inHousehold(spouseName.first, spouseLast)) {
+                spousePayload = {
+                  action: "create",
+                  values: {
+                    first_name: spouseName.first || null,
+                    last_name: spouseLast || null,
+                    display_name:
+                      [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
+                    email: v.spouse_email ?? null,
+                    phone: v.spouse_phone ?? null,
+                    role: "Adult",
+                    met_source: v.met_source ?? null,
+                  },
+                  contact_methods: [
+                    ...(v.spouse_phone
+                      ? [{
+                          kind: "phone",
+                          value: v.spouse_phone,
+                          method_type: "Mobile",
+                          is_primary: true,
+                        }]
+                      : []),
+                    ...(v.spouse_email
+                      ? [{
+                          kind: "email",
+                          value: v.spouse_email,
+                          method_type: "Personal",
+                          is_primary: true,
+                        }]
+                      : []),
+                  ],
+                };
+                houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
+              }
+            }
+
+            const childrenPayload: { action: string; values: Record<string, unknown> }[] = [];
+            for (const child of v.children ?? []) {
+              const childFirst = child.first.trim();
+              const childLast = (child.last ?? "").trim() || last;
+              if (!childFirst && !childLast) continue;
+              if (inHousehold(childFirst, childLast)) continue;
+              childrenPayload.push({
+                action: "create",
+                values: {
+                  first_name: childFirst || null,
+                  last_name: childLast || null,
+                  display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
+                  role: "Child",
+                  birth_date: isoDate(child.birth_date),
+                  school: child.school ?? null,
+                  met_source: v.met_source ?? null,
+                  programs: splitList(v.programs),
+                },
+              });
+              houseMembers.push({ first_name: childFirst, last_name: childLast });
+            }
+
+            const provenance = ([
+              "email",
+              "phone",
+              "address",
+              "birth_date",
+              "anniversary_date",
+              "met_source",
+              "school",
+            ] as FieldKey[])
+              .filter((key) => Boolean(v[key]))
+              .map((key) => ({ field_name: key, source, recorded_date: importDate }));
+
+            const registrations = new Map<string, Record<string, unknown>>();
+            const targetEventId = giftPlan.targetEventId;
+            if (targetEventId) {
+              registrations.set(targetEventId, {
+                event_id: targetEventId,
+                fee_amount: giftPlan.registrationFee,
+                payment_amount: giftPlan.registrationFee > 0 ? rowAmount : null,
+              });
+            }
+
+            let donationPayload: Record<string, unknown> | null = null;
+            if (v.amount) {
+              const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
+              const readDate = isoDate(v.date);
+              if (v.date && !readDate) {
+                unreadableGiftDates += 1;
+              } else if (Number.isFinite(amount) && amount > 0) {
+                const giftDate = readDate ?? importDate;
+                const { nearbyGroup, nearbyDecision, registrationFee, donationAmount, fingerprint } =
+                  giftPlan;
+                const rowCampaignId = await resolveCampaignId(v.campaign);
+                const donationEventId =
+                  nearbyGroup && (nearbyDecision === "attended" || nearbyDecision === "gift_only")
+                    ? nearbyGroup.event.id
+                    : targetEventId || null;
+                if (nearbyGroup && nearbyDecision === "attended") {
+                  registrations.set(nearbyGroup.event.id, {
+                    event_id: nearbyGroup.event.id,
+                    fee_amount: registrationFee,
+                    payment_amount: registrationFee > 0 ? amount : null,
+                  });
+                }
+                if (donationAmount > 0) {
+                  donationPayload = {
+                    amount: donationAmount,
+                    date: giftDate,
+                    campaign_id: rowCampaignId,
+                    event_id: donationEventId,
+                    source,
+                    notes: v.notes ?? null,
+                    import_batch_id: batch.id,
+                    import_fingerprint: fingerprint,
+                  };
+                }
+              }
+            }
+
+            const noteParts = [
+              v.notes,
+              v.person_notes ? `Note: ${v.person_notes}` : "",
+              v.school ? `School: ${v.school}` : "",
+            ]
+              .filter(Boolean)
+              .join(" Â· ");
+            const notePayload = noteParts && !v.amount
+              ? { date: importDate, text: noteParts, author: "Import" }
+              : null;
+
+            const { data: resolved, error: resolveError } = await supabase.rpc(
+              "resolve_import_row",
+              {
+                _person: {
+                  action: match.status === "new" ? "create" : "update",
+                  ...(personId ? { id: personId } : {}),
+                  values: personValues,
+                } as Json,
+                _household: householdPayload as Json,
+                _contact_methods: contactMethods,
+                _labels: {
+                  tags: bulkTarget.tag ? [bulkTarget.tag] : [],
+                  programs: bulkTarget.program ? [bulkTarget.program] : [],
+                },
+                _provenance: provenance,
+                _batch_id: batchId,
+                _spouse: spousePayload as Json,
+                _children: childrenPayload as Json,
+                _activity: {
+                  registrations: [...registrations.values()],
+                  donation: donationPayload,
+                  note: notePayload,
+                } as Json,
+              },
+            );
+            if (resolveError) throw resolveError;
+            const result = resolved as {
+              person_id?: string;
+              household_id?: string | null;
+              spouse_id?: string | null;
+              child_ids?: string[];
+            } | null;
+            if (!result?.person_id) throw new Error("The imported contact ID was not returned.");
+            rowCommitted = true;
+            personId = result.person_id;
+            householdId = result.household_id ?? null;
+
+            if (householdPlan && householdId) {
+              if (householdPlan.key) houseByKey.set(householdPlan.key, householdId);
+              houseByKey.set(householdPlan.nameKey, householdId);
+            }
+            remember({
+              id: personId,
+              first,
+              last,
+              email: v.email ?? null,
+              phone: v.phone ?? null,
+              birthDate: isoDate(v.birth_date),
+              householdId,
+              address: fullAddress,
+              methods: contactMethods.map((method) => ({
+                kind: method.kind,
+                value: method.value,
+              })),
+            });
+            if (result.spouse_id && spouseName) {
+              remember({
+                id: result.spouse_id,
+                first: spouseName.first || "",
+                last: spouseName.last || last,
+                email: v.spouse_email ?? null,
+                phone: v.spouse_phone ?? null,
+                householdId,
+                address: fullAddress,
+              });
+            }
+            (result.child_ids ?? []).forEach((childId, childIndex) => {
+              const child = childrenPayload[childIndex]?.values;
+              remember({
+                id: childId,
+                first: String(child?.["first_name"] ?? ""),
+                last: String(child?.["last_name"] ?? ""),
+                householdId,
+                address: fullAddress,
+              });
+            });
+            if (donationPayload?.["import_fingerprint"]) {
+              existingGiftFingerprints.add(String(donationPayload["import_fingerprint"]));
+            }
+            await recordOutcome(index, match.status === "new" ? "created" : "matched", {
+              personId,
+            });
+          } else {
           if (match.status === "new") {
             if (hasFamily) {
               householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
@@ -1303,38 +1614,26 @@ function ImportCenter() {
           await recordOutcome(index, match.status === "new" ? "created" : "matched", {
             personId,
           });
+          }
         } catch (rowError) {
+          if (rowCommitted) throw rowError;
           failures += 1;
           console.error("Import row failed", rowError);
           const why = await friendlyDbError(rowError, "We couldn't save this row.");
-          const k = addressKey(composeAddress(v));
-          let reviewQueueId: string | null = null;
           try {
-            reviewQueueId = await queueForReview(
-              v,
-              why,
-              [],
-              k ? { key: k, address: composeAddress(v) ?? "" } : null,
+            await recordImportRowFailureAndRethrow(
+              { batchId, rowNumber: index + 1, rowData: v, message: why },
+              rowError,
             );
-          } catch (queueError) {
-            console.error("Failed to preserve import row in review queue", queueError);
+          } catch (preservedError) {
+            console.error("Import row remains failed", preservedError);
           }
-          await recordOutcome(index, "failed", { reviewQueueId, message: why });
         }
 
         // Let the browser breathe so a long import never freezes the page.
         if (index % 10 === 9 || index === analysed.length - 1) {
           setProgress({ done: index + 1, total: analysed.length });
           await new Promise((r) => setTimeout(r, 0));
-        }
-      }
-
-      if (fieldSources.length > 0) {
-        for (let i = 0; i < fieldSources.length; i += 500) {
-          await guard(supabase.from("field_sources").insert(fieldSources.slice(i, i + 500)), {
-            area: "import",
-            action: "Save an imported detail",
-          });
         }
       }
 
