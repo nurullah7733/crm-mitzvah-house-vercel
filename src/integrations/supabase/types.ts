@@ -1536,6 +1536,13 @@ export type Database = {
         Returns: boolean;
       };
       is_admin: { Args: never; Returns: boolean };
+      change_staff_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"];
+          _staff_id: string;
+        };
+        Returns: string | null;
+      };
       deactivate_staff_member: { Args: { _staff_id: string }; Returns: string | null };
       issue_acknowledgment: {
         Args: { _delivery_method?: string; _donation_id: string };

@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { disableStaff } from "../staff.server";
+import { changeRole, disableStaff } from "../staff.server";
 
-const migration = readFileSync(
-  "supabase/migrations/20260825000300_protect_last_admin.sql",
+const migration = readFileSync("supabase/migrations/20260825000300_protect_last_admin.sql", "utf8");
+const staffServer = readFileSync("src/lib/staff.server.ts", "utf8");
+const roleChangeMigration = readFileSync(
+  "supabase/migrations/20260826000100_change_staff_role.sql",
   "utf8",
 );
-const staffServer = readFileSync("src/lib/staff.server.ts", "utf8");
 
 describe("database last-admin safeguard", () => {
   it("protects role/demotion, deactivation, unlinking and deletion on both role stores", () => {
@@ -70,8 +71,86 @@ describe("existing-admin access regression", () => {
       authorizationMigration.indexOf("CREATE OR REPLACE FUNCTION public.is_admin()"),
       authorizationMigration.indexOf("REVOKE EXECUTE ON FUNCTION public.is_admin()"),
     );
-    expect(isAdmin).toMatch(/public\.user_roles[\s\S]*\bOR EXISTS\s*\([\s\S]*public\.staff_members/);
+    expect(isAdmin).toMatch(
+      /public\.user_roles[\s\S]*\bOR EXISTS\s*\([\s\S]*public\.staff_members/,
+    );
     expect(isAdmin).not.toMatch(/NOT EXISTS\s*\([\s\S]*public\.user_roles/);
+  });
+});
+
+describe("changeRole transaction", () => {
+  it("keeps the staff row and linked roles in one locked PostgreSQL function", () => {
+    expect(roleChangeMigration).toContain("CREATE FUNCTION public.change_staff_role");
+    expect(roleChangeMigration).toContain("FOR UPDATE");
+    expect(roleChangeMigration).toContain("UPDATE public.staff_members");
+    expect(roleChangeMigration).toContain("SET role = _role");
+    expect(roleChangeMigration).toContain("DELETE FROM public.user_roles");
+    expect(roleChangeMigration).toContain("WHERE user_id = v_user_id");
+    expect(roleChangeMigration).toContain("INSERT INTO public.user_roles (user_id, role)");
+    expect(roleChangeMigration).toContain("VALUES (v_user_id, _role)");
+    expect(roleChangeMigration).not.toMatch(/EXCEPTION\s+WHEN/);
+  });
+
+  it("is callable only by the service role", () => {
+    expect(roleChangeMigration).toMatch(
+      /REVOKE ALL ON FUNCTION public\.change_staff_role\(uuid, public\.app_role\)[\s\S]*FROM PUBLIC, anon, authenticated/,
+    );
+    expect(roleChangeMigration).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.change_staff_role\(uuid, public\.app_role\)[\s\S]*TO service_role/,
+    );
+  });
+
+  it("uses one RPC and does not perform independent table writes", async () => {
+    const updateAuth = vi.fn(async () => ({ data: {}, error: null }));
+    const rpc = vi.fn(async () => ({ data: "user-a", error: null }));
+    const from = vi.fn(() => {
+      throw new Error("changeRole must not write tables independently");
+    });
+    const admin = { rpc, from, auth: { admin: { updateUserById: updateAuth } } };
+
+    await expect(changeRole(admin as never, "staff-a", "marketing")).resolves.toEqual({ ok: true });
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(rpc).toHaveBeenCalledWith("change_staff_role", {
+      _staff_id: "staff-a",
+      _role: "marketing",
+    });
+    expect(from).not.toHaveBeenCalled();
+    expect(updateAuth).toHaveBeenCalledWith("user-a", { app_metadata: { role: "marketing" } });
+  });
+
+  it("surfaces a one-admin safeguard rejection without updating Auth metadata", async () => {
+    const protectedError = new Error("The last active administrator cannot be removed or demoted");
+    const updateAuth = vi.fn();
+    const admin = {
+      rpc: vi.fn(async () => ({ data: null, error: protectedError })),
+      auth: { admin: { updateUserById: updateAuth } },
+    };
+
+    await expect(changeRole(admin as never, "staff-a", "marketing")).rejects.toBe(protectedError);
+    expect(updateAuth).not.toHaveBeenCalled();
+  });
+
+  it("allows a structurally valid multi-admin change and surfaces Auth metadata errors", async () => {
+    const authError = new Error("Auth metadata update failed");
+    const updateAuth = vi.fn(async () => ({ data: null, error: authError }));
+    const admin = {
+      rpc: vi.fn(async () => ({ data: "user-a", error: null })),
+      auth: { admin: { updateUserById: updateAuth } },
+    };
+
+    await expect(changeRole(admin as never, "staff-a", "marketing")).rejects.toBe(authError);
+    expect(updateAuth).toHaveBeenCalledOnce();
+  });
+
+  it("relies on the existing trigger's final zero-admin check, not a blanket demotion ban", () => {
+    expect(migration).toContain("IF v_admin_count = 0 THEN");
+    expect(migration).not.toContain("v_admin_count <= 1");
+    expect(roleChangeMigration).not.toContain("DISABLE TRIGGER");
+  });
+
+  it("leaves applyRole available to invite and restore flows", () => {
+    expect(staffServer).toContain("await applyRole(admin, userId, input.role)");
+    expect(staffServer).toContain("await applyRole(admin, row.user_id, row.role as Role)");
   });
 });
 
@@ -98,9 +177,7 @@ describe("disableStaff ordering", () => {
       auth: { admin: { updateUserById: ban } },
     };
 
-    await expect(disableStaff(admin as never, "staff-b", "user-a")).rejects.toBe(
-      protectedError,
-    );
+    await expect(disableStaff(admin as never, "staff-b", "user-a")).rejects.toBe(protectedError);
     expect(rpc).toHaveBeenCalledOnce();
     expect(rpc).toHaveBeenCalledWith("deactivate_staff_member", { _staff_id: "staff-b" });
     expect(ban).not.toHaveBeenCalled();
@@ -167,7 +244,9 @@ describe("disableStaff ordering", () => {
   });
 
   it("preserves the independent self-delete protection", () => {
-    const deletion = staffServer.slice(staffServer.indexOf("export async function deleteStaffMember"));
+    const deletion = staffServer.slice(
+      staffServer.indexOf("export async function deleteStaffMember"),
+    );
     expect(deletion).toContain("row.user_id === actingUserId");
     expect(deletion).toContain("user.id === actingUserId");
     expect(deletion).toContain("You cannot remove your own access.");

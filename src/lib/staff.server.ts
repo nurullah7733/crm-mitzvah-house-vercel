@@ -194,14 +194,17 @@ export async function resendInvite(admin: Admin, staffId: string, redirectTo: st
 }
 
 export async function changeRole(admin: Admin, staffId: string, role: Role) {
-  const { data: row, error } = await admin
-    .from("staff_members")
-    .update({ role })
-    .eq("id", staffId)
-    .select("user_id")
-    .maybeSingle();
+  const { data: userId, error } = await admin.rpc("change_staff_role", {
+    _staff_id: staffId,
+    _role: role,
+  });
   if (error) throw error;
-  if (row?.user_id) await applyRole(admin, row.user_id, role);
+  if (userId) {
+    const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { role },
+    });
+    if (authError) throw authError;
+  }
   return { ok: true };
 }
 
