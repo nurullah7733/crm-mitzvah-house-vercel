@@ -10,8 +10,6 @@ import {
   Users,
   Check,
 } from "lucide-react";
-import Papa from "papaparse";
-import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
@@ -70,6 +68,14 @@ import { buildRowValues, mainName } from "@/lib/import-rows";
 import { FieldPicker } from "@/components/import/FieldPicker";
 import { RouteError } from "@/components/RouteError";
 import { guard, mustWrite } from "@/lib/app-errors";
+import {
+  profileImportFile,
+  selectWorkbookSheet,
+  stagedRowPayload,
+  validateImportMapping,
+  type SelectedSheet,
+  type WorkbookProfile,
+} from "@/lib/import-workbook";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -94,32 +100,7 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
   component: ImportCenter,
 });
 
-type Sheet = { name: string; headers: string[]; rows: string[][] };
-
-async function readFile(file: File): Promise<Sheet> {
-  const isCsv = /\.csv$/i.test(file.name);
-  let table: string[][] = [];
-  if (isCsv) {
-    const text = await file.text();
-    const parsed = Papa.parse<string[]>(text.trim(), { skipEmptyLines: true });
-    table = parsed.data;
-  } else {
-    const buffer = await file.arrayBuffer();
-    const wb = XLSX.read(buffer, { cellDates: false });
-    const first = wb.SheetNames[0];
-    if (!first) throw new Error("That workbook has no sheets.");
-    const ws = wb.Sheets[first]!;
-    table = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: "" });
-  }
-  const [headerRow, ...rest] = table;
-  if (!headerRow || rest.length === 0)
-    throw new Error("We need a header row plus at least one row of data.");
-  return {
-    name: file.name,
-    headers: headerRow.map((h) => String(h ?? "").trim()),
-    rows: rest.map((r) => headerRow.map((_, i) => String(r?.[i] ?? "").trim())),
-  };
-}
+type Sheet = SelectedSheet & { name: string };
 
 /** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
 const isoDate = (raw: string | undefined) => parseImportDate(raw);
@@ -144,6 +125,7 @@ const DRAFT_KEY = "mh-import-draft";
 
 function ImportCenter() {
   const queryClient = useQueryClient();
+  const [workbook, setWorkbook] = useState<WorkbookProfile | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [mapping, setMapping] = useState<ColumnGuess[]>([]);
   const [adjusting, setAdjusting] = useState(false);
@@ -162,6 +144,7 @@ function ImportCenter() {
   >({});
   /** Set when staff confirm they really do want to import a file already imported before. */
   const [reimportConfirmed, setReimportConfirmed] = useState(false);
+  const [headerRiskConfirmed, setHeaderRiskConfirmed] = useState(false);
   /** Blocks a double-tap or a browser retry from running the same import twice. */
   const runningRef = useRef(false);
 
@@ -170,8 +153,13 @@ function ImportCenter() {
     try {
       const raw = sessionStorage.getItem(DRAFT_KEY);
       if (!raw) return;
-      const draft = JSON.parse(raw) as { sheet: Sheet; mapping: ColumnGuess[] };
+      const draft = JSON.parse(raw) as {
+        workbook?: WorkbookProfile;
+        sheet: Sheet;
+        mapping: ColumnGuess[];
+      };
       if (draft?.sheet?.headers?.length) {
+        if (draft.workbook) setWorkbook(draft.workbook);
         setSheet(draft.sheet);
         setMapping(draft.mapping ?? guessMapping(draft.sheet.headers));
       }
@@ -182,12 +170,12 @@ function ImportCenter() {
 
   useEffect(() => {
     try {
-      if (sheet) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ sheet, mapping }));
+      if (sheet) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ workbook, sheet, mapping }));
       else sessionStorage.removeItem(DRAFT_KEY);
     } catch {
       /* the file is too big to stash — the import still works */
     }
-  }, [sheet, mapping]);
+  }, [workbook, sheet, mapping]);
 
   /** Warn before leaving mid-import. */
   useEffect(() => {
@@ -228,16 +216,25 @@ function ImportCenter() {
 
   /** Has this exact file been imported before? */
   const { data: priorImports } = useQuery({
-    queryKey: ["prior-imports", sheet?.name ?? ""],
-    enabled: Boolean(sheet?.name),
+    queryKey: ["prior-imports", sheet?.rawFileHash ?? "", sheet?.sourceDataHash ?? ""],
+    enabled: Boolean(sheet?.rawFileHash && sheet?.sourceDataHash),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("import_batches")
-        .select("id, import_date, total_rows, created_at")
-        .eq("filename", sheet!.name)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      const select = "id, import_date, total_rows, created_at, filename, raw_file_hash, source_data_hash";
+      const [identity, legacyName] = await Promise.all([
+        supabase
+          .from("import_batches")
+          .select(select)
+          .or(`raw_file_hash.eq.${sheet!.rawFileHash},source_data_hash.eq.${sheet!.sourceDataHash}`)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("import_batches")
+          .select(select)
+          .eq("filename", sheet!.name)
+          .order("created_at", { ascending: false }),
+      ]);
+      if (identity.error) throw identity.error;
+      if (legacyName.error) throw legacyName.error;
+      return [...new Map([...(identity.data ?? []), ...(legacyName.data ?? [])].map((row) => [row.id, row])).values()];
     },
   });
 
@@ -309,8 +306,9 @@ function ImportCenter() {
     const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map(
       (p) => p.message,
     );
-    return { checklist, warnings, mapped };
-  }, [mapping]);
+    const gate = validateImportMapping(mapping, sheet?.headers.length ?? 0, sheet?.columnProfiles);
+    return { checklist, warnings: [...warnings, ...gate.warnings], mapped, gate };
+  }, [mapping, sheet?.headers.length, sheet?.columnProfiles]);
 
   /** Every distinct event name the file mentions, and what it matched. */
   const fileEvents = useMemo(() => {
@@ -440,20 +438,45 @@ function ImportCenter() {
   async function handleFile(file: File) {
     setError(null);
     try {
-      const parsed = await readFile(file);
-      setSheet(parsed);
-      setMapping(guessMapping(parsed.headers));
+      const parsed = await profileImportFile(file);
+      setWorkbook(parsed);
+      setSheet(null);
+      setMapping([]);
       setAdjusting(false);
       setEventDecisions({});
       setAddressDecisions({});
       setBulkTarget(EMPTY_BULK_TARGET);
+      setHeaderRiskConfirmed(false);
+      setReimportConfirmed(false);
+      if (parsed.kind === "csv" && parsed.sheets[0]) {
+        const detected = parsed.sheets[0].detectedHeader;
+        if (detected.rowNumber !== null) applySheetSelection(parsed, 0, detected.rowNumber, "detected");
+      }
     } catch (e) {
+      setWorkbook(null);
       setSheet(null);
       setError(e instanceof Error ? e.message : "We couldn't read that file.");
     }
   }
 
+  function applySheetSelection(
+    source: WorkbookProfile,
+    sheetIndex: number,
+    headerRowNumber: number | null,
+    mode: SelectedSheet["headerMode"],
+  ) {
+    const selected = selectWorkbookSheet(source, sheetIndex, headerRowNumber, mode);
+    setSheet({ ...selected, name: source.filename });
+    setMapping(guessMapping(selected.headers));
+    setHeaderRiskConfirmed(false);
+    setReimportConfirmed(false);
+    setEventDecisions({});
+    setAddressDecisions({});
+    setGiftEventDecisions({});
+  }
+
   function reset() {
+    setWorkbook(null);
     setSheet(null);
     setMapping([]);
     setError(null);
@@ -463,6 +486,7 @@ function ImportCenter() {
     setBulkTarget(EMPTY_BULK_TARGET);
     setGiftEventDecisions({});
     setReimportConfirmed(false);
+    setHeaderRiskConfirmed(false);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
     } catch {
@@ -473,6 +497,18 @@ function ImportCenter() {
   async function approve() {
     if (!sheet) return;
     if (runningRef.current || busy) return;
+    if (!mappingReview.gate.valid) {
+      toast.error(mappingReview.gate.errors[0] ?? "Fix the column mapping before importing.");
+      return;
+    }
+    const profiledSheet = workbook?.sheets[sheet.sheetIndex];
+    const riskyHeader =
+      sheet.headerRowNumber !== null &&
+      profiledSheet?.detectedHeader.rowNumber !== sheet.headerRowNumber;
+    if (riskyHeader && !headerRiskConfirmed) {
+      toast.error("Confirm the manually selected header row before importing.");
+      return;
+    }
     if ((priorImports ?? []).length > 0 && !reimportConfirmed) {
       toast.error(
         "This file was imported before. Tick the box to confirm you want to import it again.",
@@ -496,8 +532,21 @@ function ImportCenter() {
           new_rows: counts.new,
           ambiguous_rows: counts.ambiguous,
           status: "processing",
+          raw_file_hash: sheet.rawFileHash,
+          source_data_hash: sheet.sourceDataHash,
+          selected_sheet_name: sheet.sheetName,
+          selected_sheet_index: sheet.sheetIndex,
+          header_row_number: sheet.headerRowNumber,
+          header_mode: sheet.headerMode,
+          source_structure: {
+            kind: workbook?.kind ?? "xlsx",
+            used_range: sheet.usedRange,
+            visibility: sheet.visibility,
+            column_ids: sheet.columnIds,
+            headers: sheet.headers,
+          },
           mapping: mapping.reduce<Record<string, string>>((acc, m, i) => {
-            acc[m.header || `Column ${i + 1}`] = m.field;
+            acc[sheet.columnIds[i] ?? `column_${i + 1}`] = m.field;
             return acc;
           }, {}),
         })
@@ -505,6 +554,18 @@ function ImportCenter() {
         .single();
       if (batchError) throw batchError;
       const batchId = batch.id;
+
+      const stagedRows = stagedRowPayload(
+        sheet,
+        mapping,
+        analysed.map((item) => item.values),
+      ).map((row) => ({ ...row, batch_id: batchId })) as never[];
+      for (let offset = 0; offset < stagedRows.length; offset += 250) {
+        const { error: stagingError } = await supabase
+          .from("import_staged_rows")
+          .insert(stagedRows.slice(offset, offset + 250));
+        if (stagingError) throw stagingError;
+      }
 
       const { error: outcomeSeedError } = await supabase.from("import_row_outcomes").insert(
         analysed.map((item, index) => ({
@@ -578,6 +639,8 @@ function ImportCenter() {
             reason,
             row_data: {
               ...(values as unknown as Record<string, unknown>),
+              _source_sheet: sheet!.sheetName,
+              _source_row_number: sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ?? null,
               ...(group
                 ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address }
                 : {}),
@@ -1711,7 +1774,7 @@ function ImportCenter() {
         </Link>
       }
     >
-      {!sheet && (
+      {!workbook && (
         <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center shadow-sm">
           <UploadCloud className="mx-auto size-8 text-primary" />
           <p className="mt-3 font-heading font-semibold text-foreground">Upload a spreadsheet</p>
@@ -1741,6 +1804,104 @@ function ImportCenter() {
         <p className="mt-4 rounded-2xl border border-urgent/40 bg-urgent/10 p-4 text-sm text-urgent">
           {error}
         </p>
+      )}
+
+      {workbook && (
+        <section className="mb-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-heading font-semibold text-foreground">Workbook structure</h2>
+              <p className="text-sm text-muted-foreground">
+                {workbook.filename} · {workbook.sheets.length} sheet
+                {workbook.sheets.length === 1 ? "" : "s"}. Choose the sheet and tell us where its
+                headers are. A data row is never removed unless you explicitly select it as the header.
+              </p>
+            </div>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={reset}>
+              Choose another file
+            </Button>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Worksheet">
+              <select
+                className={selectClass}
+                value={sheet?.sheetIndex ?? ""}
+                onChange={(event) => {
+                  const index = Number(event.target.value);
+                  const chosen = workbook.sheets[index];
+                  if (!chosen) return;
+                  const detected = chosen.detectedHeader.rowNumber;
+                  applySheetSelection(
+                    workbook,
+                    index,
+                    detected,
+                    detected === null ? "none" : "detected",
+                  );
+                }}
+              >
+                <option value="">Select a worksheet</option>
+                {workbook.sheets.map((candidate) => (
+                  <option key={`${candidate.index}-${candidate.name}`} value={candidate.index}>
+                    {candidate.name} · {candidate.physicalRowCount} rows · {candidate.columnCount} columns
+                    {candidate.visibility === "visible" ? "" : ` · ${candidate.visibility}`}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {sheet && workbook.sheets[sheet.sheetIndex] && (
+              <Field label="Header row">
+                <select
+                  className={selectClass}
+                  value={sheet.headerRowNumber ?? "none"}
+                  onChange={(event) => {
+                    const rowNumber = event.target.value === "none" ? null : Number(event.target.value);
+                    const detected = workbook.sheets[sheet.sheetIndex]!.detectedHeader.rowNumber;
+                    applySheetSelection(
+                      workbook,
+                      sheet.sheetIndex,
+                      rowNumber,
+                      rowNumber === null ? "none" : rowNumber === detected ? "detected" : "manual",
+                    );
+                  }}
+                >
+                  <option value="none">No header row — assign columns manually</option>
+                  {workbook.sheets[sheet.sheetIndex]!.rows
+                    .filter((row) => row.cells.some((cell) => cell.display))
+                    .slice(0, 25)
+                    .map((row) => (
+                      <option key={row.physicalRowNumber} value={row.physicalRowNumber}>
+                        Row {row.physicalRowNumber}: {row.cells.map((cell) => cell.display).filter(Boolean).slice(0, 4).join(" · ")}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            )}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {workbook.sheets.map((candidate) => (
+              <button
+                key={`summary-${candidate.index}`}
+                type="button"
+                onClick={() =>
+                  applySheetSelection(
+                    workbook,
+                    candidate.index,
+                    candidate.detectedHeader.rowNumber,
+                    candidate.detectedHeader.rowNumber === null ? "none" : "detected",
+                  )
+                }
+                className={`rounded-xl border p-3 text-left text-sm ${
+                  sheet?.sheetIndex === candidate.index ? "border-primary bg-primary/5" : "border-border"
+                }`}
+              >
+                <span className="font-medium text-foreground">{candidate.name}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {candidate.usedRange ?? "empty"} · {candidate.visibility} · {candidate.detectedHeader.reason}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       {sheet && (
@@ -2112,9 +2273,17 @@ function ImportCenter() {
                   key={`${m.header}-${i}`}
                   className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center"
                 >
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {m.header || `Column ${i + 1}`}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {m.header || `Column ${i + 1}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Looks like {sheet.columnProfiles[i]?.shape.replace("_", " ") ?? "unknown"}
+                      {sheet.columnProfiles[i]?.samples.length
+                        ? ` · ${sheet.columnProfiles[i]!.samples.join(" · ")}`
+                        : " · no sample values"}
+                    </p>
+                  </div>
                   {adjusting ? (
                     <FieldPicker
                       value={m.field}
@@ -2179,10 +2348,15 @@ function ImportCenter() {
                 ))}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                A name is all we truly need. Anything missing here just means we'll know less about
-                these contacts.
+                Import is blocked until the mapping contains a usable person identity or activity
+                field and has no structural conflicts.
               </p>
             </div>
+            {!mappingReview.gate.valid && (
+              <ul className="mt-3 space-y-1 rounded-xl border border-urgent/40 bg-urgent/10 p-3 text-sm text-urgent">
+                {mappingReview.gate.errors.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+            )}
             {mappingReview.warnings.length > 0 && (
               <ul className="mt-3 space-y-1 rounded-xl border border-suggestion/50 bg-suggestion/10 p-3 text-sm text-foreground">
                 {mappingReview.warnings.map((w) => (
@@ -2269,14 +2443,33 @@ function ImportCenter() {
                   onChange={(e) => setReimportConfirmed(e.target.checked)}
                 />
                 <span>
-                  A file named <strong>{sheet.name}</strong> was already imported
+                  This filename, exact file, or equivalent workbook data was already imported
                   {priorImports![0]?.import_date ? ` on ${priorImports![0]!.import_date}` : ""}
                   {(priorImports ?? []).length > 1 ? ` (${priorImports!.length} times)` : ""}. Tick
                   this box if you really want to import it again.
                 </span>
               </label>
             )}
-            <Button className="rounded-xl" disabled={busy} onClick={() => void approve()}>
+            {sheet.headerRowNumber !== null &&
+              workbook?.sheets[sheet.sheetIndex]?.detectedHeader.rowNumber !== sheet.headerRowNumber && (
+                <label className="flex w-full items-start gap-2 rounded-xl bg-urgent/10 px-3 py-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={headerRiskConfirmed}
+                    onChange={(event) => setHeaderRiskConfirmed(event.target.checked)}
+                  />
+                  <span>
+                    Header detection was uncertain. I checked row {sheet.headerRowNumber} and confirm
+                    that it contains column labels, not the first data record.
+                  </span>
+                </label>
+              )}
+            <Button
+              className="rounded-xl"
+              disabled={busy || !mappingReview.gate.valid}
+              onClick={() => void approve()}
+            >
               {busy
                 ? `Importing… ${progress?.done ?? 0}/${progress?.total ?? 0}`
                 : "Approve & import"}

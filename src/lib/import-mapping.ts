@@ -364,9 +364,11 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
   ],
   address: [
     "address",
+    "address 1",
     "street",
     "street address",
     "address line 1",
+    "mailing street",
     "mailing address",
     "home address",
     "city state zip",
@@ -383,14 +385,21 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "address line two",
     "apt suite",
   ],
-  city: ["city", "town", "city name", "billing city", "shipping city"],
-  state: ["state", "province", "region", "st", "billing state", "shipping state"],
+  city: ["city", "town", "city name", "mailing city", "billing city", "shipping city"],
+  state: [
+    "state", "province", "state province", "region", "st", "mailing state",
+    "mailing state province", "billing state", "shipping state",
+  ],
   postal_code: [
     "zip",
     "zip code",
+    "zip postal code",
     "zipcode",
     "postal code",
     "postcode",
+    "mailing zip",
+    "mailing postal code",
+    "mailing zip postal code",
     "billing zip",
     "shipping zip",
   ],
@@ -491,7 +500,7 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "grade",
   ],
   amount: ["amount", "gift amount", "donation amount", "total", "gross amount", "paid amount"],
-  date: ["date", "gift date", "donation date", "transaction date", "created at", "processed on"],
+  date: ["date", "gift date", "donation date", "transaction date", "close date", "created at", "processed on"],
   campaign: ["campaign", "fund", "appeal", "designation"],
   notes: ["notes", "note", "comments", "comment", "message", "memo", "your message", "questions"],
   met_source: ["source", "met at", "where we met", "how did you hear", "lead source", "referral"],
@@ -518,7 +527,7 @@ function normalize(h: string) {
   return h
     .trim()
     .toLowerCase()
-    .replace(/[_\-.]+/g, " ")
+    .replace(/[_\-./]+/g, " ")
     .replace(/\s+/g, " ");
 }
 
@@ -531,6 +540,9 @@ export function guessColumn(header: string): ColumnGuess {
   for (const [field, list] of Object.entries(SYNONYMS) as [FieldKey, string[]][]) {
     for (const syn of list) {
       if (h === syn) return { header, field, confidence: "high" };
+      // Short aliases such as "mail", "st", and "zip" are useful as exact
+      // headers, but unsafe as fuzzy prefixes of unrelated longer headers.
+      if (syn.length < 5) continue;
       const score = fuzzyScore(syn, h);
       if (score !== null && (best === null || score < best.score)) best = { field, score };
     }

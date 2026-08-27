@@ -37,11 +37,18 @@ describe("header synonyms map to the right field", () => {
     ["Office Phone", "phone_work"],
     ["Phone 2", "phone_other"],
     ["Street Address", "address"],
+    ["Address 1", "address"],
+    ["Mailing Street", "address"],
     ["Address Line 2", "address_line2"],
     ["Apt", "address_line2"],
     ["ZIP Code", "postal_code"],
     ["City", "city"],
+    ["Mailing City", "city"],
     ["State", "state"],
+    ["State/Province", "state"],
+    ["Mailing State/Province", "state"],
+    ["ZIP/Postal Code", "postal_code"],
+    ["Mailing Zip/Postal Code", "postal_code"],
     ["Household Name", "household_name"],
     ["Date of Birth", "birth_date"],
     ["DOB", "birth_date"],
@@ -77,6 +84,25 @@ describe("header synonyms map to the right field", () => {
     expect(mapped[2]).toBe("email");
     // A second email column becomes an extra email rather than being dropped.
     expect(mapped[3]).toBe("email_other");
+  });
+
+  it("maps the sanitized live-QA structure without consuming the primary email target", () => {
+    const headers = [
+      "First Name", "Last Name", "Mailing Street", "Mailing City",
+      "Mailing State/Province", "Mailing Zip/Postal Code", "Phone", "Email",
+      "Close Date", "Amount", "Primary Campaign Source", "Date of Birth",
+    ];
+    expect(fields(headers)).toEqual([
+      "first_name", "last_name", "address", "city", "state", "postal_code",
+      "phone", "email", "date", "amount", "campaign", "birth_date",
+    ]);
+    expect(guessMapping(headers)[7]).toMatchObject({ field: "email", confidence: "high" });
+  });
+
+  it("keeps multiple genuine email columns on repeatable email targets", () => {
+    expect(fields(["Email", "Work Email", "Other Email"])).toEqual([
+      "email", "email_work", "email_other",
+    ]);
   });
 
   it("lets repeatable child and phone columns all stay mapped", () => {

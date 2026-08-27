@@ -575,12 +575,19 @@ export type Database = {
           failed_rows: number;
           filename: string;
           flagged_rows: number;
+          header_mode: string | null;
+          header_row_number: number | null;
           id: string;
           import_date: string;
           mapping: Json;
           matched_rows: number;
           new_rows: number;
           processed_rows: number;
+          raw_file_hash: string | null;
+          selected_sheet_index: number | null;
+          selected_sheet_name: string | null;
+          source_data_hash: string | null;
+          source_structure: Json | null;
           status: string;
           total_rows: number;
           uploaded_by: string | null;
@@ -593,12 +600,19 @@ export type Database = {
           failed_rows?: number;
           filename: string;
           flagged_rows?: number;
+          header_mode?: string | null;
+          header_row_number?: number | null;
           id?: string;
           import_date?: string;
           mapping?: Json;
           matched_rows?: number;
           new_rows?: number;
           processed_rows?: number;
+          raw_file_hash?: string | null;
+          selected_sheet_index?: number | null;
+          selected_sheet_name?: string | null;
+          source_data_hash?: string | null;
+          source_structure?: Json | null;
           status?: string;
           total_rows?: number;
           uploaded_by?: string | null;
@@ -611,17 +625,65 @@ export type Database = {
           failed_rows?: number;
           filename?: string;
           flagged_rows?: number;
+          header_mode?: string | null;
+          header_row_number?: number | null;
           id?: string;
           import_date?: string;
           mapping?: Json;
           matched_rows?: number;
           new_rows?: number;
           processed_rows?: number;
+          raw_file_hash?: string | null;
+          selected_sheet_index?: number | null;
+          selected_sheet_name?: string | null;
+          source_data_hash?: string | null;
+          source_structure?: Json | null;
           status?: string;
           total_rows?: number;
           uploaded_by?: string | null;
         };
         Relationships: [];
+      };
+      import_staged_rows: {
+        Row: {
+          batch_id: string;
+          created_at: string;
+          id: string;
+          mapping: Json;
+          normalized_values: Json;
+          physical_row_number: number;
+          raw_cells: Json;
+          source_columns: Json;
+        };
+        Insert: {
+          batch_id: string;
+          created_at?: string;
+          id?: string;
+          mapping: Json;
+          normalized_values?: Json;
+          physical_row_number: number;
+          raw_cells: Json;
+          source_columns: Json;
+        };
+        Update: {
+          batch_id?: string;
+          created_at?: string;
+          id?: string;
+          mapping?: Json;
+          normalized_values?: Json;
+          physical_row_number?: number;
+          raw_cells?: Json;
+          source_columns?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "import_staged_rows_batch_id_fkey";
+            columns: ["batch_id"];
+            isOneToOne: false;
+            referencedRelation: "import_batches";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       import_row_outcomes: {
         Row: {
