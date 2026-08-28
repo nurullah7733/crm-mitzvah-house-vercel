@@ -455,18 +455,123 @@ describe("duplicate matching only fires on real signals", () => {
     expect(r.reason).toBe("Same name and same birth date");
   });
 
-  it("rules out a same-name person with a different birth date", () => {
+  it("routes a same-name person with a different birth date to review", () => {
     const r = matchRow(
       { first_name: "Sarah", last_name: "Klein", birth_date: "1990-01-02" },
       people,
     );
-    expect(r.status).toBe("new");
+    expect(r.status).toBe("ambiguous");
+    expect(r.reason).toContain("birth date differs");
   });
 
   it("treats a typo in the name as a signal only with an address or birth date", () => {
     expect(matchRow({ first_name: "Sara", last_name: "Klein" }, people).status).toBe("ambiguous");
     expect(
       matchRow({ first_name: "Sara", last_name: "Klein", birth_date: "1990-01-02" }, people).status,
-    ).toBe("new");
+    ).toBe("ambiguous");
+  });
+});
+
+describe("identity conflict engine", () => {
+  const person = (over: Partial<ExistingPerson> = {}): ExistingPerson => ({
+    id: "p1",
+    first_name: "Sarah",
+    last_name: "Klein",
+    email: "same@example.test",
+    phone: "404-555-0100",
+    birth_date: "1980-01-01",
+    household_id: "h1",
+    households: { name: "Klein", address: "120 Oak Street" },
+    contact_methods: [],
+    ...over,
+  });
+
+  it("vetoes an email match when birth dates conflict", () => {
+    const result = matchRow({
+      first_name: "Sarah", last_name: "Klein", email: "same@example.test", birth_date: "1995-07-12",
+    }, [person()]);
+    expect(result.status).toBe("ambiguous");
+    expect(result.reason).toBe("Email matches, but birth date differs.");
+    expect(result.candidates.map((candidate) => candidate.id)).toEqual(["p1"]);
+  });
+
+  it("vetoes a phone match when birth dates conflict", () => {
+    const result = matchRow({ phone: "4045550100", birth_date: "1995-07-12" }, [person()]);
+    expect(result.status).toBe("ambiguous");
+    expect(result.reason).toBe("Phone matches, but birth date differs.");
+  });
+
+  it("matches agreeing email, birth date, and close name", () => {
+    expect(matchRow({
+      first_name: "Sara", last_name: "Klein", email: "SAME@EXAMPLE.TEST", birth_date: "1/1/1980",
+    }, [person()]).status).toBe("matched");
+  });
+
+  it("does not auto-match an exact name by itself", () => {
+    const result = matchRow({ first_name: "Sarah", last_name: "Klein" }, [person()]);
+    expect(result.status).toBe("ambiguous");
+    expect(result.candidates.map((candidate) => candidate.id)).toEqual(["p1"]);
+  });
+
+  it("matches an exact name plus exact birth date", () => {
+    expect(matchRow({
+      first_name: "Sarah", last_name: "Klein", birth_date: "1980-01-01",
+    }, [person()]).status).toBe("matched");
+  });
+
+  it("normalizes formatted phones and email casing", () => {
+    expect(matchRow({ phone: "+1 (404) 555-0100" }, [person()]).status).toBe("matched");
+    expect(matchRow({ email: "SAME@EXAMPLE.TEST" }, [person()]).status).toBe("matched");
+  });
+
+  it("preserves every candidate sharing an email or phone", () => {
+    const people = [person(), person({ id: "p2", first_name: "Rachel" })];
+    const email = matchRow({ email: "same@example.test" }, people);
+    const phone = matchRow({ phone: "4045550100" }, people);
+    expect(email.status).toBe("ambiguous");
+    expect(email.candidates.map((candidate) => candidate.id)).toEqual(["p1", "p2"]);
+    expect(phone.status).toBe("ambiguous");
+    expect(phone.candidates.map((candidate) => candidate.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("does not invent a DOB conflict when the incoming DOB is blank", () => {
+    expect(matchRow({ email: "same@example.test" }, [person()]).status).toBe("matched");
+  });
+
+  it("allows a changed address when strong identity otherwise agrees", () => {
+    expect(matchRow({
+      first_name: "Sarah", last_name: "Klein", email: "same@example.test", address: "99 New Road",
+    }, [person()]).status).toBe("matched");
+  });
+
+  it("does not auto-match address alone or same address with a different name", () => {
+    expect(matchRow({ address: "120 Oak St" }, [person()]).status).toBe("ambiguous");
+    expect(matchRow({ first_name: "Rachel", last_name: "Cohen", address: "120 Oak St" }, [person()]).status).toBe("ambiguous");
+  });
+
+  it("accepts a nickname with an agreeing phone", () => {
+    expect(matchRow({ first_name: "Sara", last_name: "Klein", phone: "4045550100" }, [person()]).status).toBe("matched");
+  });
+
+  it("prevents a same-file shared contact method from hiding contradictory identity", () => {
+    const seen = newRowIdentityRegistry();
+    expect(matchRowOnce({
+      first_name: "Sarah", last_name: "Klein", email: "family@example.test", birth_date: "1980-01-01",
+      amount: "18", date: "2026-01-01",
+    }, [], seen, 0).status).toBe("new");
+    const second = matchRowOnce({
+      first_name: "Rachel", last_name: "Klein", email: "family@example.test", birth_date: "1995-07-12",
+      amount: "36", date: "2026-01-02",
+    }, [], seen, 1);
+    expect(second.status).toBe("ambiguous");
+    expect(second.reason).toContain("birth date differs");
+    expect(second.reason).toContain("row 1");
+  });
+
+  it("keeps legitimate separate gifts for an agreeing same-file identity", () => {
+    const seen = newRowIdentityRegistry();
+    const identity = { first_name: "Sarah", last_name: "Klein", email: "same@example.test", birth_date: "1980-01-01" };
+    expect(matchRowOnce({ ...identity, amount: "18", date: "2026-01-01" }, [], seen, 0).status).toBe("new");
+    expect(matchRowOnce({ ...identity, amount: "36", date: "2026-01-02" }, [], seen, 1).status).toBe("new");
   });
 });
