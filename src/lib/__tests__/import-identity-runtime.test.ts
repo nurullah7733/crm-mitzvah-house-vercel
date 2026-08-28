@@ -20,6 +20,26 @@ describe("Import Center identity review gate", () => {
   it("preserves matcher candidates and reasons when creating review work", () => {
     const source = readFileSync("src/routes/_authenticated/inbox.index.tsx", "utf8");
     expect(source).toContain("live.candidates.map((c) => c.id)");
-    expect(source).toContain("live.status === \"ambiguous\" ? live.reason");
+    expect(source).toContain('live.status === "ambiguous" ? live.reason');
+  });
+
+  it("uses the shared activity-owner rule and gives household conflict precedence", () => {
+    const source = readFileSync("src/routes/_authenticated/inbox.index.tsx", "utf8");
+    expect(source).toContain("needsCoupleActivityOwnerReview(values)");
+    expect(source).toContain("needsCoupleActivityOwnerReview(v)");
+    expect(source.indexOf('coupleResolution?.kind === "household_conflict"')).toBeLessThan(
+      source.indexOf("if (activityOwnerReview)"),
+    );
+    expect(source).toContain("COUPLE_ACTIVITY_OWNER_REVIEW_REASON");
+  });
+
+  it("queues couple activity before the transactional person and activity RPC", () => {
+    const source = readFileSync("src/routes/_authenticated/inbox.index.tsx", "utf8");
+    const gate = source.indexOf("if (activityOwnerReview)");
+    const rpc = source.indexOf('"resolve_import_row"', gate);
+    const transactional = source.indexOf("const transactionalRow", gate);
+    expect(gate).toBeGreaterThan(-1);
+    expect(transactional).toBeGreaterThan(gate);
+    expect(rpc).toBeGreaterThan(transactional);
   });
 });

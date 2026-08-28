@@ -7,6 +7,7 @@ import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 import { ReviewCompareDialog } from "@/components/ReviewCompareDialog";
+import { HouseholdConflictReviewDialog } from "@/components/HouseholdConflictReviewDialog";
 import { personName } from "@/lib/names";
 import {
   compareRecords,
@@ -41,6 +42,9 @@ import {
   type HouseholdReviewMember,
 } from "@/lib/review-household";
 import { normalizeEmail } from "@/lib/proper-case";
+import { householdConflictContext } from "@/lib/review-household-conflict";
+import { coupleActivityContext } from "@/lib/review-couple-activity";
+import { CoupleActivityOwnerDialog } from "@/components/CoupleActivityOwnerDialog";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -630,6 +634,12 @@ function DataInbox() {
   });
 
   const reviewItem = pending.find((r) => r.id === reviewId);
+  const householdConflict = householdConflictContext(
+    (reviewItem?.row_data ?? {}) as Record<string, unknown>,
+  );
+  const coupleActivity = coupleActivityContext(
+    (reviewItem?.row_data ?? {}) as Record<string, unknown>,
+  );
 
   return (
     <AppShell
@@ -1030,7 +1040,11 @@ function DataInbox() {
                             className="rounded-xl"
                             onClick={() => setReviewId(r.id)}
                           >
-                            ✏️ Open and decide
+                            {householdConflictContext((r.row_data ?? {}) as Record<string, unknown>)
+                              ? "Review household conflict"
+                              : coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)
+                                ? "Choose activity owner"
+                                : "✏️ Open and decide"}
                           </Button>
                           <Button
                             variant="outline"
@@ -1352,7 +1366,32 @@ function DataInbox() {
         />
       </ResponsiveModal>
 
-      {reviewItem && (
+      {reviewItem && householdConflict && (
+        <HouseholdConflictReviewDialog
+          open
+          onOpenChange={(value) => !value && setReviewId(null)}
+          itemId={reviewItem.id}
+          context={householdConflict}
+          hasActivity={["amount", "event_name", "campaign", "notes", "tags", "programs"].some(
+            (field) => Boolean((reviewItem.row_data as Record<string, unknown> | null)?.[field]),
+          )}
+          onDone={() => setReviewId(null)}
+        />
+      )}
+
+      {reviewItem && !householdConflict && coupleActivity && (
+        <CoupleActivityOwnerDialog
+          open
+          onOpenChange={(value) => !value && setReviewId(null)}
+          itemId={reviewItem.id}
+          context={coupleActivity}
+          row={(reviewItem.row_data ?? {}) as RowValues}
+          batchId={reviewItem.batch_id}
+          onDone={() => setReviewId(null)}
+        />
+      )}
+
+      {reviewItem && !householdConflict && !coupleActivity && (
         <ReviewCompareDialog
           open
           onOpenChange={(v) => !v && setReviewId(null)}

@@ -42,8 +42,8 @@ describe("normal CSV transactional row cutover", () => {
   });
 
   it("uses one shared donation plan for net amount and fingerprint", () => {
-    expect(transactional).toContain(
-      "const { nearbyGroup, nearbyDecision, registrationFee, donationAmount, fingerprint } =",
+    expect(transactional).toMatch(
+      /const\s*\{\s*nearbyGroup,\s*nearbyDecision,\s*registrationFee,\s*donationAmount,\s*fingerprint,?\s*\}\s*=\s*giftPlan/,
     );
     expect(transactional).toContain("amount: donationAmount");
     expect(transactional).toContain("import_fingerprint: fingerprint");

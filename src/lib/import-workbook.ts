@@ -93,16 +93,47 @@ export type SelectedSheet = {
 
 const HEADER_WORDS = new Set(
   [
-    "name", "first name", "last name", "full name", "email", "email address", "phone",
-    "phone number", "address", "street", "city", "state", "province", "zip", "zip code",
-    "postal code", "date", "close date", "birth date", "date of birth", "amount", "total",
-    "campaign", "event", "notes", "status", "submitted", "created at", "organization",
-    "household", "spouse", "partner", "child", "registration",
+    "name",
+    "first name",
+    "last name",
+    "full name",
+    "email",
+    "email address",
+    "phone",
+    "phone number",
+    "address",
+    "street",
+    "city",
+    "state",
+    "province",
+    "zip",
+    "zip code",
+    "postal code",
+    "date",
+    "close date",
+    "birth date",
+    "date of birth",
+    "amount",
+    "total",
+    "campaign",
+    "event",
+    "notes",
+    "status",
+    "submitted",
+    "created at",
+    "organization",
+    "household",
+    "spouse",
+    "partner",
+    "child",
+    "registration",
   ].map((value) => value.toLowerCase()),
 );
 
 function clean(value: unknown) {
-  return String(value ?? "").trim().replace(/\s+/g, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function looksEmail(value: string) {
@@ -134,7 +165,10 @@ function looksNumber(value: string) {
 }
 
 function looksAddress(value: string) {
-  return /^\d+\s+.{3,}/.test(value) && /\b(st|street|rd|road|dr|drive|ct|court|ave|avenue|ln|lane|way|blvd|suite|apt)\b/i.test(value);
+  return (
+    /^\d+\s+.{3,}/.test(value) &&
+    /\b(st|street|rd|road|dr|drive|ct|court|ave|avenue|ln|lane|way|blvd|suite|apt)\b/i.test(value)
+  );
 }
 
 export function detectHeader(rows: SourceRow[]): HeaderDetection {
@@ -143,13 +177,25 @@ export function detectHeader(rows: SourceRow[]): HeaderDetection {
     const nonBlank = values.filter(Boolean);
     const known = nonBlank.filter((value) => {
       const normalized = value.toLowerCase().replace(/[_-]+/g, " ");
-      return HEADER_WORDS.has(normalized) || [...HEADER_WORDS].some((word) => normalized.includes(word));
+      return (
+        HEADER_WORDS.has(normalized) || [...HEADER_WORDS].some((word) => normalized.includes(word))
+      );
     }).length;
     const dataLike = nonBlank.filter(
-      (value) => looksEmail(value) || looksPhone(value) || looksDate(value) || looksTimestamp(value) || looksCurrency(value) || looksNumber(value),
+      (value) =>
+        looksEmail(value) ||
+        looksPhone(value) ||
+        looksDate(value) ||
+        looksTimestamp(value) ||
+        looksCurrency(value) ||
+        looksNumber(value),
     ).length;
     const unique = new Set(nonBlank.map((value) => value.toLowerCase())).size;
-    const score = known * 3 + Math.min(nonBlank.length, 8) * 0.2 + (unique === nonBlank.length ? 1 : 0) - dataLike * 2;
+    const score =
+      known * 3 +
+      Math.min(nonBlank.length, 8) * 0.2 +
+      (unique === nonBlank.length ? 1 : 0) -
+      dataLike * 2;
     return { rowNumber: row.physicalRowNumber, score, known, nonBlank: nonBlank.length, dataLike };
   });
   const best = candidates.sort((a, b) => b.score - a.score)[0];
@@ -224,7 +270,9 @@ function canonicalWorkbookData(sheets: WorkbookSheetProfile[]) {
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((sheet) => ({
         name: sheet.name,
-        rows: sheet.rows.map((row) => row.cells.map((cell) => [cell.raw, cell.display, cell.kind, cell.format ?? ""])),
+        rows: sheet.rows.map((row) =>
+          row.cells.map((cell) => [cell.raw, cell.display, cell.kind, cell.format ?? ""]),
+        ),
       })),
   );
 }
@@ -242,29 +290,41 @@ export async function profileImportFile(file: File): Promise<WorkbookProfile> {
       const first = fatalErrors[0]!;
       throw new Error(
         `CSV parsing failed${first.row === undefined ? "" : ` near row ${first.row + 1}`} ` +
-        `(${first.code}): ${first.message}`,
+          `(${first.code}): ${first.message}`,
       );
     }
     const width = Math.max(0, ...parsed.data.map((row) => row.length));
     const rows = parsed.data
       .map((row, index) => ({
         physicalRowNumber: index + 1,
-        cells: Array.from({ length: width }, (_, column) => sourceCell(row[column] ?? "", row[column] ?? "")),
+        cells: Array.from({ length: width }, (_, column) =>
+          sourceCell(row[column] ?? "", row[column] ?? ""),
+        ),
       }))
       .filter((row) => row.cells.some((cell) => cell.display));
-    sheets = [{
-      name: "CSV",
-      index: 0,
-      visibility: "visible",
-      usedRange: rows.length && width ? `A1:${XLSX.utils.encode_col(width - 1)}${rows.at(-1)!.physicalRowNumber}` : null,
-      physicalRowCount: rows.length,
-      columnCount: width,
-      sampleRows: rows.slice(0, 8),
-      rows,
-      detectedHeader: detectHeader(rows),
-    }];
+    sheets = [
+      {
+        name: "CSV",
+        index: 0,
+        visibility: "visible",
+        usedRange:
+          rows.length && width
+            ? `A1:${XLSX.utils.encode_col(width - 1)}${rows.at(-1)!.physicalRowNumber}`
+            : null,
+        physicalRowCount: rows.length,
+        columnCount: width,
+        sampleRows: rows.slice(0, 8),
+        rows,
+        detectedHeader: detectHeader(rows),
+      },
+    ];
   } else {
-    const wb = XLSX.read(buffer, { cellDates: false, cellNF: true, cellFormula: true, cellStyles: true });
+    const wb = XLSX.read(buffer, {
+      cellDates: false,
+      cellNF: true,
+      cellFormula: true,
+      cellStyles: true,
+    });
     sheets = wb.SheetNames.map((name, index) => {
       const ws = wb.Sheets[name]!;
       const rows = xlsxRows(ws);
@@ -298,7 +358,8 @@ function profileColumn(values: string[], columnIndex: number, header: string): C
   const ratio = (predicate: (value: string) => boolean) =>
     nonBlank.length ? nonBlank.filter(predicate).length / nonBlank.length : 0;
   let shape: ColumnShape = "unknown";
-  if (!nonBlank.length || nonBlank.length / Math.max(values.length, 1) < 0.2) shape = "mostly_blank";
+  if (!nonBlank.length || nonBlank.length / Math.max(values.length, 1) < 0.2)
+    shape = "mostly_blank";
   else if (ratio(looksEmail) >= 0.7) shape = "email";
   else if (ratio(looksTimestamp) >= 0.7) shape = "timestamp";
   else if (ratio(looksDate) >= 0.7) shape = "date";
@@ -327,17 +388,31 @@ export function selectWorkbookSheet(
   const source = workbook.sheets[sheetIndex];
   if (!source) throw new Error("Select a worksheet that exists in this workbook.");
   const width = source.columnCount;
-  const headerRow = headerRowNumber === null ? null : source.rows.find((row) => row.physicalRowNumber === headerRowNumber);
-  if (headerRowNumber !== null && !headerRow) throw new Error("The selected header row is outside the used worksheet range.");
-  const headers = Array.from({ length: width }, (_, index) => clean(headerRow?.cells[index]?.display));
+  const headerRow =
+    headerRowNumber === null
+      ? null
+      : source.rows.find((row) => row.physicalRowNumber === headerRowNumber);
+  if (headerRowNumber !== null && !headerRow)
+    throw new Error("The selected header row is outside the used worksheet range.");
+  const headers = Array.from({ length: width }, (_, index) =>
+    clean(headerRow?.cells[index]?.display),
+  );
   const columnIds = headers.map((_, index) => `column_${index + 1}`);
   const rawRows = source.rows.filter(
     (row) =>
       (headerRowNumber === null || row.physicalRowNumber > headerRowNumber) &&
       row.cells.some((cell) => cell.display || cell.raw !== null),
   );
-  const rows = rawRows.map((row) => Array.from({ length: width }, (_, index) => clean(row.cells[index]?.display)));
-  const columnProfiles = headers.map((header, index) => profileColumn(rows.map((row) => row[index] ?? ""), index, header));
+  const rows = rawRows.map((row) =>
+    Array.from({ length: width }, (_, index) => clean(row.cells[index]?.display)),
+  );
+  const columnProfiles = headers.map((header, index) =>
+    profileColumn(
+      rows.map((row) => row[index] ?? ""),
+      index,
+      header,
+    ),
+  );
   return {
     filename: workbook.filename,
     sheetName: source.name,
@@ -358,13 +433,32 @@ export function selectWorkbookSheet(
 }
 
 const PERSON_FIELDS = new Set<FieldKey>([
-  "first_name", "last_name", "full_name", "email", "email_work", "email_other", "phone",
-  "phone_mobile", "phone_home", "phone_work", "phone_other",
+  "first_name",
+  "last_name",
+  "full_name",
+  "email",
+  "email_work",
+  "email_other",
+  "phone",
+  "phone_mobile",
+  "phone_home",
+  "phone_work",
+  "phone_other",
 ]);
 const ACTIVITY_FIELDS = new Set<FieldKey>(["amount", "date", "campaign", "event_name", "notes"]);
 const REPEATABLE = new Set<FieldKey>([
-  "phone_mobile", "phone_home", "phone_work", "phone_other", "email_work", "email_other",
-  "child_name", "child_first_name", "child_last_name", "child_birth_date", "child_age", "child_school",
+  "phone_mobile",
+  "phone_home",
+  "phone_work",
+  "phone_other",
+  "email_work",
+  "email_other",
+  "child_name",
+  "child_first_name",
+  "child_last_name",
+  "child_birth_date",
+  "child_age",
+  "child_school",
 ]);
 
 const TARGET_SHAPES: Partial<Record<FieldKey, Set<ColumnShape>>> = {
@@ -385,7 +479,13 @@ const TARGET_SHAPES: Partial<Record<FieldKey, Set<ColumnShape>>> = {
 };
 
 const DISTINCT_VALUE_SHAPES = new Set<ColumnShape>([
-  "email", "phone", "address", "date", "timestamp", "currency", "number",
+  "email",
+  "phone",
+  "address",
+  "date",
+  "timestamp",
+  "currency",
+  "number",
 ]);
 
 export function validateImportMapping(
@@ -395,35 +495,55 @@ export function validateImportMapping(
 ) {
   const errors: string[] = [];
   const warnings: string[] = [];
-  if (mapping.length !== columnCount) errors.push("The mapping no longer matches the selected sheet's columns.");
+  if (mapping.length !== columnCount)
+    errors.push("The mapping no longer matches the selected sheet's columns.");
   const active = mapping.filter((entry) => entry.field !== "ignore");
-  if (!active.length) errors.push("Map at least one usable person or activity column before importing.");
+  if (!active.length)
+    errors.push("Map at least one usable person or activity column before importing.");
   const fields = new Set(active.map((entry) => entry.field));
   const hasPerson = [...fields].some((field) => PERSON_FIELDS.has(field));
   const hasActivity = [...fields].some((field) => ACTIVITY_FIELDS.has(field));
-  if (!hasPerson && !hasActivity) errors.push("The selected mapping has neither a usable person identity nor activity field.");
+  if (!hasPerson && !hasActivity)
+    errors.push("The selected mapping has neither a usable person identity nor activity field.");
   const counts = new Map<FieldKey, number>();
   for (const entry of active) counts.set(entry.field, (counts.get(entry.field) ?? 0) + 1);
   for (const [field, count] of counts) {
-    if (count > 1 && !REPEATABLE.has(field)) errors.push(`The field ${field} is mapped more than once.`);
+    if (count > 1 && !REPEATABLE.has(field))
+      errors.push(`The field ${field} is mapped more than once.`);
   }
   for (const [index, entry] of mapping.entries()) {
     const shape = columnProfiles[index]?.shape;
     const expected = TARGET_SHAPES[entry.field];
     if (
-      entry.field !== "ignore" && entry.confidence !== "high" && shape &&
-      DISTINCT_VALUE_SHAPES.has(shape) && expected && !expected.has(shape)
+      entry.field !== "ignore" &&
+      entry.confidence !== "high" &&
+      shape &&
+      DISTINCT_VALUE_SHAPES.has(shape) &&
+      expected &&
+      !expected.has(shape)
     ) {
       errors.push(
         `Column "${entry.header || `Column ${index + 1}`}" looks like ${shape} but was automatically mapped to ${entry.field}. Review this mapping.`,
       );
     }
   }
-  if (fields.has("amount") !== fields.has("date")) warnings.push("Donation amount and donation date should be mapped together.");
+  if (fields.has("amount") !== fields.has("date"))
+    warnings.push("Donation amount and donation date should be mapped together.");
+  const hasPartnerName = ["spouse_full_name", "spouse_first_name", "spouse_last_name"].some(
+    (field) => fields.has(field as FieldKey),
+  );
+  if (fields.has("spouse_email") && !hasPartnerName)
+    warnings.push("Partner email is mapped but no partner name column is.");
+  if (fields.has("spouse_phone") && !hasPartnerName)
+    warnings.push("Partner phone is mapped but no partner name column is.");
   return { valid: errors.length === 0, errors, warnings, hasPerson, hasActivity };
 }
 
-export function stagedRowPayload(sheet: SelectedSheet, mapping: ColumnGuess[], normalizedRows: unknown[]) {
+export function stagedRowPayload(
+  sheet: SelectedSheet,
+  mapping: ColumnGuess[],
+  normalizedRows: unknown[],
+) {
   return sheet.rawRows.map((row, index) => ({
     physical_row_number: row.physicalRowNumber,
     raw_cells: row.cells,
@@ -432,7 +552,10 @@ export function stagedRowPayload(sheet: SelectedSheet, mapping: ColumnGuess[], n
       header,
       column_index: columnIndex,
     })),
-    mapping: mapping.map((entry, columnIndex) => ({ ...entry, column_id: sheet.columnIds[columnIndex] })),
+    mapping: mapping.map((entry, columnIndex) => ({
+      ...entry,
+      column_id: sheet.columnIds[columnIndex],
+    })),
     normalized_values: normalizedRows[index] ?? {},
   }));
 }

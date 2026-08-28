@@ -47,12 +47,19 @@ import {
   FIELD_PAIRS,
   REPEATABLE_FIELDS,
   addressKey,
+  buildFileClaimGraph,
   composeAddress,
+  correlateFileCoupleResolution,
+  correlateFileMatch,
   donationFingerprintAfterRegistrationFee,
   guessMapping,
   namesAreClose,
   matchRowOnce,
+  logicalFilePerson,
   newRowIdentityRegistry,
+  resolveCoupleClaims,
+  needsCoupleActivityOwnerReview,
+  COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
   roleFromRow,
   splitFullName,
   splitName,
@@ -63,6 +70,7 @@ import {
   type MatchResult,
   type RowValues,
 } from "@/lib/import-mapping";
+import { presentCoupleDecision } from "@/lib/couple-semantics";
 
 import { buildRowValues, mainName } from "@/lib/import-rows";
 import { FieldPicker } from "@/components/import/FieldPicker";
@@ -219,7 +227,8 @@ function ImportCenter() {
     queryKey: ["prior-imports", sheet?.rawFileHash ?? "", sheet?.sourceDataHash ?? ""],
     enabled: Boolean(sheet?.rawFileHash && sheet?.sourceDataHash),
     queryFn: async () => {
-      const select = "id, import_date, total_rows, created_at, filename, raw_file_hash, source_data_hash";
+      const select =
+        "id, import_date, total_rows, created_at, filename, raw_file_hash, source_data_hash";
       const [identity, legacyName] = await Promise.all([
         supabase
           .from("import_batches")
@@ -234,7 +243,11 @@ function ImportCenter() {
       ]);
       if (identity.error) throw identity.error;
       if (legacyName.error) throw legacyName.error;
-      return [...new Map([...(identity.data ?? []), ...(legacyName.data ?? [])].map((row) => [row.id, row])).values()];
+      return [
+        ...new Map(
+          [...(identity.data ?? []), ...(legacyName.data ?? [])].map((row) => [row.id, row]),
+        ).values(),
+      ];
     },
   });
 
@@ -269,13 +282,42 @@ function ImportCenter() {
     },
   });
 
-  const analysed = useMemo<{ row: string[]; values: RowValues; match: MatchResult }[]>(() => {
+  const analysed = useMemo<
+    {
+      row: string[];
+      values: RowValues;
+      match: MatchResult;
+      coupleResolution: ReturnType<typeof resolveCoupleClaims>;
+      presentation: ReturnType<typeof presentCoupleDecision>;
+    }[]
+  >(() => {
     if (!sheet || !people) return [];
+    const valuesByRow = sheet.rows.map((row) => buildRowValues(row, mapping));
+    const claimGraph = buildFileClaimGraph(valuesByRow);
     // One shared duplicate check, so the preview and the import loop agree.
     const seen = newRowIdentityRegistry();
     return sheet.rows.map((row, index) => {
-      const values = buildRowValues(row, mapping);
-      return { row, values, match: matchRowOnce(values, people, seen, index) };
+      const values = valuesByRow[index]!;
+      const match = correlateFileMatch(matchRowOnce(values, people, seen, index), claimGraph, index);
+      const coupleResolution = correlateFileCoupleResolution(
+        resolveCoupleClaims(values, people, match),
+        claimGraph,
+        index,
+      );
+      const activityOwnerReview = needsCoupleActivityOwnerReview(values);
+      return {
+        row,
+        values,
+        match,
+        coupleResolution,
+        activityOwnerReview,
+        presentation: presentCoupleDecision(
+          values.couple_decision,
+          match.status,
+          coupleResolution,
+          activityOwnerReview,
+        ),
+      };
     });
   }, [sheet, people, mapping]);
 
@@ -283,8 +325,10 @@ function ImportCenter() {
     () => ({
       total: analysed.length,
       matched: analysed.filter((a) => a.match.status === "matched").length,
-      new: analysed.filter((a) => a.match.status === "new").length,
-      ambiguous: analysed.filter((a) => a.match.status === "ambiguous").length,
+      new: analysed.filter((a) => a.presentation.status === "single" && a.match.status === "new")
+        .length,
+      ambiguous: analysed.filter((a) => a.presentation.status === "review").length,
+      couples: analysed.filter((a) => a.presentation.status === "couple").length,
       extraPeople: analysed.reduce(
         (n, a) =>
           n +
@@ -303,9 +347,10 @@ function ImportCenter() {
       label: c.label,
       ok: c.fields.some((f) => mapped.has(f)),
     }));
-    const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map(
-      (p) => p.message,
-    );
+    const warnings = FIELD_PAIRS.filter((p) => {
+      const needs = Array.isArray(p.needs) ? p.needs : [p.needs];
+      return mapped.has(p.field) && !needs.some((field) => mapped.has(field));
+    }).map((p) => p.message);
     const gate = validateImportMapping(mapping, sheet?.headers.length ?? 0, sheet?.columnProfiles);
     return { checklist, warnings: [...warnings, ...gate.warnings], mapped, gate };
   }, [mapping, sheet?.headers.length, sheet?.columnProfiles]);
@@ -429,7 +474,7 @@ function ImportCenter() {
   /** How many rows go straight in, and how many wait in the Data Inbox. */
   const plan = useMemo(() => {
     const review = analysed.reduce(
-      (n, a, i) => n + (a.match.status === "ambiguous" || addressReviewRows.has(i) ? 1 : 0),
+      (n, a, i) => n + (a.presentation.status === "review" || addressReviewRows.has(i) ? 1 : 0),
       0,
     );
     return { review, importNow: Math.max(analysed.length - review, 0) };
@@ -450,7 +495,8 @@ function ImportCenter() {
       setReimportConfirmed(false);
       if (parsed.kind === "csv" && parsed.sheets[0]) {
         const detected = parsed.sheets[0].detectedHeader;
-        if (detected.rowNumber !== null) applySheetSelection(parsed, 0, detected.rowNumber, "detected");
+        if (detected.rowNumber !== null)
+          applySheetSelection(parsed, 0, detected.rowNumber, "detected");
       }
     } catch (e) {
       setWorkbook(null);
@@ -629,6 +675,7 @@ function ImportCenter() {
         reason: string,
         candidateIds: string[],
         group: { key: string; address: string } | null,
+        reviewContext?: Record<string, unknown>,
       ): Promise<string> {
         queued += 1;
         const { data, error } = await supabase
@@ -640,10 +687,13 @@ function ImportCenter() {
             row_data: {
               ...(values as unknown as Record<string, unknown>),
               _source_sheet: sheet!.sheetName,
-              _source_row_number: sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ?? null,
+              _source_row_number:
+                sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ??
+                null,
               ...(group
                 ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address }
                 : {}),
+              ...(reviewContext ? { review_context: reviewContext } : {}),
             } as unknown as Record<string, string>,
             candidate_person_ids: candidateIds,
             status: "pending",
@@ -759,11 +809,13 @@ function ImportCenter() {
         name: string,
         parts: HouseParts,
         allowAddressLink = true,
+        allowNameLink = false,
       ) {
         const key = allowAddressLink ? addressKey(parts.address) : null;
-        const nameKey = `name:${name.trim().toLowerCase()}`;
+        const nameKey = allowNameLink ? `name:${name.trim().toLowerCase()}` : "";
         const found =
-          (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
+          (key ? houseByKey.get(key) : undefined) ??
+          (nameKey ? houseByKey.get(nameKey) : undefined);
         if (found) {
           const patch: Partial<HouseParts> = {};
           if (parts.address) patch.address = parts.address;
@@ -795,9 +847,11 @@ function ImportCenter() {
         throw new Error("Legacy household write path is disabled");
       }
 
-      // The same in-file identity registry the preview used, applied again here
-      // against the contacts this import has created as it goes.
+      // Activity occurrence checks run again against contacts created as the
+      // import proceeds; person identity comes from the shared file claim graph.
       const loopSeen = newRowIdentityRegistry();
+      const claimGraph = buildFileClaimGraph(analysed.map((item) => item.values));
+      const databasePersonByLogicalId = new Map<string, string>();
 
       /** Resolve fee allocation once so the duplicate pre-check and insert cannot drift. */
       function planRowDonation(v: RowValues, paymentAmount: number, giftDate: string) {
@@ -838,9 +892,29 @@ function ImportCenter() {
         try {
           // Exactly the same check the preview ran, now against the contacts this
           // import has already created.
-          const live = matchRowOnce(v, livePeople, loopSeen, index);
+          const logicalMain = logicalFilePerson(claimGraph, index, "main");
+          const mappedMainId = logicalMain
+            ? databasePersonByLogicalId.get(logicalMain.id)
+            : undefined;
+          const mappedMain = mappedMainId
+            ? livePeople.find((person) => person.id === mappedMainId)
+            : undefined;
+          const rawLive = matchRowOnce(v, livePeople, loopSeen, index);
+          const live: MatchResult = mappedMain
+            ? {
+                status: "matched",
+                reason: "Same person elsewhere in this file",
+                candidates: [mappedMain],
+              }
+            : rawLive;
           const flaggedByPreview = item.match.status === "ambiguous";
           const match = live;
+          const coupleDecision = v.couple_decision;
+          const coupleResolution = correlateFileCoupleResolution(
+            resolveCoupleClaims(v, livePeople, match),
+            claimGraph,
+            index,
+          );
           const shared = addressReviewRows.get(index);
           const rowAddress = composeAddress(v);
           const groupInfo = shared
@@ -873,11 +947,118 @@ function ImportCenter() {
                 )
               : []
           ).filter((g) => rowFullName && namesAreClose(rowFullName, g.name));
+          const activityOwnerReview = needsCoupleActivityOwnerReview(v);
 
           // Certain identity matches (one exact email, phone, or name plus address/birth date)
           // continue into the fill-blanks path below. Sharing an address must not turn a
           // certain match back into a review item — that was also where mapped birthdays
           // were previously abandoned before the update payload was built.
+          if (
+            coupleResolution?.kind === "household_conflict" ||
+            coupleResolution?.kind === "ambiguous"
+          ) {
+            const mainPerson = coupleResolution.main.candidates[0];
+            const partnerPerson = coupleResolution.partner.candidates[0];
+            const reviewContext =
+              coupleResolution.kind === "household_conflict" && mainPerson && partnerPerson
+                ? {
+                    kind: "household_conflict",
+                    main_person_id: mainPerson.id,
+                    partner_person_id: partnerPerson.id,
+                    main_household_id: mainPerson.household_id,
+                    partner_household_id: partnerPerson.household_id,
+                    main_household_name: mainPerson.households?.name ?? null,
+                    partner_household_name: partnerPerson.households?.name ?? null,
+                    main_name: [mainPerson.first_name, mainPerson.last_name]
+                      .filter(Boolean)
+                      .join(" "),
+                    partner_name: [partnerPerson.first_name, partnerPerson.last_name]
+                      .filter(Boolean)
+                      .join(" "),
+                  }
+                : undefined;
+            const reviewQueueId = await queueForReview(
+              v,
+              coupleResolution.reason,
+              [
+                ...new Set([
+                  ...coupleResolution.main.candidates.map((c) => c.id),
+                  ...coupleResolution.partner.candidates.map((c) => c.id),
+                ]),
+              ],
+              groupInfo,
+              reviewContext,
+            );
+            await recordOutcome(index, "flagged", {
+              reviewQueueId,
+              message: coupleResolution.reason,
+            });
+            continue;
+          }
+          if (
+            coupleDecision &&
+            (coupleDecision.kind === "ambiguous_couple" || coupleDecision.kind === "household_only")
+          ) {
+            const reviewQueueId = await queueForReview(
+              v,
+              coupleDecision.reason,
+              live.candidates.map((c) => c.id),
+              groupInfo,
+            );
+            await recordOutcome(index, "flagged", {
+              reviewQueueId,
+              message: coupleDecision.reason,
+            });
+            continue;
+          }
+          if (activityOwnerReview) {
+            const mainClaim = coupleDecision?.person1;
+            const partnerClaim = coupleDecision?.person2;
+            const activity = v.amount
+              ? {
+                  type: "donation",
+                  amount: Number(String(v.amount).replace(/[^0-9.-]/g, "")),
+                  date: isoDate(v.date) ?? importDate,
+                }
+              : v.event_name
+                ? { type: "event", name: v.event_name }
+                : v.notes
+                  ? { type: "note", text: v.notes }
+                  : { type: "labels", tags: v.tags ?? null, programs: v.programs ?? null };
+            const reviewContext =
+              mainClaim && partnerClaim
+                ? {
+                    kind: "couple_activity_owner",
+                    main_claim: {
+                      first_name: mainClaim.first,
+                      last_name: mainClaim.last,
+                      email: v.email ?? null,
+                      phone: v.phone ?? null,
+                      resolved_person_id: coupleResolution?.main.candidates[0]?.id ?? null,
+                    },
+                    partner_claim: {
+                      first_name: partnerClaim.first,
+                      last_name: partnerClaim.last,
+                      email: v.spouse_email ?? null,
+                      phone: v.spouse_phone ?? null,
+                      resolved_person_id: coupleResolution?.partner.candidates[0]?.id ?? null,
+                    },
+                    activity,
+                  }
+                : undefined;
+            const reviewQueueId = await queueForReview(
+              v,
+              COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
+              live.candidates.map((c) => c.id),
+              groupInfo,
+              reviewContext,
+            );
+            await recordOutcome(index, "flagged", {
+              reviewQueueId,
+              message: COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
+            });
+            continue;
+          }
           if (
             (flaggedByPreview && live.status !== "matched") ||
             live.status === "ambiguous" ||
@@ -993,6 +1174,7 @@ function ImportCenter() {
                 householdName,
                 addressParts,
                 allowAddressLink,
+                Boolean(v.household_name?.trim()),
               );
               householdPayload = householdPlan.payload;
               householdId = householdPlan.id;
@@ -1001,11 +1183,34 @@ function ImportCenter() {
                 householdName,
                 addressParts,
                 allowAddressLink,
+                Boolean(v.household_name?.trim()),
               );
               householdPayload = householdPlan.payload;
               householdId = householdPlan.id;
             } else if (match.status !== "new" && householdId && fullAddress) {
               householdPayload = { action: "update", id: householdId, values: addressParts };
+            }
+
+            const addressHouseholdId = fullAddress
+              ? (houseByKey.get(addressKey(fullAddress) ?? "") ?? null)
+              : null;
+            if (
+              match.status !== "new" &&
+              existing?.household_id &&
+              addressHouseholdId &&
+              addressHouseholdId !== existing.household_id
+            ) {
+              const reviewQueueId = await queueForReview(
+                v,
+                "The person matches, but household membership conflicts.",
+                [existing.id],
+                groupInfo,
+              );
+              await recordOutcome(index, "flagged", {
+                reviewQueueId,
+                message: "The person matches, but household membership conflicts.",
+              });
+              continue;
             }
 
             const contactMethods = [
@@ -1048,14 +1253,20 @@ function ImportCenter() {
             let spousePayload: Record<string, unknown> = { action: "skip" };
             if (spouseName && (spouseName.first || spouseName.last)) {
               const spouseLast = spouseName.last || last;
-              if (!inHousehold(spouseName.first, spouseLast)) {
+              const existingPartner = coupleResolution?.partner.candidates[0] ?? null;
+              if (existingPartner && coupleResolution?.partner.status === "matched") {
+                spousePayload = {
+                  action: "update",
+                  id: existingPartner.id,
+                  values: { household_relationship: "Spouse" },
+                };
+              } else if (!inHousehold(spouseName.first, spouseLast)) {
                 spousePayload = {
                   action: "create",
                   values: {
                     first_name: spouseName.first || null,
                     last_name: spouseLast || null,
-                    display_name:
-                      [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
+                    display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
                     email: v.spouse_email ?? null,
                     phone: v.spouse_phone ?? null,
                     role: "Adult",
@@ -1063,20 +1274,24 @@ function ImportCenter() {
                   },
                   contact_methods: [
                     ...(v.spouse_phone
-                      ? [{
-                          kind: "phone",
-                          value: v.spouse_phone,
-                          method_type: "Mobile",
-                          is_primary: true,
-                        }]
+                      ? [
+                          {
+                            kind: "phone",
+                            value: v.spouse_phone,
+                            method_type: "Mobile",
+                            is_primary: true,
+                          },
+                        ]
                       : []),
                     ...(v.spouse_email
-                      ? [{
-                          kind: "email",
-                          value: v.spouse_email,
-                          method_type: "Personal",
-                          is_primary: true,
-                        }]
+                      ? [
+                          {
+                            kind: "email",
+                            value: v.spouse_email,
+                            method_type: "Personal",
+                            is_primary: true,
+                          },
+                        ]
                       : []),
                   ],
                 };
@@ -1106,15 +1321,17 @@ function ImportCenter() {
               houseMembers.push({ first_name: childFirst, last_name: childLast });
             }
 
-            const provenance = ([
-              "email",
-              "phone",
-              "address",
-              "birth_date",
-              "anniversary_date",
-              "met_source",
-              "school",
-            ] as FieldKey[])
+            const provenance = (
+              [
+                "email",
+                "phone",
+                "address",
+                "birth_date",
+                "anniversary_date",
+                "met_source",
+                "school",
+              ] as FieldKey[]
+            )
               .filter((key) => Boolean(v[key]))
               .map((key) => ({ field_name: key, source, recorded_date: importDate }));
 
@@ -1136,8 +1353,13 @@ function ImportCenter() {
                 unreadableGiftDates += 1;
               } else if (Number.isFinite(amount) && amount > 0) {
                 const giftDate = readDate ?? importDate;
-                const { nearbyGroup, nearbyDecision, registrationFee, donationAmount, fingerprint } =
-                  giftPlan;
+                const {
+                  nearbyGroup,
+                  nearbyDecision,
+                  registrationFee,
+                  donationAmount,
+                  fingerprint,
+                } = giftPlan;
                 const rowCampaignId = await resolveCampaignId(v.campaign);
                 const donationEventId =
                   nearbyGroup && (nearbyDecision === "attended" || nearbyDecision === "gift_only")
@@ -1172,9 +1394,10 @@ function ImportCenter() {
             ]
               .filter(Boolean)
               .join(" Â· ");
-            const notePayload = noteParts && !v.amount
-              ? { date: importDate, text: noteParts, author: "Import" }
-              : null;
+            const notePayload =
+              noteParts && !v.amount
+                ? { date: importDate, text: noteParts, author: "Import" }
+                : null;
 
             const { data: resolved, error: resolveError } = await supabase.rpc(
               "resolve_import_row",
@@ -1215,7 +1438,7 @@ function ImportCenter() {
 
             if (householdPlan && householdId) {
               if (householdPlan.key) houseByKey.set(householdPlan.key, householdId);
-              houseByKey.set(householdPlan.nameKey, householdId);
+              if (householdPlan.nameKey) houseByKey.set(householdPlan.nameKey, householdId);
             }
             remember({
               id: personId,
@@ -1242,6 +1465,10 @@ function ImportCenter() {
                 address: fullAddress,
               });
             }
+            if (logicalMain) databasePersonByLogicalId.set(logicalMain.id, personId);
+            const logicalPartner = logicalFilePerson(claimGraph, index, "partner");
+            if (logicalPartner && result.spouse_id)
+              databasePersonByLogicalId.set(logicalPartner.id, result.spouse_id);
             (result.child_ids ?? []).forEach((childId, childIndex) => {
               const child = childrenPayload[childIndex]?.values;
               remember({
@@ -1259,424 +1486,432 @@ function ImportCenter() {
               personId,
             });
           } else {
-          if (match.status === "new") {
-            if (hasFamily) {
-              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
-            }
-            const { data: created, error: createError } = await supabase
-              .from("people")
-              .insert({
-                first_name: first || null,
-                last_name: last || null,
-                display_name: displayName,
-                email: v.email ?? null,
-                phone: v.phone ?? null,
-                birth_date: isoDate(v.birth_date),
-                anniversary_date: isoDate(v.anniversary_date),
-                met_source: v.met_source ?? null,
-                school: v.school ?? null,
-                notes: v.person_notes ?? null,
-                household_id: householdId,
-                role: personRole,
-                tags: splitList(v.tags),
-                programs: splitList(v.programs),
-                ...(relationship ? { household_relationship: relationship } : {}),
-                import_batch_id: batch.id,
-              })
-              .select("id")
-              .single();
-            if (createError) throw createError;
-            personId = created.id;
-            remember({
-              id: personId,
-              first,
-              last,
-              email: v.email ?? null,
-              phone: v.phone ?? null,
-              birthDate: isoDate(v.birth_date),
-              householdId,
-              address: fullAddress,
-              methods: [
-                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
-                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
-              ],
-            });
-          } else if (personId) {
-            const existing = match.candidates[0]!;
-            const patch: {
-              email?: string;
-              phone?: string;
-              birth_date?: string;
-              anniversary_date?: string;
-              met_source?: string;
-              school?: string;
-              notes?: string;
-            } = {};
-            if (v.email && !existing.email) patch["email"] = v.email;
-            if (v.phone && !existing.phone) patch["phone"] = v.phone;
-            const dob = isoDate(v.birth_date);
-            if (dob) patch["birth_date"] = dob;
-            const anniversary = isoDate(v.anniversary_date);
-            if (anniversary) patch["anniversary_date"] = anniversary;
-            if (v.met_source) patch["met_source"] = v.met_source;
-            if (v.school) patch["school"] = v.school;
-            if (v.person_notes) patch["notes"] = v.person_notes;
-            if (Object.keys(patch).length > 0) {
-              await mustWrite(
-                supabase.from("people").update(patch).eq("id", personId),
-                "The matched contact couldn't be updated.",
-              );
-            }
-            remember({
-              id: personId,
-              first,
-              last,
-              email: v.email ?? null,
-              phone: v.phone ?? null,
-              birthDate: isoDate(v.birth_date),
-              methods: [
-                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
-                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
-              ],
-            });
-
-            // Existing person, new family details on the row: attach a household if they don't have one.
-            if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
-              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
-              if (householdId)
-                await mustWrite(
-                  supabase.from("people").update({ household_id: householdId }).eq("id", personId),
-                  "The contact couldn't be linked to the household.",
-                );
-            } else if (householdId && fullAddress) {
-              const housePatch: {
-                address?: string;
-                address_line2?: string;
-                city?: string;
-                state?: string;
-                postal_code?: string;
-              } = {};
-              if (fullAddress) {
-                housePatch["address"] = fullAddress;
-                if (v.address_line2) housePatch["address_line2"] = v.address_line2;
-                if (v.city) housePatch["city"] = v.city;
-                if (v.state) housePatch["state"] = v.state;
-                if (v.postal_code) housePatch["postal_code"] = v.postal_code;
+            if (match.status === "new") {
+              if (hasFamily) {
+                householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
               }
-              if (Object.keys(housePatch).length > 0)
-                await mustWrite(
-                  supabase.from("households").update(housePatch).eq("id", householdId),
-                  "The household couldn't be updated.",
-                );
-            }
-          }
-
-          if (!personId) throw new Error("No contact was created or matched for this row.");
-
-          if (relationship) {
-            await mustWrite(
-              supabase
-                .from("people")
-                .update({ household_relationship: relationship })
-                .eq("id", personId),
-              "The household relationship couldn't be saved.",
-            );
-          }
-
-          // Link this contact to the event named on the row, or to the event the
-          // reviewer chose for the whole file. One shared attendance function, so an
-          // existing RSVP is upgraded to Attended instead of being left as-is.
-          const targetEventId = giftPlan.targetEventId;
-          if (targetEventId) {
-            const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
-            const fee = giftPlan.registrationFee;
-            await recordAttendance({
-              personId,
-              eventId: targetEventId,
-              eventName: linkedEvent?.name ?? "an event",
-              eventDate: linkedEvent?.date ?? null,
-              importBatchId: batchId,
-              ...(fee > 0 ? { feeAmount: fee, paymentAmount: rowAmount } : {}),
-            });
-            // The attendance timeline entry is written by the database from the
-            // registration, so removing the registration removes the entry too.
-          }
-
-          // Programs and lists chosen for the whole file, added without wiping
-          // anything the contact already had.
-          if (bulkTarget.program || bulkTarget.tag) {
-            const { data: current } = await supabase
-              .from("people")
-              .select("tags, programs")
-              .eq("id", personId)
-              .single();
-            const patch: { tags?: string[]; programs?: string[] } = {};
-            if (bulkTarget.program) {
-              const list = current?.programs ?? [];
-              if (!list.some((p) => normalizeLabel(p) === normalizeLabel(bulkTarget.program)))
-                patch.programs = [...list, bulkTarget.program];
-            }
-            if (bulkTarget.tag) {
-              const list = current?.tags ?? [];
-              if (!list.some((t) => normalizeLabel(t) === normalizeLabel(bulkTarget.tag)))
-                patch.tags = [...list, bulkTarget.tag];
-            }
-            if (Object.keys(patch).length > 0)
-              await supabase.from("people").update(patch).eq("id", personId);
-          }
-
-          // Every phone and email on the row is stored, with anything already on
-          // file skipped so a re-import never duplicates a number.
-          const methodDrafts: MethodDraft[] = [
-            ...(v.phones ?? []).map((m, mi) => ({
-              kind: "phone" as const,
-              value: m.value,
-              method_type: m.method_type,
-              is_primary: mi === 0 && match.status === "new",
-            })),
-            ...(v.emails ?? []).map((m, mi) => ({
-              kind: "email" as const,
-              value: m.value,
-              method_type: m.method_type,
-              is_primary: mi === 0 && match.status === "new",
-            })),
-          ];
-          if (methodDrafts.length > 0) {
-            await addContactMethods(personId, methodDrafts, {
-              importBatchId: batchId,
-              ...(match.status === "new" ? { existing: [] } : {}),
-            });
-          }
-
-          // A partner on the same row becomes their own contact in the same household.
-          const spouseName = v.spouse_first_name
-            ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
-            : v.spouse_full_name
-              ? splitFullName(v.spouse_full_name)
-              : null;
-          // Only people already in this household count as "already there", so a
-          // common first name elsewhere in the database never swallows a real person.
-          const houseMembers = householdId
-            ? ((
-                await supabase
-                  .from("people")
-                  .select("first_name, last_name")
-                  .eq("household_id", householdId)
-              ).data ?? [])
-            : [];
-          const inHousehold = (f: string, l: string) =>
-            houseMembers.some(
-              (p) =>
-                (p.first_name ?? "").trim().toLowerCase() === f.trim().toLowerCase() &&
-                (p.last_name ?? "").trim().toLowerCase() === l.trim().toLowerCase(),
-            );
-          if (spouseName && (spouseName.first || spouseName.last)) {
-            const spouseLast = spouseName.last || last;
-            if (!inHousehold(spouseName.first, spouseLast)) {
-              const { data: spouse, error: spouseError } = await supabase
+              const { data: created, error: createError } = await supabase
                 .from("people")
                 .insert({
-                  first_name: spouseName.first || null,
-                  last_name: spouseLast || null,
-                  display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
-                  email: v.spouse_email ?? null,
-                  phone: v.spouse_phone ?? null,
-                  household_id: householdId,
-                  role: "Adult",
+                  first_name: first || null,
+                  last_name: last || null,
+                  display_name: displayName,
+                  email: v.email ?? null,
+                  phone: v.phone ?? null,
+                  birth_date: isoDate(v.birth_date),
+                  anniversary_date: isoDate(v.anniversary_date),
                   met_source: v.met_source ?? null,
+                  school: v.school ?? null,
+                  notes: v.person_notes ?? null,
+                  household_id: householdId,
+                  role: personRole,
+                  tags: splitList(v.tags),
+                  programs: splitList(v.programs),
+                  ...(relationship ? { household_relationship: relationship } : {}),
+                  import_batch_id: batch.id,
+                })
+                .select("id")
+                .single();
+              if (createError) throw createError;
+              personId = created.id;
+              remember({
+                id: personId,
+                first,
+                last,
+                email: v.email ?? null,
+                phone: v.phone ?? null,
+                birthDate: isoDate(v.birth_date),
+                householdId,
+                address: fullAddress,
+                methods: [
+                  ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                  ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+                ],
+              });
+            } else if (personId) {
+              const existing = match.candidates[0]!;
+              const patch: {
+                email?: string;
+                phone?: string;
+                birth_date?: string;
+                anniversary_date?: string;
+                met_source?: string;
+                school?: string;
+                notes?: string;
+              } = {};
+              if (v.email && !existing.email) patch["email"] = v.email;
+              if (v.phone && !existing.phone) patch["phone"] = v.phone;
+              const dob = isoDate(v.birth_date);
+              if (dob) patch["birth_date"] = dob;
+              const anniversary = isoDate(v.anniversary_date);
+              if (anniversary) patch["anniversary_date"] = anniversary;
+              if (v.met_source) patch["met_source"] = v.met_source;
+              if (v.school) patch["school"] = v.school;
+              if (v.person_notes) patch["notes"] = v.person_notes;
+              if (Object.keys(patch).length > 0) {
+                await mustWrite(
+                  supabase.from("people").update(patch).eq("id", personId),
+                  "The matched contact couldn't be updated.",
+                );
+              }
+              remember({
+                id: personId,
+                first,
+                last,
+                email: v.email ?? null,
+                phone: v.phone ?? null,
+                birthDate: isoDate(v.birth_date),
+                methods: [
+                  ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                  ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+                ],
+              });
+
+              // Existing person, new family details on the row: attach a household if they don't have one.
+              if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
+                householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
+                if (householdId)
+                  await mustWrite(
+                    supabase
+                      .from("people")
+                      .update({ household_id: householdId })
+                      .eq("id", personId),
+                    "The contact couldn't be linked to the household.",
+                  );
+              } else if (householdId && fullAddress) {
+                const housePatch: {
+                  address?: string;
+                  address_line2?: string;
+                  city?: string;
+                  state?: string;
+                  postal_code?: string;
+                } = {};
+                if (fullAddress) {
+                  housePatch["address"] = fullAddress;
+                  if (v.address_line2) housePatch["address_line2"] = v.address_line2;
+                  if (v.city) housePatch["city"] = v.city;
+                  if (v.state) housePatch["state"] = v.state;
+                  if (v.postal_code) housePatch["postal_code"] = v.postal_code;
+                }
+                if (Object.keys(housePatch).length > 0)
+                  await mustWrite(
+                    supabase.from("households").update(housePatch).eq("id", householdId),
+                    "The household couldn't be updated.",
+                  );
+              }
+            }
+
+            if (!personId) throw new Error("No contact was created or matched for this row.");
+
+            if (relationship) {
+              await mustWrite(
+                supabase
+                  .from("people")
+                  .update({ household_relationship: relationship })
+                  .eq("id", personId),
+                "The household relationship couldn't be saved.",
+              );
+            }
+
+            // Link this contact to the event named on the row, or to the event the
+            // reviewer chose for the whole file. One shared attendance function, so an
+            // existing RSVP is upgraded to Attended instead of being left as-is.
+            const targetEventId = giftPlan.targetEventId;
+            if (targetEventId) {
+              const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
+              const fee = giftPlan.registrationFee;
+              await recordAttendance({
+                personId,
+                eventId: targetEventId,
+                eventName: linkedEvent?.name ?? "an event",
+                eventDate: linkedEvent?.date ?? null,
+                importBatchId: batchId,
+                ...(fee > 0 ? { feeAmount: fee, paymentAmount: rowAmount } : {}),
+              });
+              // The attendance timeline entry is written by the database from the
+              // registration, so removing the registration removes the entry too.
+            }
+
+            // Programs and lists chosen for the whole file, added without wiping
+            // anything the contact already had.
+            if (bulkTarget.program || bulkTarget.tag) {
+              const { data: current } = await supabase
+                .from("people")
+                .select("tags, programs")
+                .eq("id", personId)
+                .single();
+              const patch: { tags?: string[]; programs?: string[] } = {};
+              if (bulkTarget.program) {
+                const list = current?.programs ?? [];
+                if (!list.some((p) => normalizeLabel(p) === normalizeLabel(bulkTarget.program)))
+                  patch.programs = [...list, bulkTarget.program];
+              }
+              if (bulkTarget.tag) {
+                const list = current?.tags ?? [];
+                if (!list.some((t) => normalizeLabel(t) === normalizeLabel(bulkTarget.tag)))
+                  patch.tags = [...list, bulkTarget.tag];
+              }
+              if (Object.keys(patch).length > 0)
+                await supabase.from("people").update(patch).eq("id", personId);
+            }
+
+            // Every phone and email on the row is stored, with anything already on
+            // file skipped so a re-import never duplicates a number.
+            const methodDrafts: MethodDraft[] = [
+              ...(v.phones ?? []).map((m, mi) => ({
+                kind: "phone" as const,
+                value: m.value,
+                method_type: m.method_type,
+                is_primary: mi === 0 && match.status === "new",
+              })),
+              ...(v.emails ?? []).map((m, mi) => ({
+                kind: "email" as const,
+                value: m.value,
+                method_type: m.method_type,
+                is_primary: mi === 0 && match.status === "new",
+              })),
+            ];
+            if (methodDrafts.length > 0) {
+              await addContactMethods(personId, methodDrafts, {
+                importBatchId: batchId,
+                ...(match.status === "new" ? { existing: [] } : {}),
+              });
+            }
+
+            // A partner on the same row becomes their own contact in the same household.
+            const spouseName = v.spouse_first_name
+              ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
+              : v.spouse_full_name
+                ? splitFullName(v.spouse_full_name)
+                : null;
+            // Only people already in this household count as "already there", so a
+            // common first name elsewhere in the database never swallows a real person.
+            const houseMembers = householdId
+              ? ((
+                  await supabase
+                    .from("people")
+                    .select("first_name, last_name")
+                    .eq("household_id", householdId)
+                ).data ?? [])
+              : [];
+            const inHousehold = (f: string, l: string) =>
+              houseMembers.some(
+                (p) =>
+                  (p.first_name ?? "").trim().toLowerCase() === f.trim().toLowerCase() &&
+                  (p.last_name ?? "").trim().toLowerCase() === l.trim().toLowerCase(),
+              );
+            if (spouseName && (spouseName.first || spouseName.last)) {
+              const spouseLast = spouseName.last || last;
+              if (!inHousehold(spouseName.first, spouseLast)) {
+                const { data: spouse, error: spouseError } = await supabase
+                  .from("people")
+                  .insert({
+                    first_name: spouseName.first || null,
+                    last_name: spouseLast || null,
+                    display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
+                    email: v.spouse_email ?? null,
+                    phone: v.spouse_phone ?? null,
+                    household_id: householdId,
+                    role: "Adult",
+                    met_source: v.met_source ?? null,
+                    import_batch_id: batchId,
+                  })
+                  .select("id")
+                  .single();
+                if (spouseError) throw spouseError;
+                if (spouse?.id) {
+                  const spouseMethods: MethodDraft[] = [];
+                  if (v.spouse_phone)
+                    spouseMethods.push({
+                      kind: "phone",
+                      value: v.spouse_phone,
+                      method_type: "Mobile",
+                      is_primary: true,
+                    });
+                  if (v.spouse_email)
+                    spouseMethods.push({
+                      kind: "email",
+                      value: v.spouse_email,
+                      method_type: "Personal",
+                      is_primary: true,
+                    });
+                  if (spouseMethods.length)
+                    await addContactMethods(spouse.id, spouseMethods, {
+                      importBatchId: batchId,
+                      existing: [],
+                    });
+                  remember({
+                    id: spouse.id,
+                    first: spouseName.first || "",
+                    last: spouseLast || "",
+                    email: v.spouse_email ?? null,
+                    phone: v.spouse_phone ?? null,
+                    householdId,
+                    address: fullAddress,
+                  });
+                }
+                houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
+              }
+            }
+
+            // Children listed on the row each become their own contact, linked by household.
+            for (const child of v.children ?? []) {
+              const childFirst = child.first.trim();
+              const childLast = (child.last ?? "").trim() || last;
+              if (!childFirst && !childLast) continue;
+              if (inHousehold(childFirst, childLast)) continue;
+              const { data: childRow, error: childError } = await supabase
+                .from("people")
+                .insert({
+                  first_name: childFirst || null,
+                  last_name: childLast || null,
+                  display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
+                  household_id: householdId,
+                  role: "Child",
+                  birth_date: isoDate(child.birth_date),
+                  school: child.school ?? null,
+                  met_source: v.met_source ?? null,
+                  programs: splitList(v.programs),
                   import_batch_id: batchId,
                 })
                 .select("id")
                 .single();
-              if (spouseError) throw spouseError;
-              if (spouse?.id) {
-                const spouseMethods: MethodDraft[] = [];
-                if (v.spouse_phone)
-                  spouseMethods.push({
-                    kind: "phone",
-                    value: v.spouse_phone,
-                    method_type: "Mobile",
-                    is_primary: true,
-                  });
-                if (v.spouse_email)
-                  spouseMethods.push({
-                    kind: "email",
-                    value: v.spouse_email,
-                    method_type: "Personal",
-                    is_primary: true,
-                  });
-                if (spouseMethods.length)
-                  await addContactMethods(spouse.id, spouseMethods, {
-                    importBatchId: batchId,
-                    existing: [],
-                  });
+              if (childError) throw childError;
+              if (childRow?.id)
                 remember({
-                  id: spouse.id,
-                  first: spouseName.first || "",
-                  last: spouseLast || "",
-                  email: v.spouse_email ?? null,
-                  phone: v.spouse_phone ?? null,
+                  id: childRow.id,
+                  first: childFirst,
+                  last: childLast,
                   householdId,
                   address: fullAddress,
                 });
-              }
-              houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
+              houseMembers.push({ first_name: childFirst, last_name: childLast });
             }
-          }
 
-          // Children listed on the row each become their own contact, linked by household.
-          for (const child of v.children ?? []) {
-            const childFirst = child.first.trim();
-            const childLast = (child.last ?? "").trim() || last;
-            if (!childFirst && !childLast) continue;
-            if (inHousehold(childFirst, childLast)) continue;
-            const { data: childRow, error: childError } = await supabase
-              .from("people")
-              .insert({
-                first_name: childFirst || null,
-                last_name: childLast || null,
-                display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
-                household_id: householdId,
-                role: "Child",
-                birth_date: isoDate(child.birth_date),
-                school: child.school ?? null,
-                met_source: v.met_source ?? null,
-                programs: splitList(v.programs),
-                import_batch_id: batchId,
-              })
-              .select("id")
-              .single();
-            if (childError) throw childError;
-            if (childRow?.id)
-              remember({
-                id: childRow.id,
-                first: childFirst,
-                last: childLast,
-                householdId,
-                address: fullAddress,
-              });
-            houseMembers.push({ first_name: childFirst, last_name: childLast });
-          }
+            for (const key of [
+              "email",
+              "phone",
+              "address",
+              "birth_date",
+              "anniversary_date",
+              "met_source",
+              "school",
+            ] as FieldKey[]) {
+              if (v[key])
+                fieldSources.push({
+                  person_id: personId,
+                  field_name: key,
+                  source,
+                  recorded_date: importDate,
+                  import_batch_id: batch.id,
+                });
+            }
 
-          for (const key of [
-            "email",
-            "phone",
-            "address",
-            "birth_date",
-            "anniversary_date",
-            "met_source",
-            "school",
-          ] as FieldKey[]) {
-            if (v[key])
-              fieldSources.push({
-                person_id: personId,
-                field_name: key,
-                source,
-                recorded_date: importDate,
-                import_batch_id: batch.id,
-              });
-          }
-
-          if (v.amount) {
-            const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
-            const readDate = isoDate(v.date);
-            if (v.date && !readDate) {
-              // Better no gift than a gift dated today: a wrong date corrupts
-              // giving history, so the row is reported instead of guessed at.
-              unreadableGiftDates += 1;
-            } else if (Number.isFinite(amount) && amount > 0) {
-              const giftDate = readDate ?? importDate;
-              const { nearbyGroup, nearbyDecision, registrationFee, donationAmount, fingerprint } =
-                giftPlan;
-              const rowCampaignId = await resolveCampaignId(v.campaign);
-              // Re-importing the same file must not add the same gift twice, and a
-              // gift only ever gets one timeline entry — the donation itself.
-              const dupeCheck = supabase
-                .from("donations")
-                .select("id")
-                .eq("person_id", personId)
-                .eq("amount", donationAmount)
-                .eq("date", giftDate)
-                .is("deleted_at", null);
-              const { data: existingGift } = await (
-                rowCampaignId
-                  ? dupeCheck.eq("campaign_id", rowCampaignId)
-                  : dupeCheck.is("campaign_id", null)
-              ).limit(1);
-              if (!existingGift?.length && donationAmount > 0) {
-                const { data: newGift, error: giftError } = await supabase
+            if (v.amount) {
+              const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
+              const readDate = isoDate(v.date);
+              if (v.date && !readDate) {
+                // Better no gift than a gift dated today: a wrong date corrupts
+                // giving history, so the row is reported instead of guessed at.
+                unreadableGiftDates += 1;
+              } else if (Number.isFinite(amount) && amount > 0) {
+                const giftDate = readDate ?? importDate;
+                const {
+                  nearbyGroup,
+                  nearbyDecision,
+                  registrationFee,
+                  donationAmount,
+                  fingerprint,
+                } = giftPlan;
+                const rowCampaignId = await resolveCampaignId(v.campaign);
+                // Re-importing the same file must not add the same gift twice, and a
+                // gift only ever gets one timeline entry — the donation itself.
+                const dupeCheck = supabase
                   .from("donations")
-                  .insert({
-                    person_id: personId,
-                    amount: donationAmount,
-                    date: giftDate,
-                    campaign_id: rowCampaignId,
-                    source,
-                    notes: v.notes ?? null,
-                    import_batch_id: batch.id,
-                    import_fingerprint: fingerprint,
-                  })
                   .select("id")
-                  .single();
-                if (giftError) throw giftError;
+                  .eq("person_id", personId)
+                  .eq("amount", donationAmount)
+                  .eq("date", giftDate)
+                  .is("deleted_at", null);
+                const { data: existingGift } = await (
+                  rowCampaignId
+                    ? dupeCheck.eq("campaign_id", rowCampaignId)
+                    : dupeCheck.is("campaign_id", null)
+                ).limit(1);
+                if (!existingGift?.length && donationAmount > 0) {
+                  const { data: newGift, error: giftError } = await supabase
+                    .from("donations")
+                    .insert({
+                      person_id: personId,
+                      amount: donationAmount,
+                      date: giftDate,
+                      campaign_id: rowCampaignId,
+                      source,
+                      notes: v.notes ?? null,
+                      import_batch_id: batch.id,
+                      import_fingerprint: fingerprint,
+                    })
+                    .select("id")
+                    .single();
+                  if (giftError) throw giftError;
 
-                // Apply the reviewer's one decision about gifts made on an event date.
-                const giftEvent = nearbyGroup;
-                const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
-                if (
-                  newGift?.id &&
-                  giftEvent &&
-                  (decision === "attended" || decision === "gift_only")
-                ) {
-                  await attributeGiftToEvent({
-                    donationId: newGift.id,
-                    personId,
-                    eventId: giftEvent.event.id,
-                    attended: decision === "attended",
-                    importBatchId: batchId,
-                    ...(decision === "attended" && registrationFee > 0
-                      ? { feeAmount: registrationFee, paymentAmount: amount }
-                      : {}),
-                  });
-                } else if (newGift?.id && targetEventId) {
-                  // The row named an event or a campaign that is an event, so the
-                  // gift is credited to it and the person counts as having come.
-                  await attributeGiftToEvent({
-                    donationId: newGift.id,
-                    personId,
-                    eventId: targetEventId,
-                    attended: true,
-                    importBatchId: batchId,
-                  });
+                  // Apply the reviewer's one decision about gifts made on an event date.
+                  const giftEvent = nearbyGroup;
+                  const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
+                  if (
+                    newGift?.id &&
+                    giftEvent &&
+                    (decision === "attended" || decision === "gift_only")
+                  ) {
+                    await attributeGiftToEvent({
+                      donationId: newGift.id,
+                      personId,
+                      eventId: giftEvent.event.id,
+                      attended: decision === "attended",
+                      importBatchId: batchId,
+                      ...(decision === "attended" && registrationFee > 0
+                        ? { feeAmount: registrationFee, paymentAmount: amount }
+                        : {}),
+                    });
+                  } else if (newGift?.id && targetEventId) {
+                    // The row named an event or a campaign that is an event, so the
+                    // gift is credited to it and the person counts as having come.
+                    await attributeGiftToEvent({
+                      donationId: newGift.id,
+                      personId,
+                      eventId: targetEventId,
+                      attended: true,
+                      importBatchId: batchId,
+                    });
+                  }
+                  if (fingerprint) existingGiftFingerprints.add(fingerprint);
                 }
-                if (fingerprint) existingGiftFingerprints.add(fingerprint);
               }
             }
-          }
 
-          const noteParts = [
-            v.notes,
-            v.person_notes ? `Note: ${v.person_notes}` : "",
-            v.school ? `School: ${v.school}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          if (noteParts && !v.amount) {
-            await guard(
-              supabase.from("interactions").insert({
-                person_id: personId,
-                type: "form",
-                date: importDate,
-                text: noteParts,
-                author: "Import",
-                import_batch_id: batch.id,
-              }),
-              { area: "import", action: "Save an imported detail" },
-            );
-          }
-          await recordOutcome(index, match.status === "new" ? "created" : "matched", {
-            personId,
-          });
+            const noteParts = [
+              v.notes,
+              v.person_notes ? `Note: ${v.person_notes}` : "",
+              v.school ? `School: ${v.school}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            if (noteParts && !v.amount) {
+              await guard(
+                supabase.from("interactions").insert({
+                  person_id: personId,
+                  type: "form",
+                  date: importDate,
+                  text: noteParts,
+                  author: "Import",
+                  import_batch_id: batch.id,
+                }),
+                { area: "import", action: "Save an imported detail" },
+              );
+            }
+            await recordOutcome(index, match.status === "new" ? "created" : "matched", {
+              personId,
+            });
           }
         } catch (rowError) {
           if (rowCommitted) throw rowError;
@@ -1814,7 +2049,8 @@ function ImportCenter() {
               <p className="text-sm text-muted-foreground">
                 {workbook.filename} · {workbook.sheets.length} sheet
                 {workbook.sheets.length === 1 ? "" : "s"}. Choose the sheet and tell us where its
-                headers are. A data row is never removed unless you explicitly select it as the header.
+                headers are. A data row is never removed unless you explicitly select it as the
+                header.
               </p>
             </div>
             <Button type="button" variant="outline" className="rounded-xl" onClick={reset}>
@@ -1842,7 +2078,8 @@ function ImportCenter() {
                 <option value="">Select a worksheet</option>
                 {workbook.sheets.map((candidate) => (
                   <option key={`${candidate.index}-${candidate.name}`} value={candidate.index}>
-                    {candidate.name} · {candidate.physicalRowCount} rows · {candidate.columnCount} columns
+                    {candidate.name} · {candidate.physicalRowCount} rows · {candidate.columnCount}{" "}
+                    columns
                     {candidate.visibility === "visible" ? "" : ` · ${candidate.visibility}`}
                   </option>
                 ))}
@@ -1854,7 +2091,8 @@ function ImportCenter() {
                   className={selectClass}
                   value={sheet.headerRowNumber ?? "none"}
                   onChange={(event) => {
-                    const rowNumber = event.target.value === "none" ? null : Number(event.target.value);
+                    const rowNumber =
+                      event.target.value === "none" ? null : Number(event.target.value);
                     const detected = workbook.sheets[sheet.sheetIndex]!.detectedHeader.rowNumber;
                     applySheetSelection(
                       workbook,
@@ -1865,12 +2103,18 @@ function ImportCenter() {
                   }}
                 >
                   <option value="none">No header row — assign columns manually</option>
-                  {workbook.sheets[sheet.sheetIndex]!.rows
-                    .filter((row) => row.cells.some((cell) => cell.display))
+                  {workbook.sheets[sheet.sheetIndex]!.rows.filter((row) =>
+                    row.cells.some((cell) => cell.display),
+                  )
                     .slice(0, 25)
                     .map((row) => (
                       <option key={row.physicalRowNumber} value={row.physicalRowNumber}>
-                        Row {row.physicalRowNumber}: {row.cells.map((cell) => cell.display).filter(Boolean).slice(0, 4).join(" · ")}
+                        Row {row.physicalRowNumber}:{" "}
+                        {row.cells
+                          .map((cell) => cell.display)
+                          .filter(Boolean)
+                          .slice(0, 4)
+                          .join(" · ")}
                       </option>
                     ))}
                 </select>
@@ -1891,12 +2135,15 @@ function ImportCenter() {
                   )
                 }
                 className={`rounded-xl border p-3 text-left text-sm ${
-                  sheet?.sheetIndex === candidate.index ? "border-primary bg-primary/5" : "border-border"
+                  sheet?.sheetIndex === candidate.index
+                    ? "border-primary bg-primary/5"
+                    : "border-border"
                 }`}
               >
                 <span className="font-medium text-foreground">{candidate.name}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">
-                  {candidate.usedRange ?? "empty"} · {candidate.visibility} · {candidate.detectedHeader.reason}
+                  {candidate.usedRange ?? "empty"} · {candidate.visibility} ·{" "}
+                  {candidate.detectedHeader.reason}
                 </span>
               </button>
             ))}
@@ -1908,7 +2155,7 @@ function ImportCenter() {
         <div className="space-y-5">
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <h2 className="font-heading font-semibold text-foreground">{sheet.name}</h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            <div className="mt-3 grid gap-3 sm:grid-cols-5">
               <Stat icon={Users} label="Rows found" value={counts.total} tone="text-foreground" />
               <Stat
                 icon={CheckCircle2}
@@ -1917,6 +2164,7 @@ function ImportCenter() {
                 tone="text-money"
               />
               <Stat icon={UserPlus} label="Look new" value={counts.new} tone="text-primary" />
+              <Stat icon={Users} label="Couples" value={counts.couples} tone="text-money" />
               <Stat
                 icon={AlertTriangle}
                 label="Need review"
@@ -2354,7 +2602,9 @@ function ImportCenter() {
             </div>
             {!mappingReview.gate.valid && (
               <ul className="mt-3 space-y-1 rounded-xl border border-urgent/40 bg-urgent/10 p-3 text-sm text-urgent">
-                {mappingReview.gate.errors.map((message) => <li key={message}>{message}</li>)}
+                {mappingReview.gate.errors.map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
               </ul>
             )}
             {mappingReview.warnings.length > 0 && (
@@ -2394,19 +2644,29 @@ function ImportCenter() {
                       <td className="whitespace-nowrap border-b border-border py-2 pr-5 text-xs">
                         <span
                           className={
-                            a.match.status === "matched"
+                            a.presentation.status === "couple"
                               ? "text-money"
-                              : a.match.status === "new"
-                                ? "text-primary"
-                                : "text-urgent"
+                              : a.match.status === "matched"
+                                ? "text-money"
+                                : a.match.status === "new"
+                                  ? "text-primary"
+                                  : "text-urgent"
                           }
                         >
-                          {a.match.reason}
+                          {a.presentation.status === "couple" || a.presentation.status === "review"
+                            ? a.presentation.reason
+                            : a.match.reason}
                         </span>
                       </td>
                       <td className="whitespace-nowrap border-b border-border py-2 pr-5 text-xs text-muted-foreground">
                         {[
-                          a.match.status === "new" ? "contact" : "update",
+                          a.presentation.willCreate === "two contacts"
+                            ? "two contacts"
+                            : a.presentation.willCreate === "review"
+                              ? "review"
+                              : a.match.status === "new"
+                                ? "contact"
+                                : "update",
                           a.values.spouse_full_name || a.values.spouse_first_name ? "partner" : "",
                           a.values.children?.length ? `${a.values.children.length} child` : "",
                         ]
@@ -2451,7 +2711,8 @@ function ImportCenter() {
               </label>
             )}
             {sheet.headerRowNumber !== null &&
-              workbook?.sheets[sheet.sheetIndex]?.detectedHeader.rowNumber !== sheet.headerRowNumber && (
+              workbook?.sheets[sheet.sheetIndex]?.detectedHeader.rowNumber !==
+                sheet.headerRowNumber && (
                 <label className="flex w-full items-start gap-2 rounded-xl bg-urgent/10 px-3 py-2 text-sm text-foreground">
                   <input
                     type="checkbox"
@@ -2460,8 +2721,8 @@ function ImportCenter() {
                     onChange={(event) => setHeaderRiskConfirmed(event.target.checked)}
                   />
                   <span>
-                    Header detection was uncertain. I checked row {sheet.headerRowNumber} and confirm
-                    that it contains column labels, not the first data record.
+                    Header detection was uncertain. I checked row {sheet.headerRowNumber} and
+                    confirm that it contains column labels, not the first data record.
                   </span>
                 </label>
               )}

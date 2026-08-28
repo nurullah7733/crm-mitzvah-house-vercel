@@ -1731,6 +1731,19 @@ export type Database = {
         Args: { _household: Json; _members: Json };
         Returns: Json;
       };
+      resolve_review_couple_activity: {
+        Args: {
+          _activity?: Json;
+          _batch_id?: string | null;
+          _item_id: string;
+          _labels?: Json;
+          _main: Json;
+          _owner: string;
+          _partner: Json;
+          _row: Json;
+        };
+        Returns: Json;
+      };
       mark_receipt_sent: {
         Args: { _donation_id: string; _sent?: boolean };
         Returns: undefined;

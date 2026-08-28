@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   REPEATABLE_FIELDS,
   addressKey,
+  buildFileClaimGraph,
   composeAddress,
   guessColumn,
   guessMapping,
   matchRow,
   matchRowOnce,
   newRowIdentityRegistry,
+  resolveCoupleClaims,
+  hasOwnershipSensitiveCoupleContent,
+  needsCoupleActivityOwnerReview,
   roleFromRow,
   rowIdentityKeys,
+  logicalFilePerson,
   splitFullName,
   splitName,
   splitPeopleList,
@@ -17,6 +22,8 @@ import {
   type FieldKey,
 } from "@/lib/import-mapping";
 import { buildRowValues } from "@/lib/import-rows";
+import { decideCoupleName, presentCoupleDecision } from "@/lib/couple-semantics";
+import { readFileSync } from "node:fs";
 
 const fields = (headers: string[]) => guessMapping(headers).map((g) => g.field);
 
@@ -88,20 +95,41 @@ describe("header synonyms map to the right field", () => {
 
   it("maps the sanitized live-QA structure without consuming the primary email target", () => {
     const headers = [
-      "First Name", "Last Name", "Mailing Street", "Mailing City",
-      "Mailing State/Province", "Mailing Zip/Postal Code", "Phone", "Email",
-      "Close Date", "Amount", "Primary Campaign Source", "Date of Birth",
+      "First Name",
+      "Last Name",
+      "Mailing Street",
+      "Mailing City",
+      "Mailing State/Province",
+      "Mailing Zip/Postal Code",
+      "Phone",
+      "Email",
+      "Close Date",
+      "Amount",
+      "Primary Campaign Source",
+      "Date of Birth",
     ];
     expect(fields(headers)).toEqual([
-      "first_name", "last_name", "address", "city", "state", "postal_code",
-      "phone", "email", "date", "amount", "campaign", "birth_date",
+      "first_name",
+      "last_name",
+      "address",
+      "city",
+      "state",
+      "postal_code",
+      "phone",
+      "email",
+      "date",
+      "amount",
+      "campaign",
+      "birth_date",
     ]);
     expect(guessMapping(headers)[7]).toMatchObject({ field: "email", confidence: "high" });
   });
 
   it("keeps multiple genuine email columns on repeatable email targets", () => {
     expect(fields(["Email", "Work Email", "Other Email"])).toEqual([
-      "email", "email_work", "email_other",
+      "email",
+      "email_work",
+      "email_other",
     ]);
   });
 
@@ -123,6 +151,199 @@ describe("header synonyms map to the right field", () => {
       "phone_work",
     ]);
     for (const f of mapped) expect(REPEATABLE_FIELDS).toContain(f);
+  });
+});
+
+describe("couple and household name semantics", () => {
+  it.each([
+    ["John & Sarah Smith", "John Smith", "Sarah Smith"],
+    ["John and Sarah Smith", "John Smith", "Sarah Smith"],
+    ["John Smith & Sarah Cohen", "John Smith", "Sarah Cohen"],
+  ])("recognizes a representable couple: %s", (raw, first, second) => {
+    const decision = decideCoupleName(raw);
+    expect(decision.kind).toBe("confident_couple");
+    expect(decision.person1?.display).toBe(first);
+    expect(decision.person2?.display).toBe(second);
+  });
+
+  it.each(["John & Sarah", "Mr. & Mrs. Smith", "John/Sarah Smith"])(
+    "routes incomplete couple names to review: %s",
+    (raw) => expect(decideCoupleName(raw).kind).toBe("ambiguous_couple"),
+  );
+
+  it("treats family labels as household-only semantics", () => {
+    expect(decideCoupleName("Smith Family").kind).toBe("household_only");
+  });
+
+  it("does not split organization names containing an ampersand", () => {
+    const decision = decideCoupleName("Smith & Cohen Foundation");
+    expect(decision.kind).toBe("single_person");
+    expect(decision.evidence.organization).toBe(true);
+  });
+
+  it("maps a safe full-name couple into two explicit claims", () => {
+    const values = buildRowValues(
+      ["John & Sarah Smith"],
+      [{ field: "full_name", header: "Name", confidence: "high" }],
+    );
+    expect(values.first_name).toBe("John");
+    expect(values.last_name).toBe("Smith");
+    expect(values.spouse_first_name).toBe("Sarah");
+    expect(values.spouse_last_name).toBe("Smith");
+    expect(values.couple_decision?.kind).toBe("confident_couple");
+  });
+
+  it("does not present a confident couple as a single new contact", () => {
+    const decision = decideCoupleName("John & Sarah Smith");
+    expect(presentCoupleDecision(decision, "new")).toEqual({
+      status: "couple",
+      reason: "Confident couple: two named people",
+      willCreate: "two contacts",
+    });
+  });
+
+  it("keeps the shared email on the row without collapsing the two claims", () => {
+    const values = buildRowValues(
+      ["John & Sarah Smith", "m2d.d1.smith@example.test"],
+      [
+        { field: "full_name", header: "Full Name", confidence: "high" },
+        { field: "email", header: "Email", confidence: "high" },
+      ],
+    );
+    expect(values.couple_decision?.person1?.display).toBe("John Smith");
+    expect(values.couple_decision?.person2?.display).toBe("Sarah Smith");
+    expect(values.email).toBe("m2d.d1.smith@example.test");
+    expect(values.spouse_email).toBeUndefined();
+  });
+
+  it("classifies explicit partner columns as a couple", () => {
+    const values = buildRowValues(
+      [
+        "David",
+        "Levine",
+        "m2d.d4.family@example.test",
+        "Rachel",
+        "Levine",
+        "m2d.d4.family@example.test",
+      ],
+      [
+        { field: "first_name", header: "First Name", confidence: "high" },
+        { field: "last_name", header: "Last Name", confidence: "high" },
+        { field: "email", header: "Email", confidence: "high" },
+        { field: "spouse_first_name", header: "Partner First Name", confidence: "high" },
+        { field: "spouse_last_name", header: "Partner Last Name", confidence: "high" },
+        { field: "spouse_email", header: "Partner Email", confidence: "high" },
+      ],
+    );
+    expect(values.couple_decision?.kind).toBe("confident_couple");
+    expect(values.couple_decision?.person1?.display).toBe("David Levine");
+    expect(values.couple_decision?.person2?.display).toBe("Rachel Levine");
+    expect(values.email).toBe("m2d.d4.family@example.test");
+    expect(values.spouse_email).toBe("m2d.d4.family@example.test");
+  });
+
+  it("resolves both existing spouses in one household without creating a partner", () => {
+    const values = buildRowValues(
+      ["Noah", "Bernstein", "noah@example.test", "Leah", "Bernstein", "leah@example.test"],
+      [
+        { field: "first_name", header: "First Name", confidence: "high" },
+        { field: "last_name", header: "Last Name", confidence: "high" },
+        { field: "email", header: "Email", confidence: "high" },
+        { field: "spouse_first_name", header: "Partner First Name", confidence: "high" },
+        { field: "spouse_last_name", header: "Partner Last Name", confidence: "high" },
+        { field: "spouse_email", header: "Partner Email", confidence: "high" },
+      ],
+    );
+    const people: ExistingPerson[] = [
+      {
+        id: "noah",
+        first_name: "Noah",
+        last_name: "Bernstein",
+        email: "noah@example.test",
+        phone: null,
+        household_id: "h1",
+      },
+      {
+        id: "leah",
+        first_name: "Leah",
+        last_name: "Bernstein",
+        email: "leah@example.test",
+        phone: null,
+        household_id: "h1",
+      },
+    ];
+    const result = resolveCoupleClaims(values, people);
+    expect(result?.kind).toBe("safe");
+    expect(result?.main.candidates[0]?.id).toBe("noah");
+    expect(result?.partner.candidates[0]?.id).toBe("leah");
+  });
+
+  it("routes existing spouses in different households before any write", () => {
+    const values = buildRowValues(
+      ["Noah", "Bernstein", "noah@example.test", "Leah", "Bernstein", "leah@example.test"],
+      [
+        { field: "first_name", header: "First Name", confidence: "high" },
+        { field: "last_name", header: "Last Name", confidence: "high" },
+        { field: "email", header: "Email", confidence: "high" },
+        { field: "spouse_first_name", header: "Partner First Name", confidence: "high" },
+        { field: "spouse_last_name", header: "Partner Last Name", confidence: "high" },
+        { field: "spouse_email", header: "Partner Email", confidence: "high" },
+      ],
+    );
+    const people: ExistingPerson[] = [
+      {
+        id: "noah",
+        first_name: "Noah",
+        last_name: "Bernstein",
+        email: "noah@example.test",
+        phone: null,
+        household_id: "h1",
+      },
+      {
+        id: "leah",
+        first_name: "Leah",
+        last_name: "Bernstein",
+        email: "leah@example.test",
+        phone: null,
+        household_id: "h2",
+      },
+    ];
+    expect(resolveCoupleClaims(values, people)?.kind).toBe("household_conflict");
+    expect(resolveCoupleClaims(values, people)?.reason).toBe(
+      "Both people already exist but belong to different households.",
+    );
+  });
+
+  it("keeps preview and approval on the structured couple decision path", () => {
+    const source = readFileSync("src/routes/_authenticated/inbox.index.tsx", "utf8");
+    expect(source).toContain("presentCoupleDecision(");
+    expect(source).toContain("activityOwnerReview");
+    expect(source).toContain("const coupleDecision = v.couple_decision");
+    expect(source).toContain('action: "create"');
+    expect(source).toContain("spouse_first_name");
+    expect(source).not.toContain("first_name: v.full_name");
+  });
+
+  it("uses one ownership rule for couple activity-sensitive content", () => {
+    const couple = decideCoupleName("John & Sarah Smith");
+    expect(needsCoupleActivityOwnerReview({ couple_decision: couple, amount: "72" })).toBe(true);
+    expect(needsCoupleActivityOwnerReview({ couple_decision: couple, event_name: "Dinner" })).toBe(
+      true,
+    );
+    expect(needsCoupleActivityOwnerReview({ couple_decision: couple, notes: "Please call" })).toBe(
+      true,
+    );
+    expect(needsCoupleActivityOwnerReview({ couple_decision: couple, tags: "Board" })).toBe(true);
+    expect(needsCoupleActivityOwnerReview({ couple_decision: couple, programs: "Learning" })).toBe(
+      true,
+    );
+    expect(
+      needsCoupleActivityOwnerReview({ couple_decision: couple, campaign: "Annual Fund" }),
+    ).toBe(false);
+    expect(
+      needsCoupleActivityOwnerReview({ couple_decision: couple, person_notes: "Member" }),
+    ).toBe(false);
+    expect(hasOwnershipSensitiveCoupleContent({ first_name: "John" })).toBe(false);
   });
 });
 
@@ -373,13 +594,12 @@ describe("matching a row to existing contacts", () => {
 });
 
 describe("the same person twice inside one file", () => {
-  it("flags the second appearance instead of creating them again", () => {
+  it("does not confuse a repeated person with a repeated activity occurrence", () => {
     const seen = newRowIdentityRegistry();
     const row = { first_name: "Yosef", last_name: "Katz", email: "yosef@example.com" };
     expect(matchRowOnce(row, [], seen, 0).status).toBe("new");
     const second = matchRowOnce({ ...row }, [], seen, 1);
-    expect(second.status).toBe("ambiguous");
-    expect(second.reason).toContain("row 1");
+    expect(second.status).toBe("new");
   });
 
   it("allows separate gifts for the same person while still catching an identical gift", () => {
@@ -395,7 +615,7 @@ describe("the same person twice inside one file", () => {
     expect(matchRowOnce({ ...first }, [], seen, 2).status).toBe("ambiguous");
   });
 
-  it("catches a repeat that only shares a phone number", () => {
+  it("keeps a repeated phone with a conflicting name in identity review", () => {
     const seen = newRowIdentityRegistry();
     matchRowOnce({ first_name: "Yosef", last_name: "Katz", phone: "404-555-0100" }, [], seen, 0);
     const second = matchRowOnce(
@@ -424,6 +644,73 @@ describe("the same person twice inside one file", () => {
     expect(keys[0]).toBe("email:a@example.com");
     expect(keys).toContain("phone:4045550100");
     expect(keys).toContain("name:a b");
+  });
+});
+
+describe("D10 file person claim graph", () => {
+  const couple = decideCoupleName("Noah Adler & Rivka Adler");
+  const coupleRow = {
+    first_name: "Noah",
+    last_name: "Adler",
+    email: "m2d.d10.noah@example.test",
+    spouse_first_name: "Rivka",
+    spouse_last_name: "Adler",
+    spouse_email: "m2d.d10.rivka@example.test",
+    couple_decision: couple,
+  };
+  const noah = {
+    first_name: "Noah",
+    last_name: "Adler",
+    email: "m2d.d10.noah@example.test",
+  };
+  const rivka = {
+    first_name: "Rivka",
+    last_name: "Adler",
+    email: "m2d.d10.rivka@example.test",
+  };
+
+  it.each([
+    [coupleRow, noah, rivka],
+    [noah, rivka, coupleRow],
+    [rivka, coupleRow, noah],
+  ])("finds exactly two people independent of row ordering", (...rows) => {
+    const graph = buildFileClaimGraph(rows);
+    expect(graph.people).toHaveLength(2);
+    expect(graph.people.map((person) => person.claims.length).sort()).toEqual([2, 2]);
+  });
+
+  it("correlates the main and partner claims with their individual rows", () => {
+    const graph = buildFileClaimGraph([coupleRow, noah, rivka]);
+    expect(logicalFilePerson(graph, 0, "main")?.id).toBe(logicalFilePerson(graph, 1)?.id);
+    expect(logicalFilePerson(graph, 0, "partner")?.id).toBe(logicalFilePerson(graph, 2)?.id);
+  });
+
+  it("keeps an agreeing email with a conflicting birth date in review", () => {
+    const graph = buildFileClaimGraph([
+      { ...noah, birth_date: "1980-01-01" },
+      { ...noah, birth_date: "1990-01-01" },
+    ]);
+    expect(graph.people.some((person) => person.conflicted)).toBe(true);
+  });
+
+  it("keeps a shared phone with incompatible identity details in review", () => {
+    const graph = buildFileClaimGraph([
+      { first_name: "Noah", last_name: "Adler", phone: "4045550100", birth_date: "1980-01-01" },
+      { first_name: "Rachel", last_name: "Cohen", phone: "4045550100", birth_date: "1990-01-01" },
+    ]);
+    expect(graph.people.some((person) => person.conflicted)).toBe(true);
+    expect(graph.people).toHaveLength(2);
+  });
+
+  it("does not correlate exact names without a strong identity signal", () => {
+    expect(buildFileClaimGraph([{ first_name: "Noah", last_name: "Adler" }, { first_name: "Noah", last_name: "Adler" }]).people).toHaveLength(2);
+  });
+
+  it("does not collapse spouses that share a contact method on one row", () => {
+    const graph = buildFileClaimGraph([
+      { ...coupleRow, spouse_email: coupleRow.email },
+    ]);
+    expect(graph.people).toHaveLength(2);
   });
 });
 
@@ -487,9 +774,15 @@ describe("identity conflict engine", () => {
   });
 
   it("vetoes an email match when birth dates conflict", () => {
-    const result = matchRow({
-      first_name: "Sarah", last_name: "Klein", email: "same@example.test", birth_date: "1995-07-12",
-    }, [person()]);
+    const result = matchRow(
+      {
+        first_name: "Sarah",
+        last_name: "Klein",
+        email: "same@example.test",
+        birth_date: "1995-07-12",
+      },
+      [person()],
+    );
     expect(result.status).toBe("ambiguous");
     expect(result.reason).toBe("Email matches, but birth date differs.");
     expect(result.candidates.map((candidate) => candidate.id)).toEqual(["p1"]);
@@ -502,9 +795,17 @@ describe("identity conflict engine", () => {
   });
 
   it("matches agreeing email, birth date, and close name", () => {
-    expect(matchRow({
-      first_name: "Sara", last_name: "Klein", email: "SAME@EXAMPLE.TEST", birth_date: "1/1/1980",
-    }, [person()]).status).toBe("matched");
+    expect(
+      matchRow(
+        {
+          first_name: "Sara",
+          last_name: "Klein",
+          email: "SAME@EXAMPLE.TEST",
+          birth_date: "1/1/1980",
+        },
+        [person()],
+      ).status,
+    ).toBe("matched");
   });
 
   it("does not auto-match an exact name by itself", () => {
@@ -514,9 +815,16 @@ describe("identity conflict engine", () => {
   });
 
   it("matches an exact name plus exact birth date", () => {
-    expect(matchRow({
-      first_name: "Sarah", last_name: "Klein", birth_date: "1980-01-01",
-    }, [person()]).status).toBe("matched");
+    expect(
+      matchRow(
+        {
+          first_name: "Sarah",
+          last_name: "Klein",
+          birth_date: "1980-01-01",
+        },
+        [person()],
+      ).status,
+    ).toBe("matched");
   });
 
   it("normalizes formatted phones and email casing", () => {
@@ -539,30 +847,63 @@ describe("identity conflict engine", () => {
   });
 
   it("allows a changed address when strong identity otherwise agrees", () => {
-    expect(matchRow({
-      first_name: "Sarah", last_name: "Klein", email: "same@example.test", address: "99 New Road",
-    }, [person()]).status).toBe("matched");
+    expect(
+      matchRow(
+        {
+          first_name: "Sarah",
+          last_name: "Klein",
+          email: "same@example.test",
+          address: "99 New Road",
+        },
+        [person()],
+      ).status,
+    ).toBe("matched");
   });
 
   it("does not auto-match address alone or same address with a different name", () => {
     expect(matchRow({ address: "120 Oak St" }, [person()]).status).toBe("ambiguous");
-    expect(matchRow({ first_name: "Rachel", last_name: "Cohen", address: "120 Oak St" }, [person()]).status).toBe("ambiguous");
+    expect(
+      matchRow({ first_name: "Rachel", last_name: "Cohen", address: "120 Oak St" }, [person()])
+        .status,
+    ).toBe("ambiguous");
   });
 
   it("accepts a nickname with an agreeing phone", () => {
-    expect(matchRow({ first_name: "Sara", last_name: "Klein", phone: "4045550100" }, [person()]).status).toBe("matched");
+    expect(
+      matchRow({ first_name: "Sara", last_name: "Klein", phone: "4045550100" }, [person()]).status,
+    ).toBe("matched");
   });
 
   it("prevents a same-file shared contact method from hiding contradictory identity", () => {
     const seen = newRowIdentityRegistry();
-    expect(matchRowOnce({
-      first_name: "Sarah", last_name: "Klein", email: "family@example.test", birth_date: "1980-01-01",
-      amount: "18", date: "2026-01-01",
-    }, [], seen, 0).status).toBe("new");
-    const second = matchRowOnce({
-      first_name: "Rachel", last_name: "Klein", email: "family@example.test", birth_date: "1995-07-12",
-      amount: "36", date: "2026-01-02",
-    }, [], seen, 1);
+    expect(
+      matchRowOnce(
+        {
+          first_name: "Sarah",
+          last_name: "Klein",
+          email: "family@example.test",
+          birth_date: "1980-01-01",
+          amount: "18",
+          date: "2026-01-01",
+        },
+        [],
+        seen,
+        0,
+      ).status,
+    ).toBe("new");
+    const second = matchRowOnce(
+      {
+        first_name: "Rachel",
+        last_name: "Klein",
+        email: "family@example.test",
+        birth_date: "1995-07-12",
+        amount: "36",
+        date: "2026-01-02",
+      },
+      [],
+      seen,
+      1,
+    );
     expect(second.status).toBe("ambiguous");
     expect(second.reason).toContain("birth date differs");
     expect(second.reason).toContain("row 1");
@@ -570,8 +911,17 @@ describe("identity conflict engine", () => {
 
   it("keeps legitimate separate gifts for an agreeing same-file identity", () => {
     const seen = newRowIdentityRegistry();
-    const identity = { first_name: "Sarah", last_name: "Klein", email: "same@example.test", birth_date: "1980-01-01" };
-    expect(matchRowOnce({ ...identity, amount: "18", date: "2026-01-01" }, [], seen, 0).status).toBe("new");
-    expect(matchRowOnce({ ...identity, amount: "36", date: "2026-01-02" }, [], seen, 1).status).toBe("new");
+    const identity = {
+      first_name: "Sarah",
+      last_name: "Klein",
+      email: "same@example.test",
+      birth_date: "1980-01-01",
+    };
+    expect(
+      matchRowOnce({ ...identity, amount: "18", date: "2026-01-01" }, [], seen, 0).status,
+    ).toBe("new");
+    expect(
+      matchRowOnce({ ...identity, amount: "36", date: "2026-01-02" }, [], seen, 1).status,
+    ).toBe("new");
   });
 });

@@ -7,6 +7,7 @@ import {
   type FieldKey,
   type RowValues,
 } from "@/lib/import-mapping";
+import { decideCoupleName } from "@/lib/couple-semantics";
 
 /** Unpack one spreadsheet row: the main contact, their partner, and any children on the row. */
 export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
@@ -112,7 +113,28 @@ export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues
   if (children.length > 0) out.children = children;
   if (phones.length > 0) out.phones = phones;
   if (emails.length > 0) out.emails = emails;
-  return tidyCase(out);
+  const tidied = tidyCase(out);
+  if (tidied.full_name) {
+    const couple = decideCoupleName(tidied.full_name);
+    tidied.couple_decision = couple;
+    if (couple.kind === "confident_couple" && couple.person1 && couple.person2) {
+      tidied.first_name = couple.person1.first;
+      tidied.last_name = couple.person1.last;
+      tidied.spouse_first_name = couple.person2.first;
+      tidied.spouse_last_name = couple.person2.last;
+    }
+  } else if (
+    (tidied.spouse_full_name || tidied.spouse_first_name || tidied.spouse_last_name) &&
+    (tidied.first_name || tidied.last_name)
+  ) {
+    const main = [tidied.first_name, tidied.last_name].filter(Boolean).join(" ");
+    const partner =
+      tidied.spouse_full_name ||
+      [tidied.spouse_first_name, tidied.spouse_last_name].filter(Boolean).join(" ");
+    const couple = decideCoupleName(`${main} & ${partner}`);
+    tidied.couple_decision = couple;
+  }
+  return tidied;
 }
 
 /**
