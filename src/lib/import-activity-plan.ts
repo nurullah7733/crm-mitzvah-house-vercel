@@ -2,6 +2,7 @@ import { resolveImportDonationDate } from "@/lib/import-dates";
 import { donationImportFingerprintFromCents, type RowValues } from "@/lib/import-mapping";
 import { allocateRegistrationCents, amountToCents } from "@/lib/import-normalization";
 import { parseExternalTransactionId } from "@/lib/external-transaction-id";
+import { resolveTransactionNamespace } from "@/lib/transaction-namespace";
 
 export type ActivityEventDecision =
   | { kind: "attend"; id: string; registrationFee: number }
@@ -24,6 +25,9 @@ export type ActivityPlan = {
   notes: string | null;
   sourceOccurrence: string | null;
   sourceTransactionId: string | null;
+  sourceTransactionIdentity: string | null;
+  sourceSystem: string | null;
+  transactionObjectType: string | null;
   fingerprint: string | null;
   blockingIssues: string[];
 };
@@ -60,12 +64,16 @@ export function buildActivityPlan({
   eventDecision,
   owner = "main",
   sourceOccurrence = null,
+  transactionSourceSystem,
+  transactionObjectType,
 }: {
   row: RowValues;
   effectiveDate: string;
   eventDecision?: ActivityEventDecision;
   owner?: ActivityPlan["owner"];
   sourceOccurrence?: string | null;
+  transactionSourceSystem?: string | null;
+  transactionObjectType?: string | null;
 }): ActivityPlan {
   const hasAmount = Boolean((row.amount ?? "").trim());
   const grossPaymentCents = amountToCents(row.amount);
@@ -82,7 +90,12 @@ export function buildActivityPlan({
   if (hasAmount && !donationDate) blockingIssues.push("The donation date is invalid or ambiguous.");
   if (decision.kind === "unresolved") blockingIssues.push("The event attendance value must be linked, created, or ignored.");
   const transaction = parseExternalTransactionId(row.transaction_id);
-  const sourceTransactionId = transaction.status === "valid" ? transaction.storedValue : null;
+  const namespace = resolveTransactionNamespace({
+    sourceSystem: transactionSourceSystem ?? row.transaction_source_system,
+    objectType: transactionObjectType ?? row.transaction_object_type,
+    transactionId: row.transaction_id,
+  });
+  const sourceTransactionId = namespace.sourceTransactionId;
   const unsafeTransaction = row.normalization_issues?.find(
     (issue) => issue.field === "transaction_id" && issue.status === "unsafe",
   );
@@ -102,8 +115,15 @@ export function buildActivityPlan({
     notes: (row.notes ?? "").trim() || null,
     sourceOccurrence,
     sourceTransactionId,
+    sourceTransactionIdentity: namespace.sourceTransactionIdentity,
+    sourceSystem: namespace.sourceSystem,
+    transactionObjectType: namespace.objectType,
     fingerprint: donationIntent && donationDate
-      ? donationImportFingerprintFromCents(row, netDonationCents, donationDate)
+      ? donationImportFingerprintFromCents({
+          ...row,
+          ...(namespace.sourceSystem ? { transaction_source_system: namespace.sourceSystem } : {}),
+          ...(namespace.objectType ? { transaction_object_type: namespace.objectType } : {}),
+        }, netDonationCents, donationDate)
       : null,
     blockingIssues,
   };

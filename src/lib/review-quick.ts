@@ -95,6 +95,9 @@ export async function resolveReviewMergePayload(
       import_batch_id: batchId,
       import_fingerprint: plan.fingerprint,
       external_transaction_id: plan.sourceTransactionId,
+      external_transaction_id_key: plan.sourceTransactionIdentity,
+      transaction_source_system: plan.sourceSystem,
+      transaction_object_type: plan.transactionObjectType,
     };
   }
   const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]

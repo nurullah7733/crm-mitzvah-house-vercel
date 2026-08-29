@@ -3,6 +3,7 @@ import { allocateRegistrationCents, centsToAmount, parseImportAmount, parseImpor
 import { fuzzyScore } from "@/lib/nl-search";
 import { PencilOff } from "lucide-react";
 import { parseExternalTransactionId } from "@/lib/external-transaction-id";
+import { resolveTransactionNamespace } from "@/lib/transaction-namespace";
 
 /** Fields a spreadsheet column can be mapped to. */
 export type FieldKey =
@@ -827,7 +828,13 @@ export function donationImportFingerprint(
 export function donationImportFingerprintFromCents(v: RowValues, cents: number, date: string) {
   const donor = rowDedupeKey(v);
   if (!donor || !Number.isSafeInteger(cents) || cents <= 0 || !date) return null;
-  const transactionId = parseExternalTransactionId(v.transaction_id).identityValue;
+  const namespace = resolveTransactionNamespace({
+    sourceSystem: v.transaction_source_system,
+    objectType: v.transaction_object_type,
+    transactionId: v.transaction_id,
+  });
+  if (namespace.strongIdentity) return namespace.strongIdentity;
+  const transactionId = namespace.sourceTransactionIdentity;
   if (transactionId) return [donor, "transaction", transactionId].join("|");
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   return [donor, date, `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`, campaign].join("|");
@@ -952,6 +959,10 @@ export type RowValues = Partial<Record<FieldKey, string>> & {
   activity_effective_date?: string;
   activity_event_ignored?: string;
   activity_event_id?: string;
+  /** Durable transaction namespace captured when the import batch is approved. */
+  transaction_source_system?: string;
+  transaction_source_confidence?: import("@/lib/transaction-namespace").TransactionSourceConfidence;
+  transaction_object_type?: string;
   couple_decision?: import("@/lib/couple-semantics").CoupleDecision;
   children?: { first: string; last?: string; birth_date?: string; school?: string; age?: string }[];
   /** All phone numbers on the row, primary first. */

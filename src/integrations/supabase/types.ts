@@ -231,6 +231,8 @@ export type Database = {
           date: string;
           deleted_at: string | null;
           event_id: string | null;
+          external_transaction_id: string | null;
+          external_transaction_id_key: string | null;
           goods_or_services_description: string | null;
           goods_or_services_provided: boolean;
           grant_id: string | null;
@@ -244,6 +246,8 @@ export type Database = {
           receipt_sent: boolean;
           receipt_sent_date: string | null;
           source: string | null;
+          transaction_object_type: string | null;
+          transaction_source_system: string | null;
           thank_you_sent: boolean;
           thank_you_sent_date: string | null;
         };
@@ -254,6 +258,8 @@ export type Database = {
           date?: string;
           deleted_at?: string | null;
           event_id?: string | null;
+          external_transaction_id?: string | null;
+          external_transaction_id_key?: string | null;
           goods_or_services_description?: string | null;
           goods_or_services_provided?: boolean;
           grant_id?: string | null;
@@ -267,6 +273,8 @@ export type Database = {
           receipt_sent?: boolean;
           receipt_sent_date?: string | null;
           source?: string | null;
+          transaction_object_type?: string | null;
+          transaction_source_system?: string | null;
           thank_you_sent?: boolean;
           thank_you_sent_date?: string | null;
         };
@@ -277,6 +285,8 @@ export type Database = {
           date?: string;
           deleted_at?: string | null;
           event_id?: string | null;
+          external_transaction_id?: string | null;
+          external_transaction_id_key?: string | null;
           goods_or_services_description?: string | null;
           goods_or_services_provided?: boolean;
           grant_id?: string | null;
@@ -290,6 +300,8 @@ export type Database = {
           receipt_sent?: boolean;
           receipt_sent_date?: string | null;
           source?: string | null;
+          transaction_object_type?: string | null;
+          transaction_source_system?: string | null;
           thank_you_sent?: boolean;
           thank_you_sent_date?: string | null;
         };
@@ -587,9 +599,12 @@ export type Database = {
           selected_sheet_index: number | null;
           selected_sheet_name: string | null;
           source_data_hash: string | null;
+          source_system: string | null;
+          source_system_confidence: string;
           source_structure: Json | null;
           status: string;
           total_rows: number;
+          transaction_object_type: string | null;
           uploaded_by: string | null;
         };
         Insert: {
@@ -612,9 +627,12 @@ export type Database = {
           selected_sheet_index?: number | null;
           selected_sheet_name?: string | null;
           source_data_hash?: string | null;
+          source_system?: string | null;
+          source_system_confidence?: string;
           source_structure?: Json | null;
           status?: string;
           total_rows?: number;
+          transaction_object_type?: string | null;
           uploaded_by?: string | null;
         };
         Update: {
@@ -637,9 +655,12 @@ export type Database = {
           selected_sheet_index?: number | null;
           selected_sheet_name?: string | null;
           source_data_hash?: string | null;
+          source_system?: string | null;
+          source_system_confidence?: string;
           source_structure?: Json | null;
           status?: string;
           total_rows?: number;
+          transaction_object_type?: string | null;
           uploaded_by?: string | null;
         };
         Relationships: [];
@@ -1558,6 +1579,16 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      apply_import_activity_core: {
+        Args: {
+          _batch_id?: string | null;
+          _donation?: Json | null;
+          _note?: Json | null;
+          _person_id: string;
+          _registrations?: Json;
+        };
+        Returns: Json;
+      };
       archive_records: {
         Args: { _ids: string[]; _table: string };
         Returns: number;
@@ -1598,6 +1629,10 @@ export type Database = {
         Returns: boolean;
       };
       is_admin: { Args: never; Returns: boolean };
+      normalize_external_transaction_id: {
+        Args: { _value: string };
+        Returns: string | null;
+      };
       change_staff_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"];

@@ -81,6 +81,12 @@ import { buildRowValues, mainName } from "@/lib/import-rows";
 import { amountToCents, centsToAmount } from "@/lib/import-normalization";
 import { buildActivityPlan, chooseActivityEventDecision } from "@/lib/import-activity-plan";
 import { findRegistrationPaymentConflict, type RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
+import {
+  TRANSACTION_SOURCE_OPTIONS,
+  transactionReviewCondition,
+  transactionReviewReason,
+  type TransactionSourceConfidence,
+} from "@/lib/transaction-namespace";
 import { FieldPicker } from "@/components/import/FieldPicker";
 import { RouteError } from "@/components/RouteError";
 import { guard, mustWrite } from "@/lib/app-errors";
@@ -165,6 +171,7 @@ function ImportCenter() {
   /** Set when staff confirm they really do want to import a file already imported before. */
   const [reimportConfirmed, setReimportConfirmed] = useState(false);
   const [headerRiskConfirmed, setHeaderRiskConfirmed] = useState(false);
+  const [transactionSourceSystem, setTransactionSourceSystem] = useState("");
   /** Blocks a double-tap or a browser retry from running the same import twice. */
   const runningRef = useRef(false);
 
@@ -177,11 +184,13 @@ function ImportCenter() {
         workbook?: WorkbookProfile;
         sheet: Sheet;
         mapping: ColumnGuess[];
+        transactionSourceSystem?: string;
       };
       if (draft?.sheet?.headers?.length) {
         if (draft.workbook) setWorkbook(draft.workbook);
         setSheet(draft.sheet);
         setMapping(draft.mapping ?? guessMapping(draft.sheet.headers));
+        setTransactionSourceSystem(draft.transactionSourceSystem ?? "");
       }
     } catch {
       /* ignore a bad draft */
@@ -190,12 +199,12 @@ function ImportCenter() {
 
   useEffect(() => {
     try {
-      if (sheet) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ workbook, sheet, mapping }));
+      if (sheet) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ workbook, sheet, mapping, transactionSourceSystem }));
       else sessionStorage.removeItem(DRAFT_KEY);
     } catch {
       /* the file is too big to stash — the import still works */
     }
-  }, [workbook, sheet, mapping]);
+  }, [workbook, sheet, mapping, transactionSourceSystem]);
 
   /** Warn before leaving mid-import. */
   useEffect(() => {
@@ -560,6 +569,7 @@ function ImportCenter() {
       setBulkTarget(EMPTY_BULK_TARGET);
       setHeaderRiskConfirmed(false);
       setReimportConfirmed(false);
+      setTransactionSourceSystem("");
       if (parsed.kind === "csv" && parsed.sheets[0]) {
         const detected = parsed.sheets[0].detectedHeader;
         if (detected.rowNumber !== null)
@@ -582,6 +592,7 @@ function ImportCenter() {
     setSheet({ ...selected, name: source.filename });
     setMapping(guessMapping(selected.headers));
     setHeaderRiskConfirmed(false);
+    setTransactionSourceSystem("");
     setReimportConfirmed(false);
     setEventDecisions({});
     setAddressDecisions({});
@@ -638,6 +649,8 @@ function ImportCenter() {
     try {
       const importDate = new Date().toISOString().slice(0, 10);
       const source = `${sheet.name}, imported ${importDate}`;
+      const sourceConfidence: TransactionSourceConfidence = transactionSourceSystem ? "explicit" : "unknown";
+      const transactionObjectType = transactionSourceSystem ? "donation" : null;
 
       const { data: batch, error: batchError } = await supabase
         .from("import_batches")
@@ -662,6 +675,9 @@ function ImportCenter() {
             column_ids: sheet.columnIds,
             headers: sheet.headers,
           },
+          source_system: transactionSourceSystem || null,
+          source_system_confidence: sourceConfidence,
+          transaction_object_type: transactionObjectType,
           mapping: mapping.reduce<Record<string, string>>((acc, m, i) => {
             acc[sheet.columnIds[i] ?? `column_${i + 1}`] = m.field;
             return acc;
@@ -770,6 +786,13 @@ function ImportCenter() {
                 ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address }
                 : {}),
               ...(reviewContext ? { review_context: reviewContext } : {}),
+              ...(transactionSourceSystem
+                ? {
+                    transaction_source_system: transactionSourceSystem,
+                    transaction_source_confidence: sourceConfidence,
+                    transaction_object_type: transactionObjectType,
+                  }
+                : { transaction_source_confidence: "unknown" }),
             } as unknown as Record<string, string>,
             candidate_person_ids: candidateIds,
             status: "pending",
@@ -953,7 +976,13 @@ function ImportCenter() {
           nearbyEvent: nearbyGroup?.event ?? null,
           nearbyDecision,
         });
-        const activityPlan = buildActivityPlan({ row: v, effectiveDate: giftDate, eventDecision });
+        const activityPlan = buildActivityPlan({
+          row: v,
+          effectiveDate: giftDate,
+          eventDecision,
+          transactionSourceSystem: transactionSourceSystem || null,
+          transactionObjectType,
+        });
         const registrationFee = centsToAmount(activityPlan.registrationFeeCents);
         return {
           targetEventId,
@@ -1463,6 +1492,9 @@ function ImportCenter() {
                     import_batch_id: batch.id,
                     import_fingerprint: fingerprint,
                     external_transaction_id: giftPlan.activityPlan.sourceTransactionId,
+                    external_transaction_id_key: giftPlan.activityPlan.sourceTransactionIdentity,
+                    transaction_source_system: giftPlan.activityPlan.sourceSystem,
+                    transaction_object_type: giftPlan.activityPlan.transactionObjectType,
                   };
                 }
               }
@@ -2043,6 +2075,27 @@ function ImportCenter() {
           }
         } catch (rowError) {
           if (rowCommitted) throw rowError;
+          const transactionCondition = transactionReviewCondition(rowError);
+          if (transactionCondition) {
+            const reason = transactionReviewReason(transactionCondition);
+            const reviewQueueId = await queueForReview(
+              v,
+              reason,
+              item.match.candidates.map((candidate) => candidate.id),
+              null,
+              {
+                kind: transactionCondition,
+                transaction_source_system: transactionSourceSystem || null,
+                transaction_object_type: transactionObjectType,
+                external_transaction_id: v.transaction_id ?? null,
+              },
+            );
+            await recordOutcome(index, "flagged", {
+              reviewQueueId,
+              message: reason,
+            });
+            continue;
+          }
           failures += 1;
           console.error("Import row failed", rowError);
           const why = await friendlyDbError(rowError, "We couldn't save this row.");
@@ -2643,6 +2696,32 @@ function ImportCenter() {
               </Button>
             </div>
             <div className="mt-4 space-y-2">
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <label className="text-sm font-medium text-foreground" htmlFor="transaction-source-system">
+                  Transaction source
+                </label>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Select a known system to namespace external transaction IDs. Unknown files remain fully importable.
+                </p>
+                <select
+                  id="transaction-source-system"
+                  className={selectClass}
+                  value={transactionSourceSystem}
+                  onChange={(event) => setTransactionSourceSystem(event.target.value)}
+                  disabled={busy}
+                >
+                  {TRANSACTION_SOURCE_OPTIONS.map((option) => (
+                    <option key={option.value || "unknown"} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {transactionSourceSystem
+                    ? "Explicit selection · transaction object type: donation"
+                    : "Unknown source · no strong provider namespace will be asserted"}
+                </p>
+              </div>
               {mapping.map((m, i) => (
                 <div
                   key={`${m.header}-${i}`}
