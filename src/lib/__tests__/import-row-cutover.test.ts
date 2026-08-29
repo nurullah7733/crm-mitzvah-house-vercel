@@ -37,17 +37,22 @@ describe("normal CSV transactional row cutover", () => {
     expect(transactional).toContain("_spouse: spousePayload as Json");
     expect(transactional).toContain("_children: childrenPayload as Json");
     expect(transactional).toContain("registrations: [...registrations.values()]");
-    expect(transactional).toContain("registrations.set(targetEventId");
-    expect(transactional).toContain("registrations.set(nearbyGroup.event.id");
+    expect(transactional).toContain("registrations.set(registrationEventId");
+    expect(transactional).toContain("giftPlan.activityPlan.attendanceIntent");
+    expect(transactional).not.toContain("registrations.set(nearbyGroup.event.id");
   });
 
   it("uses one shared donation plan for net amount and fingerprint", () => {
-    expect(transactional).toMatch(
-      /const\s*\{\s*nearbyGroup,\s*nearbyDecision,\s*registrationFee,\s*donationAmount,\s*fingerprint,?\s*\}\s*=\s*giftPlan/,
-    );
+    expect(transactional).toContain("const { donationAmount, fingerprint } = giftPlan");
     expect(transactional).toContain("amount: donationAmount");
     expect(transactional).toContain("import_fingerprint: fingerprint");
+    expect(transactional).toContain("event_id: giftPlan.activityPlan.donationEventId");
     expect(transactional).not.toContain("donationFingerprintAfterRegistrationFee(");
+  });
+
+  it("uses the shared cents conflict guard before the transactional RPC", () => {
+    expect(transactional).toContain("findRegistrationPaymentConflict(");
+    expect(transactional).not.toContain("Number(storedPayment) !== incomingPayment");
   });
 
   it("does not execute the legacy independent write branch", () => {

@@ -25,7 +25,12 @@ import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@
 import { friendlyDbError } from "@/lib/db-errors";
 import { attributeGiftToEvent, recordAttendance } from "@/lib/gift-events";
 import { recordImportRowFailureAndRethrow } from "@/lib/import-row-failure";
-import { findGiftsOnOtherContacts, sameGiftElsewhereReason } from "@/lib/donation-dupes";
+import {
+  findGiftsOnOtherContacts,
+  isExactTransactionDonationRepeat,
+  sameGiftElsewhereReason,
+  type ExistingImportDonation,
+} from "@/lib/donation-dupes";
 import {
   EMPTY_BULK_TARGET,
   GROUP_ADDRESS_FIELD,
@@ -51,7 +56,6 @@ import {
   composeAddress,
   correlateFileCoupleResolution,
   correlateFileMatch,
-  donationImportFingerprintFromCents,
   guessMapping,
   namesAreClose,
   matchRowOnce,
@@ -73,7 +77,9 @@ import {
 import { presentCoupleDecision } from "@/lib/couple-semantics";
 
 import { buildRowValues, mainName } from "@/lib/import-rows";
-import { allocateRegistrationCents, amountToCents, centsToAmount } from "@/lib/import-normalization";
+import { amountToCents, centsToAmount } from "@/lib/import-normalization";
+import { buildActivityPlan, chooseActivityEventDecision } from "@/lib/import-activity-plan";
+import { findRegistrationPaymentConflict, type RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
 import { FieldPicker } from "@/components/import/FieldPicker";
 import { RouteError } from "@/components/RouteError";
 import { guard, mustWrite } from "@/lib/app-errors";
@@ -276,6 +282,18 @@ function ImportCenter() {
     },
   });
 
+  const { data: existingRegistrations } = useQuery({
+    queryKey: ["import-registrations"],
+    queryFn: async () =>
+      fetchAll((from, to) =>
+        supabase
+          .from("registrations")
+          .select("person_id, event_id, payment_amount, fee_amount, status")
+          .order("id")
+          .range(from, to),
+      ),
+  });
+
   const { data: programOptions } = useQuery({
     queryKey: ["program-options"],
     queryFn: async () => {
@@ -338,25 +356,6 @@ function ImportCenter() {
     });
   }, [sheet, people, mapping]);
 
-  const counts = useMemo(
-    () => ({
-      total: analysed.length,
-      matched: analysed.filter((a) => a.match.status === "matched").length,
-      new: analysed.filter((a) => a.presentation.status === "single" && a.match.status === "new")
-        .length,
-      ambiguous: analysed.filter((a) => a.presentation.status === "review").length,
-      couples: analysed.filter((a) => a.presentation.status === "couple").length,
-      extraPeople: analysed.reduce(
-        (n, a) =>
-          n +
-          (a.values.children?.length ?? 0) +
-          (a.values.spouse_full_name || a.values.spouse_first_name ? 1 : 0),
-        0,
-      ),
-    }),
-    [analysed],
-  );
-
   /** Which of the four things a usable file needs are mapped, and which pairs are half-done. */
   const mappingReview = useMemo(() => {
     const mapped = new Set(mapping.filter((m) => m.field !== "ignore").map((m) => m.field));
@@ -378,13 +377,10 @@ function ImportCenter() {
       string,
       { value: string; rows: number; matched: EventOption | null; origin: "event" | "campaign" }
     >();
-    // The event column first, then campaign names — a gift designated
-    // "Chanukah Dinner 2026" is usually the same thing as the event.
+    // Only explicit event semantics may create attendance. Campaign is a
+    // donation designation even when its text happens to match an event.
     analysed.forEach((a) => {
-      for (const [origin, raw] of [
-        ["event", a.values.event_name],
-        ["campaign", a.values.campaign],
-      ] as const) {
+      for (const [origin, raw] of [["event", a.values.event_name]] as const) {
         const value = (raw ?? "").trim();
         if (!value) continue;
         const key = normalizeLabel(value);
@@ -400,7 +396,7 @@ function ImportCenter() {
     return [...map.entries()].map(([key, v]) => ({ key, ...v }));
   }, [analysed, events]);
 
-  // Campaign names are only a maybe, so they never hold up an import.
+  // Explicit event attendance must never be silently discarded.
   const unansweredEvents = fileEvents.filter(
     (e) =>
       e.origin === "event" &&
@@ -411,17 +407,28 @@ function ImportCenter() {
   /** How each row will be linked, so the preview can be exact. */
   const eventLinkPlan = useMemo(() => {
     const bulkEvent = (events ?? []).find((e) => e.id === bulkTarget.eventId) ?? null;
+    const eventIds: (string | null)[] = [];
     const perRow = analysed.map((a) => {
       const value = (a.values.event_name ?? "").trim();
       const key = normalizeLabel(value);
       const entry = fileEvents.find((f) => f.key === key);
       const decision = eventDecisions[key];
       let label: string | null = null;
-      if (entry?.matched) label = entry.matched.name;
-      else if (decision?.action === "create") label = entry?.value ?? null;
-      else if (decision?.action === "existing")
-        label = (events ?? []).find((e) => e.id === decision.eventId)?.name ?? null;
-      if (!label && bulkEvent) label = bulkEvent.name;
+      let eventId: string | null = null;
+      if (entry?.matched) {
+        label = entry.matched.name;
+        eventId = entry.matched.id;
+      } else if (decision?.action === "create") label = entry?.value ?? null;
+      else if (decision?.action === "existing") {
+        const selected = (events ?? []).find((e) => e.id === decision.eventId) ?? null;
+        label = selected?.name ?? null;
+        eventId = selected?.id ?? null;
+      }
+      if (!label && bulkEvent) {
+        label = bulkEvent.name;
+        eventId = bulkEvent.id;
+      }
+      eventIds.push(eventId);
       return label;
     });
     const totals = new Map<string, number>();
@@ -430,7 +437,7 @@ function ImportCenter() {
       if (analysed[i]?.match.status === "ambiguous") return;
       totals.set(label, (totals.get(label) ?? 0) + 1);
     });
-    return { perRow, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
+    return { perRow, eventIds, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
   }, [analysed, fileEvents, eventDecisions, events, bulkTarget.eventId]);
 
   /**
@@ -439,8 +446,9 @@ function ImportCenter() {
    */
   const giftEventGroups = useMemo(() => {
     const groups = new Map<string, { event: EventOption; rows: number; total: number }>();
-    analysed.forEach((a) => {
+    analysed.forEach((a, index) => {
       if (a.match.status === "ambiguous") return;
+      if (eventLinkPlan.eventIds[index]) return;
       const amount = importedAmount(a.values.amount);
       if (!Number.isFinite(amount) || amount <= 0) return;
       const giftDate = isoDate(a.values.date);
@@ -455,7 +463,55 @@ function ImportCenter() {
       groups.set(match.id, entry);
     });
     return [...groups.values()];
-  }, [analysed, events]);
+  }, [analysed, events, eventLinkPlan.eventIds]);
+
+  const previewAnalysed = useMemo(
+    () =>
+      analysed.map((item, index) => {
+        const personId = item.match.status === "matched" ? item.match.candidates[0]?.id : null;
+        const eventId = eventLinkPlan.eventIds[index];
+        if (!personId || !eventId) return item;
+        const event = (events ?? []).find((candidate) => candidate.id === eventId) ?? null;
+        if (!event) return item;
+        const activityPlan = buildActivityPlan({
+          row: item.values,
+          effectiveDate: isoDate(item.values.date) ?? new Date().toISOString().slice(0, 10),
+          eventDecision: chooseActivityEventDecision({
+            explicitEvent: event,
+            nearbyEvent: null,
+          }),
+        });
+        const registration = (existingRegistrations ?? []).find(
+          (candidate) => candidate.person_id === personId && candidate.event_id === eventId,
+        );
+        const conflict = findRegistrationPaymentConflict(
+          registration?.payment_amount,
+          activityPlan.grossPaymentCents,
+        );
+        return conflict
+          ? {
+              ...item,
+              presentation: { status: "review" as const, reason: conflict.reason, willCreate: "review" as const },
+            }
+          : item;
+      }),
+    [analysed, eventLinkPlan.eventIds, events, existingRegistrations],
+  );
+
+  const counts = useMemo(
+    () => ({
+      total: previewAnalysed.length,
+      matched: previewAnalysed.filter((a) => a.match.status === "matched").length,
+      new: previewAnalysed.filter((a) => a.presentation.status === "single" && a.match.status === "new").length,
+      ambiguous: previewAnalysed.filter((a) => a.presentation.status === "review").length,
+      couples: previewAnalysed.filter((a) => a.presentation.status === "couple").length,
+      extraPeople: previewAnalysed.reduce(
+        (n, a) => n + (a.values.children?.length ?? 0) + (a.values.spouse_full_name || a.values.spouse_first_name ? 1 : 0),
+        0,
+      ),
+    }),
+    [previewAnalysed],
+  );
 
   /** People at the same address with different surnames — a question, never an assumption. */
   const addressGroups = useMemo(
@@ -490,12 +546,12 @@ function ImportCenter() {
 
   /** How many rows go straight in, and how many wait in the Data Inbox. */
   const plan = useMemo(() => {
-    const review = analysed.reduce(
+    const review = previewAnalysed.reduce(
       (n, a, i) => n + (a.presentation.status === "review" || addressReviewRows.has(i) ? 1 : 0),
       0,
     );
-    return { review, importNow: Math.max(analysed.length - review, 0) };
-  }, [analysed, addressReviewRows]);
+    return { review, importNow: Math.max(previewAnalysed.length - review, 0) };
+  }, [previewAnalysed, addressReviewRows]);
 
   async function handleFile(file: File) {
     setError(null);
@@ -558,6 +614,10 @@ function ImportCenter() {
   }
 
   async function approve() {
+    if (unansweredEvents.length > 0) {
+      toast.error("Decide whether to link, create, or ignore every unmatched event first.");
+      return;
+    }
     if (!sheet) return;
     if (runningRef.current || busy) return;
     if (!mappingReview.gate.valid) {
@@ -670,19 +730,17 @@ function ImportCenter() {
       /** Gifts we refused to date ourselves, so no gift is ever silently dated today. */
       let unreadableGiftDates = 0;
 
-      const existingGiftFingerprints = new Set(
-        (
-          await fetchAll<{ import_fingerprint: string | null }>((f, t) =>
+      const existingImportDonations = await fetchAll<ExistingImportDonation>((f, t) =>
             supabase
               .from("donations")
-              .select("import_fingerprint")
+              .select("person_id, import_fingerprint, amount, date, event_id, campaigns(name)")
               .not("import_fingerprint", "is", null)
               .is("deleted_at", null)
               .order("id")
               .range(f, t),
-          )
-        )
-          .map((gift) => gift.import_fingerprint)
+          );
+      const existingGiftFingerprints = new Set(
+        existingImportDonations.map((gift) => gift.import_fingerprint)
           .filter((value): value is string => Boolean(value)),
       );
 
@@ -703,6 +761,13 @@ function ImportCenter() {
             reason,
             row_data: {
               ...(values as unknown as Record<string, unknown>),
+              activity_effective_date: importDate,
+              ...(eventDecisions[normalizeLabel(values.event_name ?? "")]?.action === "ignore"
+                ? { activity_event_ignored: "true" }
+                : {}),
+              ...(eventIdByKey.get(normalizeLabel(values.event_name ?? ""))
+                ? { activity_event_id: eventIdByKey.get(normalizeLabel(values.event_name ?? "")) }
+                : {}),
               _source_sheet: sheet!.sheetName,
               _source_row_number:
                 sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ??
@@ -873,34 +938,37 @@ function ImportCenter() {
       /** Resolve fee allocation once so the duplicate pre-check and insert cannot drift. */
       function planRowDonation(v: RowValues, giftDate: string) {
         const eventKey = normalizeLabel(v.event_name ?? "");
-        const campaignKey = normalizeLabel(v.campaign ?? "");
         const targetEventId =
           (eventKey ? eventIdByKey.get(eventKey) : undefined) ??
-          (campaignKey ? eventIdByKey.get(campaignKey) : undefined) ??
           bulkTarget.eventId ??
           "";
         const explicitEvent = targetEventId
-          ? ((events ?? []).find((event) => event.id === targetEventId) ?? null)
+          ? ((events ?? []).find((event) => event.id === targetEventId) ?? {
+              id: targetEventId,
+              registration_fee: 0,
+            })
           : null;
-        const nearbyGroup = giftEventGroups.find(
-          (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
-        );
+        const nearbyGroup = explicitEvent
+          ? undefined
+          : giftEventGroups.find(
+              (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+            );
         const nearbyDecision = nearbyGroup ? giftEventDecisions[nearbyGroup.event.id] : undefined;
-        const feeEvent =
-          explicitEvent ?? (nearbyDecision === "attended" ? (nearbyGroup?.event ?? null) : null);
-        const paymentCents = amountToCents(v.amount) ?? 0;
-        const { feeCents: registrationFeeCents, donationCents } = allocateRegistrationCents(
-          paymentCents,
-          Number(feeEvent?.registration_fee ?? 0),
-        );
-        const registrationFee = centsToAmount(registrationFeeCents);
+        const eventDecision = chooseActivityEventDecision({
+          explicitEvent,
+          nearbyEvent: nearbyGroup?.event ?? null,
+          nearbyDecision,
+        });
+        const activityPlan = buildActivityPlan({ row: v, effectiveDate: giftDate, eventDecision });
+        const registrationFee = centsToAmount(activityPlan.registrationFeeCents);
         return {
           targetEventId,
           nearbyGroup,
           nearbyDecision,
           registrationFee,
-          donationAmount: centsToAmount(donationCents),
-          fingerprint: donationImportFingerprintFromCents(v, donationCents, giftDate),
+          donationAmount: centsToAmount(activityPlan.netDonationCents),
+          fingerprint: activityPlan.fingerprint,
+          activityPlan,
         };
       }
 
@@ -954,6 +1022,16 @@ function ImportCenter() {
           const giftAlreadyImported = Boolean(
             giftFingerprint && existingGiftFingerprints.has(giftFingerprint),
           );
+          const exactTransactionRepeat = live.status === "matched" &&
+            isExactTransactionDonationRepeat({
+              row: v,
+              personId: live.candidates[0]?.id ?? null,
+              fingerprint: giftFingerprint,
+              netAmountCents: giftPlan.activityPlan.netDonationCents,
+              donationDate: giftPlan.activityPlan.donationDate ?? rowGiftDate,
+              eventId: giftPlan.activityPlan.donationEventId,
+              existing: existingImportDonations,
+            });
 
           // The gift itself, not the person: the same amount on the same day sitting
           // on a contact we did NOT match to usually means a second record for one donor.
@@ -1086,7 +1164,7 @@ function ImportCenter() {
             (flaggedByPreview && live.status !== "matched") ||
             live.status === "ambiguous" ||
             (shared && live.status !== "matched") ||
-            giftAlreadyImported ||
+            (giftAlreadyImported && !exactTransactionRepeat) ||
             giftsElsewhere.length > 0
           ) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
@@ -1359,12 +1437,15 @@ function ImportCenter() {
               .map((key) => ({ field_name: key, source, recorded_date: importDate }));
 
             const registrations = new Map<string, Record<string, unknown>>();
-            const targetEventId = giftPlan.targetEventId;
-            if (targetEventId) {
-              registrations.set(targetEventId, {
-                event_id: targetEventId,
-                fee_amount: giftPlan.registrationFee,
-                payment_amount: giftPlan.registrationFee > 0 ? rowAmount : null,
+            const registrationEventId = giftPlan.activityPlan.attendanceIntent
+              ? giftPlan.activityPlan.eventId
+              : null;
+            if (registrationEventId) {
+              registrations.set(registrationEventId, {
+                event_id: registrationEventId,
+                ...(Number.isFinite(rowAmount) && rowAmount > 0
+                  ? { fee_amount: giftPlan.registrationFee, payment_amount: rowAmount }
+                  : {}),
               });
             }
 
@@ -1376,35 +1457,18 @@ function ImportCenter() {
                 unreadableGiftDates += 1;
               } else if (Number.isFinite(amount) && amount > 0) {
                 const giftDate = readDate ?? importDate;
-                const {
-                  nearbyGroup,
-                  nearbyDecision,
-                  registrationFee,
-                  donationAmount,
-                  fingerprint,
-                } = giftPlan;
-                const rowCampaignId = await resolveCampaignId(v.campaign);
-                const donationEventId =
-                  nearbyGroup && (nearbyDecision === "attended" || nearbyDecision === "gift_only")
-                    ? nearbyGroup.event.id
-                    : targetEventId || null;
-                if (nearbyGroup && nearbyDecision === "attended") {
-                  registrations.set(nearbyGroup.event.id, {
-                    event_id: nearbyGroup.event.id,
-                    fee_amount: registrationFee,
-                    payment_amount: registrationFee > 0 ? amount : null,
-                  });
-                }
+                const { donationAmount, fingerprint } = giftPlan;
                 if (donationAmount > 0) {
                   donationPayload = {
                     amount: donationAmount,
                     date: giftDate,
-                    campaign_id: rowCampaignId,
-                    event_id: donationEventId,
+                    campaign_name: giftPlan.activityPlan.campaignName,
+                    event_id: giftPlan.activityPlan.donationEventId,
                     source,
                     notes: v.notes ?? null,
                     import_batch_id: batch.id,
                     import_fingerprint: fingerprint,
+                    external_transaction_id: giftPlan.activityPlan.sourceTransactionId,
                   };
                 }
               }
@@ -1418,9 +1482,53 @@ function ImportCenter() {
               .filter(Boolean)
               .join(" Â· ");
             const notePayload =
-              noteParts && !v.amount
+              noteParts && !giftPlan.activityPlan.donationIntent
                 ? { date: importDate, text: noteParts, author: "Import" }
                 : null;
+
+            if (personId && registrations.size > 0) {
+              const incomingRegistration = [...registrations.values()][0]!;
+              if (giftPlan.activityPlan.grossPaymentCents !== null) {
+                const { data: storedRegistration } = await supabase
+                  .from("registrations")
+                  .select("id, payment_amount, fee_amount")
+                  .eq("person_id", personId)
+                  .eq("event_id", String(incomingRegistration["event_id"]))
+                  .maybeSingle();
+                const storedPayment = storedRegistration?.payment_amount;
+                const paymentConflict = findRegistrationPaymentConflict(
+                  storedPayment,
+                  giftPlan.activityPlan.grossPaymentCents,
+                );
+                if (paymentConflict) {
+                  const eventId = String(incomingRegistration["event_id"]);
+                  const eventName = (events ?? []).find((event) => event.id === eventId)?.name
+                    ?? v.event_name
+                    ?? "Event";
+                  const reviewContext: RegistrationPaymentConflictContext = {
+                    kind: "registration_payment_conflict",
+                    person_id: personId,
+                    registration_id: storedRegistration?.id ?? null,
+                    event_id: eventId,
+                    event_name: eventName,
+                    existing_payment_cents: paymentConflict.existingPaymentCents,
+                    incoming_payment_cents: paymentConflict.incomingPaymentCents,
+                    fee_cents: giftPlan.activityPlan.registrationFeeCents,
+                    planned_net_donation_cents: giftPlan.activityPlan.netDonationCents,
+                    donation_fingerprint: giftPlan.activityPlan.fingerprint,
+                  };
+                  const reviewQueueId = await queueForReview(
+                    v,
+                    paymentConflict.reason,
+                    [personId],
+                    groupInfo,
+                    reviewContext,
+                  );
+                  await recordOutcome(index, "flagged", { reviewQueueId, message: "Registration payment requires an explicit decision." });
+                  continue;
+                }
+              }
+            }
 
             const { data: resolved, error: resolveError } = await supabase.rpc(
               "resolve_import_row",
@@ -1509,6 +1617,9 @@ function ImportCenter() {
               personId,
             });
           } else {
+            // DEPRECATED/QUARANTINED: unreachable while transactionalRow is the
+            // literal true. Do not re-enable this select-then-insert activity
+            // implementation; resolve_import_row is the authoritative path.
             if (match.status === "new") {
               if (hasFamily) {
                 householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
@@ -2236,9 +2347,8 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                These are the event and campaign names in the file. Answering is optional — anything
-                you leave blank simply isn't linked to an event, and the import still runs. We never
-                create an event without asking.
+                These are the explicit event names in the file. Every unmatched event must be linked,
+                created, or ignored before import. We never create an event without asking.
                 {unansweredEvents.length > 0
                   ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
                   : ""}
@@ -2662,7 +2772,7 @@ function ImportCenter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {analysed.slice(0, 15).map((a, ri) => (
+                  {previewAnalysed.slice(0, 15).map((a, ri) => (
                     <tr key={ri}>
                       <td className="whitespace-nowrap border-b border-border py-2 pr-5 text-xs">
                         <span
@@ -2709,9 +2819,9 @@ function ImportCenter() {
                 </tbody>
               </table>
             </div>
-            {analysed.length > 15 && (
+            {previewAnalysed.length > 15 && (
               <p className="mt-3 text-xs text-muted-foreground">
-                Showing the first 15 of {analysed.length} rows.
+                Showing the first 15 of {previewAnalysed.length} rows.
               </p>
             )}
           </section>
@@ -2751,7 +2861,7 @@ function ImportCenter() {
               )}
             <Button
               className="rounded-xl"
-              disabled={busy || !mappingReview.gate.valid}
+              disabled={busy || !mappingReview.gate.valid || unansweredEvents.length > 0}
               onClick={() => void approve()}
             >
               {busy

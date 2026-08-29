@@ -52,13 +52,20 @@ export async function resolveCoupleActivity(
 ) {
   const source = "Import couple activity review";
   const { event, donation, note } = await resolveReviewMergePayload(row, source, batchId);
+  // The couple RPC forwards this object either to resolve_import_row or directly
+  // to apply_import_activity_core; both consume the shared registrations array.
+  const activity = {
+    registrations: event ? [event] : [],
+    donation,
+    note,
+  };
   const { data, error } = await supabase.rpc("resolve_review_couple_activity", {
     _item_id: itemId,
     _owner: owner,
     _main: context.main_claim as unknown as Json,
     _partner: context.partner_claim as unknown as Json,
     _row: row as unknown as Json,
-    _activity: { event, donation, note } as Json,
+    _activity: activity as Json,
     _labels: { tags: labels(row.tags), programs: labels(row.programs) } as Json,
     _batch_id: batchId,
   });

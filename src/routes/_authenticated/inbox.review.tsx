@@ -45,6 +45,11 @@ import { normalizeEmail } from "@/lib/proper-case";
 import { householdConflictContext } from "@/lib/review-household-conflict";
 import { coupleActivityContext } from "@/lib/review-couple-activity";
 import { CoupleActivityOwnerDialog } from "@/components/CoupleActivityOwnerDialog";
+import { RegistrationPaymentConflictDialog } from "@/components/RegistrationPaymentConflictDialog";
+import {
+  isRegistrationPaymentConflict,
+  registrationPaymentConflictContext,
+} from "@/lib/registration-payment-conflict";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -257,13 +262,58 @@ function DataInbox() {
     },
   });
 
+  const paymentConflictRows = pending.filter((row) =>
+    isRegistrationPaymentConflict((row.row_data ?? {}) as Record<string, unknown>, row.reason),
+  );
+  const conflictPersonIds = [...new Set(paymentConflictRows.flatMap((row) => row.candidate_person_ids ?? []))];
+  const conflictEventIds = [...new Set(paymentConflictRows.map((row) => String((row.row_data as Record<string, unknown> | null)?.["activity_event_id"] ?? "")).filter(Boolean))];
+  const { data: conflictRegistrations } = useQuery({
+    queryKey: ["review-registration-payment-conflicts", conflictPersonIds.join(","), conflictEventIds.join(",")],
+    enabled: conflictPersonIds.length > 0 && conflictEventIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("registrations")
+        .select("id, person_id, event_id, payment_amount, fee_amount, status")
+        .in("person_id", conflictPersonIds).in("event_id", conflictEventIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const { data: conflictEvents } = useQuery({
+    queryKey: ["review-registration-payment-events", conflictEventIds.join(",")],
+    enabled: conflictEventIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("events")
+        .select("id, name, registration_fee").in("id", conflictEventIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const personById = (id: string | null | undefined) =>
     (id ? (candidates ?? []).find((p) => p.id === id) : undefined) as ReviewPerson | undefined;
+
+  const paymentConflictFor = (row: (typeof pending)[number]) => {
+    const rowData = (row.row_data ?? {}) as RowValues & { review_context?: unknown };
+    const personId = (row.candidate_person_ids ?? [])[0] ?? null;
+    const eventId = String((row.row_data as Record<string, unknown> | null)?.["activity_event_id"] ?? "") || null;
+    const registration = (conflictRegistrations ?? []).find(
+      (candidate) => candidate.person_id === personId && candidate.event_id === eventId,
+    );
+    const event = (conflictEvents ?? []).find((candidate) => candidate.id === eventId);
+    return registrationPaymentConflictContext(rowData, row.reason, {
+      personId,
+      registrationId: registration?.id,
+      eventId,
+      eventName: event?.name,
+      feeAmount: registration?.fee_amount ?? event?.registration_fee,
+    });
+  };
 
   /** Rows that only fill blanks in an existing contact — safe to approve together. */
   const safeRows = useMemo(() => {
     return pending.filter((r) => {
       if (groupedIds.has(r.id)) return false;
+      if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) return false;
       const existing = personById((r.candidate_person_ids ?? [])[0]);
       if (!existing) return false;
       if ((r.candidate_person_ids ?? []).length !== 1) return false;
@@ -398,6 +448,10 @@ function DataInbox() {
       let done = 0;
       let skipped = 0;
       for (const r of pending.filter((row) => selection.has(row.id))) {
+        if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) {
+          skipped += 1;
+          continue;
+        }
         const existing = personById((r.candidate_person_ids ?? [])[0]);
         const fields = existing
           ? compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues))
@@ -640,6 +694,10 @@ function DataInbox() {
   const coupleActivity = coupleActivityContext(
     (reviewItem?.row_data ?? {}) as Record<string, unknown>,
   );
+  const registrationPaymentConflict = reviewItem ? paymentConflictFor(reviewItem) : null;
+  const reviewItemIsPaymentConflict = reviewItem
+    ? isRegistrationPaymentConflict((reviewItem.row_data ?? {}) as Record<string, unknown>, reviewItem.reason)
+    : false;
 
   return (
     <AppShell
@@ -971,10 +1029,15 @@ function DataInbox() {
                   const fields = existing ? compareRecords(existing, incoming) : [];
                   const conflicts = fields.filter((f) => f.state === "conflict");
                   const fills = fields.filter((f) => f.state === "fill");
+                  const paymentConflict = paymentConflictFor(r);
+                  const isPaymentConflict = isRegistrationPaymentConflict(
+                    (r.row_data ?? {}) as Record<string, unknown>, r.reason,
+                  );
                   const safe =
                     Boolean(existing) &&
                     (r.candidate_person_ids ?? []).length === 1 &&
-                    conflicts.length === 0;
+                    conflicts.length === 0 &&
+                    !isPaymentConflict;
                   const fileName = incoming.display_name ?? "This row";
                   return (
                     <div
@@ -990,11 +1053,9 @@ function DataInbox() {
                           />
                           <div className="min-w-0">
                             <p className="font-heading font-semibold text-foreground">
-                              {plainSummary(
-                                fileName,
-                                existing ? personName(existing) : null,
-                                conflicts.length,
-                              )}
+                              {isPaymentConflict
+                                ? `${fileName} has a registration payment that differs from the existing registration.`
+                                : plainSummary(fileName, existing ? personName(existing) : null, conflicts.length)}
                             </p>
                             {existing && (
                               <p
@@ -1002,9 +1063,16 @@ function DataInbox() {
                                   conflicts.length > 0 ? "text-urgent" : "text-money"
                                 }`}
                               >
-                                {conflicts.length > 0
+                                {isPaymentConflict
+                                  ? "Activity conflict — choose how to handle the incoming event payment"
+                                  : conflicts.length > 0
                                   ? `${conflicts.length} field${conflicts.length === 1 ? "" : "s"} disagree — needs review`
                                   : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
+                              </p>
+                            )}
+                            {paymentConflict && (
+                              <p className="mt-2 text-sm text-foreground">
+                                {paymentConflict.event_name}: existing ${(paymentConflict.existing_payment_cents / 100).toFixed(2)} · incoming ${(paymentConflict.incoming_payment_cents / 100).toFixed(2)} · fee ${(paymentConflict.fee_cents / 100).toFixed(2)} · planned net donation ${(paymentConflict.planned_net_donation_cents / 100).toFixed(2)}
                               </p>
                             )}
                             <p className="mt-1 inline-block rounded-full bg-suggestion/15 px-2.5 py-1 text-xs font-medium text-foreground">
@@ -1040,7 +1108,9 @@ function DataInbox() {
                             className="rounded-xl"
                             onClick={() => setReviewId(r.id)}
                           >
-                            {householdConflictContext((r.row_data ?? {}) as Record<string, unknown>)
+                            {isPaymentConflict
+                              ? "Review activity conflict"
+                              : householdConflictContext((r.row_data ?? {}) as Record<string, unknown>)
                               ? "Review household conflict"
                               : coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)
                                 ? "Choose activity owner"
@@ -1391,7 +1461,23 @@ function DataInbox() {
         />
       )}
 
-      {reviewItem && !householdConflict && !coupleActivity && (
+      {reviewItem && registrationPaymentConflict && personById(registrationPaymentConflict.person_id) && (
+        <RegistrationPaymentConflictDialog
+          open
+          onOpenChange={(value) => !value && setReviewId(null)}
+          item={{
+            id: reviewItem.id,
+            filename: reviewItem.filename,
+            batch_id: reviewItem.batch_id,
+            row_data: (reviewItem.row_data ?? {}) as RowValues,
+          }}
+          existing={personById(registrationPaymentConflict.person_id)!}
+          context={registrationPaymentConflict}
+          onDone={() => setReviewId(null)}
+        />
+      )}
+
+      {reviewItem && !reviewItemIsPaymentConflict && !householdConflict && !coupleActivity && (
         <ReviewCompareDialog
           open
           onOpenChange={(v) => !v && setReviewId(null)}

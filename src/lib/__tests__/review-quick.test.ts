@@ -11,7 +11,7 @@ vi.mock("@/lib/campaigns", () => ({
   resolveCampaignId: vi.fn(async () => null),
 }));
 
-const { quickMerge } = await import("@/lib/review-quick");
+const { keepExistingRegistrationPayment, quickMerge } = await import("@/lib/review-quick");
 
 const existing: ReviewPerson = {
   id: "person-1",
@@ -86,7 +86,7 @@ describe("transactional quick review merge", () => {
   it.each([
     ["zero", "0"],
     ["negative", "-10"],
-  ])("sends a zero registration fee for a %s payment", async (_label, amount) => {
+  ])("does not send destructive payment metadata for a %s payment", async (_label, amount) => {
     from.mockReturnValue({
       select: () => ({
         is: async () => ({
@@ -106,7 +106,7 @@ describe("transactional quick review merge", () => {
     expect(rpc).toHaveBeenCalledWith(
       "resolve_review_quick_merge",
       expect.objectContaining({
-        _event: expect.objectContaining({ fee_amount: 0 }),
+        _event: { event_id: "event-1" },
       }),
     );
   });
@@ -145,6 +145,58 @@ describe("transactional quick review merge", () => {
         _event: expect.objectContaining({ fee_amount: 100 }),
       }),
     );
+  });
+
+  it("keeps reviewed event and campaign attribution on the net donation", async () => {
+    from.mockReturnValue({
+      select: () => ({
+        is: async () => ({
+          data: [{ id: "event-1", name: "Dinner", date: "2026-08-20", registration_fee: 25 }],
+          error: null,
+        }),
+      }),
+    });
+    rpc.mockResolvedValueOnce({ data: {}, error: null });
+    await quickMerge(
+      { ...item, row_data: { ...item.row_data, event_name: "Dinner", campaign: "Annual Fund" } },
+      existing,
+      "Sarah Klein",
+    );
+    expect(rpc).toHaveBeenCalledWith(
+      "resolve_review_quick_merge",
+      expect.objectContaining({
+        _event: expect.objectContaining({ event_id: "event-1", fee_amount: 25, payment_amount: 100 }),
+        _donation: expect.objectContaining({ amount: 75, event_id: "event-1", campaign_name: "Annual Fund" }),
+      }),
+    );
+  });
+
+  it("resolves keep-existing atomically without registration or donation activity", async () => {
+    rpc.mockResolvedValueOnce({ data: { donation_created: false, registration_created: false }, error: null });
+    await keepExistingRegistrationPayment(item, existing, {
+      kind: "registration_payment_conflict",
+      person_id: existing.id,
+      registration_id: "registration-1",
+      event_id: "event-1",
+      event_name: "Dinner",
+      existing_payment_cents: 10000,
+      incoming_payment_cents: 12500,
+      fee_cents: 2500,
+      planned_net_donation_cents: 10000,
+      donation_fingerprint: "incoming-gift",
+    });
+    expect(rpc).toHaveBeenCalledWith(
+      "resolve_review_manual_merge",
+      expect.objectContaining({
+        _event: null,
+        _donation: null,
+        _note: null,
+        _choices: expect.objectContaining({
+          activity_resolution: "keep_existing_registration_payment_skip_incoming_activity",
+        }),
+      }),
+    );
+    expect(from).not.toHaveBeenCalled();
   });
 
   it("clamps a negative event fee to zero", async () => {

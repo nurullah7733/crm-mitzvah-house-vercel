@@ -1,5 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { personName } from "@/lib/names";
+import { amountToCents } from "@/lib/import-normalization";
+import type { RowValues } from "@/lib/import-mapping";
 
 /** A gift of the same amount on the same day, sitting on a *different* contact. */
 export type OtherContactGift = {
@@ -8,6 +10,51 @@ export type OtherContactGift = {
   name: string;
   campaign: string | null;
 };
+
+export type ExistingImportDonation = {
+  person_id: string;
+  import_fingerprint: string | null;
+  amount: number;
+  date: string;
+  event_id: string | null;
+  campaigns: { name: string } | null;
+};
+
+const normalizedText = (value: string | null | undefined) =>
+  (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+/**
+ * A transaction-aware fingerprint may be treated as an idempotent repeat only
+ * when it belongs to the resolved person and all stored donation facts agree.
+ */
+export function isExactTransactionDonationRepeat({
+  row,
+  personId,
+  fingerprint,
+  netAmountCents,
+  donationDate,
+  eventId,
+  existing,
+}: {
+  row: RowValues;
+  personId: string | null;
+  fingerprint: string | null;
+  netAmountCents: number;
+  donationDate: string;
+  eventId: string | null;
+  existing: ExistingImportDonation[];
+}) {
+  const transactionId = normalizedText(row.transaction_id);
+  if (!transactionId || !personId || !fingerprint) return false;
+  return existing.some((donation) =>
+    donation.person_id === personId &&
+    donation.import_fingerprint === fingerprint &&
+    amountToCents(donation.amount) === netAmountCents &&
+    donation.date === donationDate &&
+    donation.event_id === eventId &&
+    normalizedText(donation.campaigns?.name) === normalizedText(row.campaign),
+  );
+}
 
 /**
  * Every duplicate check we had was keyed on person_id, so if person-matching

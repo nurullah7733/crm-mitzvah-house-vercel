@@ -10,6 +10,8 @@ import {
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import { recordAttendance } from "@/lib/gift-events";
 import { resolveCampaignId } from "@/lib/campaigns";
+import { buildActivityPlan, type ActivityEventDecision } from "@/lib/import-activity-plan";
+import type { RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
 import { guard, must } from "@/lib/app-errors";
 import {
   compareRecords,
@@ -57,52 +59,49 @@ export async function resolveReviewMergePayload(
     throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
   if ((row.date ?? "").trim() && !parseImportDate(row.date))
     throw new Error("The donation date is invalid or ambiguous and must be corrected first.");
-  const paymentCents = amountToCents(row.amount);
-  const paymentAmount = paymentCents === null ? Number.NaN : centsToAmount(paymentCents);
-  let event: Json = null;
-  let eventFee = 0;
-  if ((row.event_name ?? "").trim()) {
+  let eventDecision: ActivityEventDecision = { kind: "ignore" };
+  if ((row.event_name ?? "").trim() && row.activity_event_ignored !== "true") {
     const { data: events } = await supabase
       .from("events")
       .select("id, name, date, registration_fee")
       .is("deleted_at", null);
-    const match = matchEventByName(row.event_name!, (events ?? []) as EventOption[]);
+    const options = (events ?? []) as EventOption[];
+    const match = options.find((event) => event.id === row.activity_event_id)
+      ?? matchEventByName(row.event_name!, options);
     if (match) {
-      const positivePayment =
-        Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0;
-      const { feeCents } = allocateRegistrationCents(paymentCents ?? 0, Number(match.registration_fee ?? 0));
-      eventFee = centsToAmount(feeCents);
-      event = {
-        event_id: match.id,
-        fee_amount: eventFee,
-        payment_amount: positivePayment || null,
-      };
-    }
+      eventDecision = { kind: "attend", id: match.id, registrationFee: Number(match.registration_fee ?? 0) };
+    } else eventDecision = { kind: "unresolved" };
   }
-
-  const donationAmount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
+  const plan = buildActivityPlan({ row, effectiveDate: row.activity_effective_date ?? today(), eventDecision });
+  if (plan.blockingIssues.length) throw new Error(plan.blockingIssues[0]);
+  const donationAmount = centsToAmount(plan.netDonationCents);
+  const event: Json = plan.attendanceIntent && plan.eventId
+    ? {
+        event_id: plan.eventId,
+        ...(plan.grossPaymentCents !== null && plan.grossPaymentCents > 0
+          ? { fee_amount: centsToAmount(plan.registrationFeeCents), payment_amount: centsToAmount(plan.grossPaymentCents) }
+          : {}),
+      }
+    : null;
   let donation: Json = null;
-  if (
-    (row.amount ?? "").toString().trim() &&
-    Number.isFinite(donationAmount) &&
-    donationAmount > 0
-  ) {
-    const giftDate = resolveImportDonationDate(row.date, today());
-    if (giftDate) donation = {
+  if (plan.donationIntent && plan.donationDate) {
+    donation = {
       amount: donationAmount,
-      date: giftDate,
-      campaign_id: await resolveCampaignId(row.campaign),
+      date: plan.donationDate,
+      campaign_name: plan.campaignName,
+      event_id: plan.donationEventId,
       source,
-      notes: row.notes ?? null,
+      notes: plan.notes,
       import_batch_id: batchId,
-      import_fingerprint: donationImportFingerprint(row, donationAmount, giftDate),
+      import_fingerprint: plan.fingerprint,
+      external_transaction_id: plan.sourceTransactionId,
     };
   }
   const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
     .filter(Boolean)
     .join(" · ");
   const note =
-    noteText && !(row.amount ?? "").toString().trim()
+    noteText && !plan.donationIntent
       ? { text: noteText, date: today(), author: "Import review" }
       : null;
   return { event, donation, note, donationAmount };
@@ -388,6 +387,43 @@ export async function quickMerge(
     interactionIds: result["note_id"] ? [result["note_id"] as string] : [],
     addedActivity,
   };
+}
+
+/** Resolve an activity-payment conflict without applying any activity from the row. */
+export async function keepExistingRegistrationPayment(
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
+  existing: ReviewPerson,
+  context: RegistrationPaymentConflictContext,
+) {
+  const incoming = incomingPerson(item.row_data);
+  const fields = compareRecords(existing, incoming);
+  if (hasConflict(fields))
+    throw new Error("This row also has contact details that disagree. Resolve those separately first.");
+  const { patch, changedFields } = incomingPatch(fields, {});
+  const traceableFields = changedFields.filter((key) =>
+    ["email", "phone", "school", "notes"].includes(key),
+  );
+  const source = `${item.filename ?? "Import"} review — kept existing registration payment`;
+  const { data, error } = await supabase.rpc("resolve_review_manual_merge", {
+    _item_id: item.id,
+    _person_id: existing.id,
+    _person_patch: patch,
+    _traceable_fields: traceableFields,
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: null,
+    _donation: null,
+    _note: null,
+    _existing_before: existing,
+    _incoming: item.row_data,
+    _surviving_after: { ...existing, ...patch },
+    _choices: {
+      activity_resolution: "keep_existing_registration_payment_skip_incoming_activity",
+      registration_payment_conflict: context,
+    },
+  });
+  if (error) throw error;
+  return { data, changedFields: changedFields.length };
 }
 
 /** Put things back the way they were, right after a one-tap merge. */

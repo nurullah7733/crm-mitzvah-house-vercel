@@ -45,6 +45,7 @@ export type FieldKey =
   | "amount"
   | "date"
   | "campaign"
+  | "transaction_id"
   | "notes"
   | "met_source"
   | "tags"
@@ -93,6 +94,7 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   amount: "Donation amount",
   date: "Donation date",
   campaign: "Campaign",
+  transaction_id: "External transaction ID",
   notes: "Message or form note",
   met_source: "Where we met",
   tags: "Tags",
@@ -163,7 +165,7 @@ export const FIELD_GROUPS: { title: string; fields: FieldKey[] }[] = [
       "child_school",
     ],
   },
-  { title: "Donation", fields: ["amount", "date", "campaign"] },
+  { title: "Donation", fields: ["amount", "date", "campaign", "transaction_id"] },
   { title: "Activity", fields: ["event_name", "programs", "tags", "met_source", "notes"] },
   { title: "Skip", fields: ["ignore"] },
 ];
@@ -189,7 +191,8 @@ export const FIELD_HINTS: Partial<Record<FieldKey, string>> = {
   child_school: "Saved on the child's own record.",
   amount: "Creates a donation. Needs a donation date too.",
   date: "The date of the donation in this row.",
-  campaign: "Links the donation to a campaign, and can record event attendance.",
+  campaign: "Designates the donation to a campaign. It never records attendance.",
+  transaction_id: "A source payment reference used to distinguish and deduplicate gifts.",
   event_name: "Records attendance at this event.",
   tags: "Adds to the contact's tags. Separate several with a comma.",
   programs: "Adds to the contact's programs. Separate several with a comma.",
@@ -508,6 +511,13 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "processed on",
   ],
   campaign: ["campaign", "fund", "appeal", "designation"],
+  transaction_id: [
+    "transaction id",
+    "transaction reference",
+    "external transaction id",
+    "payment id",
+    "payment reference",
+  ],
   notes: ["notes", "note", "comments", "comment", "message", "memo", "your message", "questions"],
   met_source: ["source", "met at", "where we met", "how did you hear", "lead source", "referral"],
   tags: ["tags", "tag", "labels", "groups", "lists"],
@@ -628,6 +638,9 @@ export function rowOccurrenceKeys(v: RowValues): string[] {
   // A repeated person is not a repeated source occurrence. Only activity has a
   // stable occurrence identity here; person correlation is handled separately.
   if (!hasGift) return [];
+  const transactionId = (v.transaction_id ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (transactionId)
+    return identities.map((identity) => [identity, "transaction", transactionId].join("|"));
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   return identities.map((identity) => [identity, date, amount.toFixed(2), campaign].join("|"));
 }
@@ -813,6 +826,8 @@ export function donationImportFingerprint(
 export function donationImportFingerprintFromCents(v: RowValues, cents: number, date: string) {
   const donor = rowDedupeKey(v);
   if (!donor || !Number.isSafeInteger(cents) || cents <= 0 || !date) return null;
+  const transactionId = (v.transaction_id ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (transactionId) return [donor, "transaction", transactionId].join("|");
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   return [donor, date, `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`, campaign].join("|");
 }
@@ -932,6 +947,10 @@ export type IdentityEvidence = {
 
 /** A single spreadsheet row, unpacked into one main contact plus the people attached to it. */
 export type RowValues = Partial<Record<FieldKey, string>> & {
+  /** Stable fallback date captured when the row first enters import/review. */
+  activity_effective_date?: string;
+  activity_event_ignored?: string;
+  activity_event_id?: string;
   couple_decision?: import("@/lib/couple-semantics").CoupleDecision;
   children?: { first: string; last?: string; birth_date?: string; school?: string; age?: string }[];
   /** All phone numbers on the row, primary first. */

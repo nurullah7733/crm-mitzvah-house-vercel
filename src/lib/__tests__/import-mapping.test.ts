@@ -3,6 +3,7 @@ import {
   REPEATABLE_FIELDS,
   addressKey,
   buildFileClaimGraph,
+  correlateFileMatch,
   composeAddress,
   guessColumn,
   guessMapping,
@@ -14,6 +15,7 @@ import {
   needsCoupleActivityOwnerReview,
   roleFromRow,
   rowIdentityKeys,
+  donationImportFingerprintFromCents,
   logicalFilePerson,
   splitFullName,
   splitName,
@@ -594,6 +596,57 @@ describe("matching a row to existing contacts", () => {
 });
 
 describe("the same person twice inside one file", () => {
+  const f12 = (transaction_id: string) => ({
+    first_name: "F12",
+    last_name: "TxDonor",
+    email: "m2f.f12@example.test",
+    amount: "72",
+    date: "2026-08-29",
+    campaign: "M2F Shared Campaign",
+    transaction_id,
+  });
+
+  it.each([
+    ["TX-1", "TX-2"],
+    ["TX-2", "TX-1"],
+  ])("keeps distinct transaction gifts safe in either order (%s then %s)", (firstId, secondId) => {
+    const rows = [f12(firstId), f12(secondId)];
+    const graph = buildFileClaimGraph(rows);
+    const seen = newRowIdentityRegistry();
+    const matches = rows.map((row, index) =>
+      correlateFileMatch(matchRowOnce(row, [], seen, index), graph, index),
+    );
+    expect(matches.map((match) => match.status)).toEqual(["matched", "matched"]);
+    expect(matches.map((match) => match.reason)).toEqual([
+      "Same person elsewhere in this file",
+      "Same person elsewhere in this file",
+    ]);
+    expect(logicalFilePerson(graph, 0)?.id).toBe(logicalFilePerson(graph, 1)?.id);
+  });
+
+  it("still detects the same external transaction twice", () => {
+    const seen = newRowIdentityRegistry();
+    expect(matchRowOnce(f12("TX-1"), [], seen, 0).status).toBe("new");
+    const duplicate = matchRowOnce(f12(" tx-1 "), [], seen, 1);
+    expect(duplicate.status).toBe("ambiguous");
+    expect(duplicate.reason).toBe("Appears more than once in this file (also row 1)");
+  });
+
+  it("keeps the existing date, amount, and campaign fallback when transaction ID is blank", () => {
+    const seen = newRowIdentityRegistry();
+    expect(matchRowOnce(f12(""), [], seen, 0).status).toBe("new");
+    expect(matchRowOnce(f12("  "), [], seen, 1).reason).toBe(
+      "Appears more than once in this file (also row 1)",
+    );
+  });
+
+  it("keeps TX-1 and TX-2 donation fingerprints distinct", () => {
+    expect(donationImportFingerprintFromCents(f12("TX-1"), 7200, "2026-08-29"))
+      .toBe("email:m2f.f12@example.test|transaction|tx-1");
+    expect(donationImportFingerprintFromCents(f12("TX-2"), 7200, "2026-08-29"))
+      .toBe("email:m2f.f12@example.test|transaction|tx-2");
+  });
+
   it("does not confuse a repeated person with a repeated activity occurrence", () => {
     const seen = newRowIdentityRegistry();
     const row = { first_name: "Yosef", last_name: "Katz", email: "yosef@example.com" };

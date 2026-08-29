@@ -33,6 +33,8 @@ describe("transactional couple activity review", () => {
     expect(sql).toContain("v_result->>'spouse_id'");
     expect(sql).toContain("public.apply_import_activity_core");
     expect(sql).toContain("public.log_review_decision(_item_id, 'created'");
+    expect(client).toContain("registrations: event ? [event] : []");
+    expect(client).not.toContain("_activity: { event, donation, note }");
   });
 
   it("uses the dedicated client path and never the generic review dialog", () => {
