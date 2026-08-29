@@ -23,6 +23,7 @@ import {
   discardRow,
   quickMerge,
   resolveReviewMergePayload,
+  transitionReviewStatus,
   undoQuickMerge,
   type QuickMergeResult,
 } from "@/lib/review-quick";
@@ -50,6 +51,7 @@ import {
   isRegistrationPaymentConflict,
   registrationPaymentConflictContext,
 } from "@/lib/registration-payment-conflict";
+import { transactionReviewKind, transactionReviewReason } from "@/lib/transaction-namespace";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -314,6 +316,7 @@ function DataInbox() {
     return pending.filter((r) => {
       if (groupedIds.has(r.id)) return false;
       if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) return false;
+      if (transactionReviewKind((r.row_data ?? {}) as Record<string, unknown>)) return false;
       const existing = personById((r.candidate_person_ids ?? [])[0]);
       if (!existing) return false;
       if ((r.candidate_person_ids ?? []).length !== 1) return false;
@@ -412,13 +415,7 @@ function DataInbox() {
 
   /** Leave a row for later without losing it. */
   const skip = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("review_queue")
-        .update({ status: "skipped", resolution_note: "Skipped for now" })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => transitionReviewStatus(id, "pending", "skipped", "Skipped for now"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Set aside — find it under Past imports whenever you want it back");
@@ -428,13 +425,8 @@ function DataInbox() {
 
   /** Bring a set-aside row back into the active list. */
   const reopen = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("review_queue")
-        .update({ status: "pending", resolution_note: "Brought back from past imports" })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (value: { id: string; status: "skipped" | "dismissed" }) =>
+      transitionReviewStatus(value.id, value.status, "pending", "Brought back from past imports"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Back on the list");
@@ -449,6 +441,10 @@ function DataInbox() {
       let skipped = 0;
       for (const r of pending.filter((row) => selection.has(row.id))) {
         if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) {
+          skipped += 1;
+          continue;
+        }
+        if (transactionReviewKind((r.row_data ?? {}) as Record<string, unknown>)) {
           skipped += 1;
           continue;
         }
@@ -505,11 +501,8 @@ function DataInbox() {
   /** Set selected rows aside — they move to Past imports and can come back. */
   const bulkDismiss = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from("review_queue")
-        .update({ status: "skipped", resolution_note: "Dismissed from the Data Inbox" })
-        .in("id", ids);
-      if (error) throw error;
+      for (const id of ids)
+        await transitionReviewStatus(id, "pending", "skipped", "Dismissed from the Data Inbox");
       return ids.length;
     },
     onSuccess: (count) => {
@@ -698,6 +691,9 @@ function DataInbox() {
   const reviewItemIsPaymentConflict = reviewItem
     ? isRegistrationPaymentConflict((reviewItem.row_data ?? {}) as Record<string, unknown>, reviewItem.reason)
     : false;
+  const reviewItemTransactionConflict = transactionReviewKind(
+    (reviewItem?.row_data ?? {}) as Record<string, unknown>,
+  );
 
   return (
     <AppShell
@@ -1033,11 +1029,15 @@ function DataInbox() {
                   const isPaymentConflict = isRegistrationPaymentConflict(
                     (r.row_data ?? {}) as Record<string, unknown>, r.reason,
                   );
+                  const transactionConflict = transactionReviewKind(
+                    (r.row_data ?? {}) as Record<string, unknown>,
+                  );
                   const safe =
                     Boolean(existing) &&
                     (r.candidate_person_ids ?? []).length === 1 &&
                     conflicts.length === 0 &&
-                    !isPaymentConflict;
+                    !isPaymentConflict &&
+                    !transactionConflict;
                   const fileName = incoming.display_name ?? "This row";
                   return (
                     <div
@@ -1075,6 +1075,13 @@ function DataInbox() {
                                 {paymentConflict.event_name}: existing ${(paymentConflict.existing_payment_cents / 100).toFixed(2)} · incoming ${(paymentConflict.incoming_payment_cents / 100).toFixed(2)} · fee ${(paymentConflict.fee_cents / 100).toFixed(2)} · planned net donation ${(paymentConflict.planned_net_donation_cents / 100).toFixed(2)}
                               </p>
                             )}
+                            {transactionConflict && (
+                              <p className="mt-2 rounded-xl border border-suggestion/40 bg-suggestion/10 p-3 text-sm text-foreground">
+                                {transactionReviewReason(transactionConflict)} Generic merge and
+                                create actions are disabled. Set this row aside for financial
+                                reconciliation, or discard it with a reason.
+                              </p>
+                            )}
                             <p className="mt-1 inline-block rounded-full bg-suggestion/15 px-2.5 py-1 text-xs font-medium text-foreground">
                               Why it's here: {r.reason}
                             </p>
@@ -1103,7 +1110,7 @@ function DataInbox() {
                               ✓ Same person
                             </Button>
                           )}
-                          <Button
+                          {!transactionConflict && <Button
                             variant="outline"
                             className="rounded-xl"
                             onClick={() => setReviewId(r.id)}
@@ -1115,7 +1122,7 @@ function DataInbox() {
                               : coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)
                                 ? "Choose activity owner"
                                 : "✏️ Open and decide"}
-                          </Button>
+                          </Button>}
                           <Button
                             variant="outline"
                             className="rounded-xl text-urgent"
@@ -1335,7 +1342,12 @@ function DataInbox() {
                           <button
                             type="button"
                             className="text-primary underline"
-                            onClick={() => reopen.mutate(r.id)}
+                            onClick={() =>
+                              reopen.mutate({
+                                id: r.id,
+                                status: r.status as "skipped" | "dismissed",
+                              })
+                            }
                           >
                             Put back
                           </button>
@@ -1477,7 +1489,7 @@ function DataInbox() {
         />
       )}
 
-      {reviewItem && !reviewItemIsPaymentConflict && !householdConflict && !coupleActivity && (
+      {reviewItem && !reviewItemIsPaymentConflict && !reviewItemTransactionConflict && !householdConflict && !coupleActivity && (
         <ReviewCompareDialog
           open
           onOpenChange={(v) => !v && setReviewId(null)}

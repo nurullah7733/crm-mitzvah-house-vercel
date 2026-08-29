@@ -12,7 +12,7 @@ import { recordAttendance } from "@/lib/gift-events";
 import { resolveCampaignId } from "@/lib/campaigns";
 import { buildActivityPlan, type ActivityEventDecision } from "@/lib/import-activity-plan";
 import type { RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
-import { guard, must } from "@/lib/app-errors";
+import { must } from "@/lib/app-errors";
 import {
   compareRecords,
   hasConflict,
@@ -40,6 +40,7 @@ export type QuickMergeResult = {
   upgradedRegistration?: { id: string; status: string | null };
   interactionIds: string[];
   addedActivity: string[];
+  undoToken: Json;
 };
 
 type ResolvedMergePayload = {
@@ -48,6 +49,17 @@ type ResolvedMergePayload = {
   note: Json;
   donationAmount: number;
 };
+
+function h2PatchContract(
+  contract: "quick" | "manual",
+  patch: Partial<Record<CompareKey, string | null>>,
+  expected: Partial<Record<CompareKey, string | null>>,
+) {
+  const expectedForPatch = Object.fromEntries(
+    Object.keys(patch).map((key) => [key, expected[key as CompareKey] ?? null]),
+  );
+  return { __h2_contract: contract, __h2_values: patch, __h2_expected: expectedForPatch };
+}
 
 /** Resolve imported activity on the client; SQL only applies this already-decided payload. */
 export async function resolveReviewMergePayload(
@@ -131,7 +143,7 @@ export async function manualMerge(
   const { error } = await supabase.rpc("resolve_review_manual_merge", {
     _item_id: item.id,
     _person_id: personId,
-    _person_patch: patch,
+    _person_patch: h2PatchContract("manual", patch, audit.existingBefore as Partial<Record<CompareKey, string | null>>),
     _traceable_fields: traceableFields,
     _source: source,
     _batch_id: item.batch_id ?? null,
@@ -353,7 +365,7 @@ export async function quickMerge(
   const { data, error } = await supabase.rpc("resolve_review_quick_merge", {
     _item_id: item.id,
     _person_id: existing.id,
-    _person_patch: patch,
+    _person_patch: h2PatchContract("quick", patch, existing),
     _traceable_fields: traceableFields,
     _source: source,
     _batch_id: item.batch_id ?? null,
@@ -389,6 +401,7 @@ export async function quickMerge(
       : {}),
     interactionIds: result["note_id"] ? [result["note_id"] as string] : [],
     addedActivity,
+    undoToken: (result["undo_token"] as Json) ?? null,
   };
 }
 
@@ -410,7 +423,7 @@ export async function keepExistingRegistrationPayment(
   const { data, error } = await supabase.rpc("resolve_review_manual_merge", {
     _item_id: item.id,
     _person_id: existing.id,
-    _person_patch: patch,
+    _person_patch: h2PatchContract("manual", patch, existing),
     _traceable_fields: traceableFields,
     _source: source,
     _batch_id: item.batch_id ?? null,
@@ -431,45 +444,27 @@ export async function keepExistingRegistrationPayment(
 
 /** Put things back the way they were, right after a one-tap merge. */
 export async function undoQuickMerge(result: QuickMergeResult) {
-  if (Object.keys(result.before).length > 0) {
-    await guard(
-      supabase
-        .from("people")
-        .update(result.before as never)
-        .eq("id", result.personId),
-      { area: "import", action: "Undo the update" },
-    );
-  }
-  if (result.donationId)
-    await guard(supabase.from("donations").delete().eq("id", result.donationId), {
-      area: "import",
-      action: "Undo the gift",
-    });
-  if (result.registrationId)
-    await guard(supabase.from("registrations").delete().eq("id", result.registrationId), {
-      area: "import",
-      action: "Undo the attendance",
-    });
-  if (result.upgradedRegistration)
-    await guard(
-      supabase
-        .from("registrations")
-        .update({ status: result.upgradedRegistration.status ?? "registered" } as never)
-        .eq("id", result.upgradedRegistration.id),
-      { area: "import", action: "Undo the update" },
-    );
-  for (const id of result.interactionIds)
-    await guard(supabase.from("interactions").delete().eq("id", id), {
-      area: "import",
-      action: "Undo the timeline note",
-    });
-  await guard(
-    supabase
-      .from("review_queue")
-      .update({ status: "pending", resolution_note: "One-tap update undone" } as never)
-      .eq("id", result.itemId),
-    { area: "import", action: "Undo the update" },
-  );
+  const { error } = await supabase.rpc("undo_review_quick_merge", {
+    _item_id: result.itemId,
+    _person_id: result.personId,
+    _undo_token: result.undoToken,
+  });
+  if (error) throw error;
+}
+
+export async function transitionReviewStatus(
+  itemId: string,
+  expectedStatus: "pending" | "skipped" | "dismissed",
+  nextStatus: "pending" | "skipped",
+  note: string,
+) {
+  const { error } = await supabase.rpc("transition_review_status", {
+    _item_id: itemId,
+    _expected_status: expectedStatus,
+    _next_status: nextStatus,
+    _note: note,
+  });
+  if (error) throw error;
 }
 
 /** Throw an incoming row away with a short reason on the record. */

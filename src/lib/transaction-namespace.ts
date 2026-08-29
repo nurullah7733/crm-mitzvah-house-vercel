@@ -55,6 +55,25 @@ export type TransactionReviewCondition =
   | "soft_deleted_transaction"
   | "transaction_concurrency_conflict";
 
+const TRANSACTION_REVIEW_KINDS = new Set<TransactionReviewCondition>([
+  "legacy_transaction",
+  "transaction_contradiction",
+  "soft_deleted_transaction",
+  "transaction_concurrency_conflict",
+]);
+
+/** Financial transaction reviews cannot use generic person merge/create actions. */
+export function transactionReviewKind(
+  row: Record<string, unknown> | null | undefined,
+): TransactionReviewCondition | null {
+  const context = row?.["review_context"];
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const kind = (context as { kind?: unknown }).kind;
+  return typeof kind === "string" && TRANSACTION_REVIEW_KINDS.has(kind as TransactionReviewCondition)
+    ? (kind as TransactionReviewCondition)
+    : null;
+}
+
 /** Convert structured SQL conditions into review routing without treating them as failed rows. */
 export function transactionReviewCondition(error: unknown): TransactionReviewCondition | null {
   const message = typeof error === "object" && error !== null && "message" in error

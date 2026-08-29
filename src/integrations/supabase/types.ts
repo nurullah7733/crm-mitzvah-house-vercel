@@ -1855,6 +1855,15 @@ export type Database = {
         Args: { _person_id: string };
         Returns: undefined;
       };
+      transition_review_status: {
+        Args: {
+          _expected_status: string;
+          _item_id: string;
+          _next_status: string;
+          _note: string;
+        };
+        Returns: undefined;
+      };
       tag_program_counts: {
         Args: never;
         Returns: {
@@ -1865,6 +1874,10 @@ export type Database = {
       };
       text_soundex: { Args: { "": string }; Returns: string };
       undo_import: { Args: { _batch_id: string }; Returns: Json };
+      undo_review_quick_merge: {
+        Args: { _item_id: string; _person_id: string; _undo_token: Json };
+        Returns: undefined;
+      };
       void_tax_statement: { Args: { _document_id: string }; Returns: undefined };
     };
     Enums: {

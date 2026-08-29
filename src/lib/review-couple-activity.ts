@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { RowValues } from "@/lib/import-mapping";
 import { resolveReviewMergePayload } from "@/lib/review-quick";
+import { transitionReviewStatus } from "@/lib/review-quick";
 
 function labels(raw: string | undefined) {
   return (raw ?? "")
@@ -74,9 +75,10 @@ export async function resolveCoupleActivity(
 }
 
 export async function setAsideCoupleActivity(itemId: string) {
-  const { error } = await supabase
-    .from("review_queue")
-    .update({ status: "skipped", resolution_note: "Set aside from couple activity review" })
-    .eq("id", itemId);
-  if (error) throw error;
+  await transitionReviewStatus(
+    itemId,
+    "pending",
+    "skipped",
+    "Set aside from couple activity review",
+  );
 }

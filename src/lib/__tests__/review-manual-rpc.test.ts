@@ -49,7 +49,11 @@ describe("transactional manual review merge", () => {
     expect(rpc).toHaveBeenCalledWith(
       "resolve_review_manual_merge",
       expect.objectContaining({
-        _person_patch: { email: "new@example.com" },
+        _person_patch: {
+          __h2_contract: "manual",
+          __h2_expected: { email: null },
+          __h2_values: { email: "new@example.com" },
+        },
         _existing_before: { email: null },
         _surviving_after: { email: "new@example.com" },
       }),

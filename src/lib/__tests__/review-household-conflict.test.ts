@@ -60,7 +60,7 @@ describe("household conflict review", () => {
 
   it("keeps set-aside and discard operations on their existing safe paths", () => {
     const source = readFileSync("src/routes/_authenticated/inbox.review.tsx", "utf8");
-    expect(source).toContain('update({ status: "skipped"');
+    expect(source).toContain("transitionReviewStatus(");
     expect(source).toContain("discardRow(");
   });
 });

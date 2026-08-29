@@ -21,6 +21,19 @@ export async function friendlyDbError(e: unknown, fallback = "That didn't save."
   const err = asPg(e);
   const raw = `${err.message ?? ""} ${err.details ?? ""}`.trim();
 
+  if (/REVIEW_STALE_PERSON/.test(raw))
+    return "This contact changed after the review opened. Refresh the review and decide again; nothing was overwritten.";
+  if (/REVIEW_STALE_UNDO/.test(raw))
+    return "This record changed after the import update, so it cannot be undone automatically. Nothing was partially undone.";
+  if (/REVIEW_(STALE|INVALID)_TRANSITION/.test(raw))
+    return "This review row changed in another session. Refresh the Data Inbox and try again.";
+  if (/REVIEW_ALREADY_FINALIZED/.test(raw))
+    return "This review row was already resolved. Refresh the Data Inbox.";
+  if (/REVIEW_TARGET_NOT_CANDIDATE|REVIEW_INVALID_PATCH_CONTRACT/.test(raw))
+    return "This review decision no longer matches the queued row. Refresh it and decide again.";
+  if (/REVIEW_TRANSACTION_ACTION_REQUIRED/.test(raw))
+    return "This protected financial transaction cannot use a generic person action. Set it aside for financial reconciliation or discard it with a reason.";
+
   if (err.code === "23505") {
     const email = emailIn(raw);
     if (email) {
