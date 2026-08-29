@@ -51,7 +51,7 @@ import {
   composeAddress,
   correlateFileCoupleResolution,
   correlateFileMatch,
-  donationFingerprintAfterRegistrationFee,
+  donationImportFingerprintFromCents,
   guessMapping,
   namesAreClose,
   matchRowOnce,
@@ -73,6 +73,7 @@ import {
 import { presentCoupleDecision } from "@/lib/couple-semantics";
 
 import { buildRowValues, mainName } from "@/lib/import-rows";
+import { allocateRegistrationCents, amountToCents, centsToAmount } from "@/lib/import-normalization";
 import { FieldPicker } from "@/components/import/FieldPicker";
 import { RouteError } from "@/components/RouteError";
 import { guard, mustWrite } from "@/lib/app-errors";
@@ -112,6 +113,17 @@ type Sheet = SelectedSheet & { name: string };
 
 /** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
 const isoDate = (raw: string | undefined) => parseImportDate(raw);
+const importedAmount = (raw: string | number | null | undefined) => {
+  const cents = amountToCents(raw);
+  return cents === null ? Number.NaN : centsToAmount(cents);
+};
+
+function applyNormalizationReview(values: RowValues, match: MatchResult): MatchResult {
+  const issue = values.normalization_issues?.[0];
+  return issue
+    ? { status: "ambiguous", reason: issue.message, candidates: match.candidates, ...(match.evidence ? { evidence: match.evidence } : {}) }
+    : match;
+}
 
 function splitList(raw: string | undefined) {
   return raw
@@ -292,13 +304,18 @@ function ImportCenter() {
     }[]
   >(() => {
     if (!sheet || !people) return [];
-    const valuesByRow = sheet.rows.map((row) => buildRowValues(row, mapping));
+    const valuesByRow = sheet.rows.map((row, index) =>
+      buildRowValues(row, mapping, sheet.rawRows[index]?.cells),
+    );
     const claimGraph = buildFileClaimGraph(valuesByRow);
     // One shared duplicate check, so the preview and the import loop agree.
     const seen = newRowIdentityRegistry();
     return sheet.rows.map((row, index) => {
       const values = valuesByRow[index]!;
-      const match = correlateFileMatch(matchRowOnce(values, people, seen, index), claimGraph, index);
+      const match = applyNormalizationReview(
+        values,
+        correlateFileMatch(matchRowOnce(values, people, seen, index), claimGraph, index),
+      );
       const coupleResolution = correlateFileCoupleResolution(
         resolveCoupleClaims(values, people, match),
         claimGraph,
@@ -424,7 +441,7 @@ function ImportCenter() {
     const groups = new Map<string, { event: EventOption; rows: number; total: number }>();
     analysed.forEach((a) => {
       if (a.match.status === "ambiguous") return;
-      const amount = Number(String(a.values.amount ?? "").replace(/[^0-9.-]/g, ""));
+      const amount = importedAmount(a.values.amount);
       if (!Number.isFinite(amount) || amount <= 0) return;
       const giftDate = isoDate(a.values.date);
       if (!giftDate) return;
@@ -854,7 +871,7 @@ function ImportCenter() {
       const databasePersonByLogicalId = new Map<string, string>();
 
       /** Resolve fee allocation once so the duplicate pre-check and insert cannot drift. */
-      function planRowDonation(v: RowValues, paymentAmount: number, giftDate: string) {
+      function planRowDonation(v: RowValues, giftDate: string) {
         const eventKey = normalizeLabel(v.event_name ?? "");
         const campaignKey = normalizeLabel(v.campaign ?? "");
         const targetEventId =
@@ -871,16 +888,19 @@ function ImportCenter() {
         const nearbyDecision = nearbyGroup ? giftEventDecisions[nearbyGroup.event.id] : undefined;
         const feeEvent =
           explicitEvent ?? (nearbyDecision === "attended" ? (nearbyGroup?.event ?? null) : null);
-        const registrationFee = Math.min(
-          Math.max(Number(feeEvent?.registration_fee ?? 0), 0),
-          Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0,
+        const paymentCents = amountToCents(v.amount) ?? 0;
+        const { feeCents: registrationFeeCents, donationCents } = allocateRegistrationCents(
+          paymentCents,
+          Number(feeEvent?.registration_fee ?? 0),
         );
+        const registrationFee = centsToAmount(registrationFeeCents);
         return {
           targetEventId,
           nearbyGroup,
           nearbyDecision,
           registrationFee,
-          ...donationFingerprintAfterRegistrationFee(v, paymentAmount, registrationFee, giftDate),
+          donationAmount: centsToAmount(donationCents),
+          fingerprint: donationImportFingerprintFromCents(v, donationCents, giftDate),
         };
       }
 
@@ -900,13 +920,16 @@ function ImportCenter() {
             ? livePeople.find((person) => person.id === mappedMainId)
             : undefined;
           const rawLive = matchRowOnce(v, livePeople, loopSeen, index);
-          const live: MatchResult = mappedMain
-            ? {
-                status: "matched",
-                reason: "Same person elsewhere in this file",
-                candidates: [mappedMain],
-              }
-            : rawLive;
+          const live: MatchResult = applyNormalizationReview(
+            v,
+            mappedMain
+              ? {
+                  status: "matched",
+                  reason: "Same person elsewhere in this file",
+                  candidates: [mappedMain],
+                }
+              : rawLive,
+          );
           const flaggedByPreview = item.match.status === "ambiguous";
           const match = live;
           const coupleDecision = v.couple_decision;
@@ -924,9 +947,9 @@ function ImportCenter() {
                 return k ? { key: k, address: rowAddress ?? "" } : null;
               })();
 
-          const rowAmount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
+          const rowAmount = importedAmount(v.amount);
           const rowGiftDate = isoDate(v.date) ?? importDate;
-          const giftPlan = planRowDonation(v, rowAmount, rowGiftDate);
+          const giftPlan = planRowDonation(v, rowGiftDate);
           const giftFingerprint = giftPlan.fingerprint;
           const giftAlreadyImported = Boolean(
             giftFingerprint && existingGiftFingerprints.has(giftFingerprint),
@@ -1017,7 +1040,7 @@ function ImportCenter() {
             const activity = v.amount
               ? {
                   type: "donation",
-                  amount: Number(String(v.amount).replace(/[^0-9.-]/g, "")),
+                  amount: importedAmount(v.amount),
                   date: isoDate(v.date) ?? importDate,
                 }
               : v.event_name
@@ -1347,7 +1370,7 @@ function ImportCenter() {
 
             let donationPayload: Record<string, unknown> | null = null;
             if (v.amount) {
-              const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
+              const amount = importedAmount(v.amount);
               const readDate = isoDate(v.date);
               if (v.date && !readDate) {
                 unreadableGiftDates += 1;
@@ -1808,7 +1831,7 @@ function ImportCenter() {
             }
 
             if (v.amount) {
-              const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
+              const amount = importedAmount(v.amount);
               const readDate = isoDate(v.date);
               if (v.date && !readDate) {
                 // Better no gift than a gift dated today: a wrong date corrupts

@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import { parseImportDate } from "@/lib/import-dates";
+import { parseImportDate, resolveImportDonationDate } from "@/lib/import-dates";
+import { allocateRegistrationCents, amountToCents, centsToAmount } from "@/lib/import-normalization";
 import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { guard, mustWrite } from "@/lib/app-errors";
 import { resolveCampaignId } from "@/lib/campaigns";
@@ -87,6 +88,10 @@ export async function createPersonFromRow(
   opts: { householdId?: string | null; relationship?: string | null; note: string },
 ): Promise<{ personId: string; name: string }> {
   const row = item.row_data ?? {};
+  if ((row.amount ?? "").trim() && amountToCents(row.amount) === null)
+    throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
+  if ((row.date ?? "").trim() && !parseImportDate(row.date))
+    throw new Error("The donation date is invalid or ambiguous and must be corrected first.");
   const { first, last, display } = rowDisplayName(row);
   if (!first && !last) throw new Error("This row has no name, so it can't be saved as a contact.");
   const batchId = item.batch_id ?? null;
@@ -164,7 +169,8 @@ export async function createPersonFromRow(
       fallback: "The details saved, but we couldn't record where they came from.",
     });
 
-  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const paymentCents = amountToCents(row.amount);
+  const paymentAmount = paymentCents === null ? Number.NaN : centsToAmount(paymentCents);
   let eventFee = 0;
   const eventName = (row.event_name ?? "").trim();
   if (eventName) {
@@ -174,10 +180,7 @@ export async function createPersonFromRow(
       .is("deleted_at", null);
     const match = matchEventByName(eventName, (events ?? []) as EventOption[]);
     if (match) {
-      eventFee = Math.min(
-        Math.max(Number(match.registration_fee ?? 0), 0),
-        Number.isFinite(paymentAmount) ? paymentAmount : 0,
-      );
+      eventFee = centsToAmount(allocateRegistrationCents(paymentCents ?? 0, Number(match.registration_fee ?? 0)).feeCents);
       await recordAttendance({
         personId,
         eventId: match.id,
@@ -191,7 +194,8 @@ export async function createPersonFromRow(
   }
   const amount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
   if (Number.isFinite(amount) && amount > 0) {
-    const giftDate = isoDate(row.date) ?? today();
+    const giftDate = resolveImportDonationDate(row.date, today());
+    if (!giftDate) throw new Error("The donation date must be corrected first.");
     const fingerprint = donationImportFingerprint(row, amount, giftDate);
     const { data: duplicate } = fingerprint
       ? await supabase

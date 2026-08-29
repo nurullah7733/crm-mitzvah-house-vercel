@@ -1,6 +1,8 @@
 import Papa from "papaparse";
 import * as XLSX from "@e965/xlsx";
 import type { ColumnGuess, FieldKey } from "@/lib/import-mapping";
+import { parseImportDateResult } from "@/lib/import-dates";
+import { parseImportEmails, parseImportPhone } from "@/lib/import-normalization";
 
 export type SourceScalar = string | number | boolean | null;
 
@@ -137,12 +139,12 @@ function clean(value: unknown) {
 }
 
 function looksEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  const parsed = parseImportEmails(value);
+  return parsed.some((result) => result.status === "valid") && parsed.every((result) => result.status !== "invalid");
 }
 
 function looksPhone(value: string) {
-  const digits = value.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15 && /^[+()\d\s.-]+$/.test(value);
+  return parseImportPhone(value).status === "valid";
 }
 
 function looksTimestamp(value: string) {
@@ -353,7 +355,7 @@ export async function profileImportFile(file: File): Promise<WorkbookProfile> {
   };
 }
 
-function profileColumn(values: string[], columnIndex: number, header: string): ColumnProfile {
+function profileColumn(values: string[], columnIndex: number, header: string, cells: SourceCell[] = []): ColumnProfile {
   const nonBlank = values.map(clean).filter(Boolean);
   const ratio = (predicate: (value: string) => boolean) =>
     nonBlank.length ? nonBlank.filter(predicate).length / nonBlank.length : 0;
@@ -362,7 +364,10 @@ function profileColumn(values: string[], columnIndex: number, header: string): C
     shape = "mostly_blank";
   else if (ratio(looksEmail) >= 0.7) shape = "email";
   else if (ratio(looksTimestamp) >= 0.7) shape = "timestamp";
-  else if (ratio(looksDate) >= 0.7) shape = "date";
+  else if (
+    (cells.length && cells.filter((cell) => cell.display).filter((cell) => ["valid", "ambiguous"].includes(parseImportDateResult(cell).status)).length / nonBlank.length >= 0.7) ||
+    ratio(looksDate) >= 0.7
+  ) shape = "date";
   else if (ratio(looksPhone) >= 0.7) shape = "phone";
   else if (ratio(looksCurrency) >= 0.7) shape = "currency";
   else if (ratio(looksNumber) >= 0.8) shape = "number";
@@ -411,6 +416,7 @@ export function selectWorkbookSheet(
       rows.map((row) => row[index] ?? ""),
       index,
       header,
+      rawRows.map((row) => row.cells[index] ?? sourceCell(null, "")),
     ),
   );
   return {

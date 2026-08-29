@@ -1,4 +1,5 @@
 import { parseImportDate } from "@/lib/import-dates";
+import { allocateRegistrationCents, centsToAmount, parseImportAmount, parseImportEmails, parseImportPhone } from "@/lib/import-normalization";
 import { fuzzyScore } from "@/lib/nl-search";
 import { PencilOff } from "lucide-react";
 
@@ -604,12 +605,12 @@ export function rowDedupeKey(v: RowValues): string | null {
 export function rowIdentityKeys(v: RowValues): string[] {
   const keys: string[] = [];
   for (const raw of [...(v.emails ?? []).map((e) => e.value), v.email ?? ""]) {
-    const email = raw.trim().toLowerCase();
-    if (email) keys.push(`email:${email}`);
+    for (const parsed of parseImportEmails(raw))
+      if (parsed.status === "valid" && parsed.canonical) keys.push(`email:${parsed.canonical}`);
   }
   for (const raw of [...(v.phones ?? []).map((p) => p.value), v.phone ?? ""]) {
-    const phone = digits(raw);
-    if (phone.length >= 7) keys.push(`phone:${phone.slice(-10)}`);
+    const phone = parseImportPhone(raw);
+    if (phone.identityKey) keys.push(`phone:${phone.identityKey}`);
   }
   const { first, last } = splitName(v);
   const name = `${first} ${last}`.trim().toLowerCase();
@@ -620,7 +621,8 @@ export function rowIdentityKeys(v: RowValues): string[] {
 /** The same person may legitimately appear once per gift in a transaction export. */
 export function rowOccurrenceKeys(v: RowValues): string[] {
   const identities = rowIdentityKeys(v);
-  const amount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const parsedAmount = parseImportAmount(v.amount);
+  const amount = parsedAmount.status === "valid" && parsedAmount.cents !== null ? parsedAmount.cents / 100 : Number.NaN;
   const date = parseImportDate(v.date);
   const hasGift = Number.isFinite(amount) && amount > 0 && Boolean(date);
   // A repeated person is not a repeated source occurrence. Only activity has a
@@ -804,15 +806,23 @@ export function donationImportFingerprint(
   amount: number,
   date: string,
 ): string | null {
+  if (!Number.isFinite(amount)) return null;
+  return donationImportFingerprintFromCents(v, Math.round(amount * 100), date);
+}
+
+export function donationImportFingerprintFromCents(v: RowValues, cents: number, date: string) {
   const donor = rowDedupeKey(v);
-  if (!donor || !Number.isFinite(amount) || amount <= 0 || !date) return null;
+  if (!donor || !Number.isSafeInteger(cents) || cents <= 0 || !date) return null;
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  return [donor, date, amount.toFixed(2), campaign].join("|");
+  return [donor, date, `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`, campaign].join("|");
 }
 
 /** The gift portion of a payment after any event registration fee is allocated. */
 export function donationAmountAfterRegistrationFee(paymentAmount: number, registrationFee: number) {
-  return paymentAmount - registrationFee;
+  if (!Number.isFinite(paymentAmount) || !Number.isFinite(registrationFee)) return Number.NaN;
+  return centsToAmount(
+    allocateRegistrationCents(Math.round(paymentAmount * 100), registrationFee).donationCents,
+  );
 }
 
 /** One amount/fingerprint pair, shared by duplicate pre-checks and the eventual insert. */
@@ -928,21 +938,27 @@ export type RowValues = Partial<Record<FieldKey, string>> & {
   phones?: { value: string; method_type: string }[];
   /** All email addresses on the row, primary first. */
   emails?: { value: string; method_type: string }[];
+  normalization_issues?: {
+    field: FieldKey;
+    status: "ambiguous" | "invalid" | "ambiguous_locale" | "unsafe";
+    raw: string;
+    message: string;
+  }[];
 };
 
 /** Every email a stored contact has, lower-cased. */
 export function personEmails(p: ExistingPerson): string[] {
-  const list = [(p.email ?? "").trim().toLowerCase()];
+  const list = parseImportEmails(p.email).flatMap((result) => result.canonical ? [result.canonical] : []);
   for (const m of p.contact_methods ?? [])
-    if (m.kind === "email") list.push(m.value.trim().toLowerCase());
+    if (m.kind === "email") list.push(...parseImportEmails(m.value).flatMap((result) => result.canonical ? [result.canonical] : []));
   return list.filter(Boolean);
 }
 
 /** Every phone a stored contact has, as comparable digits. */
 export function personPhones(p: ExistingPerson): string[] {
-  const list = [digits(p.phone)];
-  for (const m of p.contact_methods ?? []) if (m.kind === "phone") list.push(digits(m.value));
-  return list.filter((d) => d.length >= 7).map((d) => d.slice(-10));
+  const list = [parseImportPhone(p.phone).identityKey];
+  for (const m of p.contact_methods ?? []) if (m.kind === "phone") list.push(parseImportPhone(m.value).identityKey);
+  return list.filter((value): value is string => Boolean(value));
 }
 
 /** How different two words are, counted as single-character edits. */
@@ -998,15 +1014,17 @@ function firstNamesCompatible(a: string, b: string) {
 
 function normalizedRowEmails(values: RowValues) {
   return [...(values.emails ?? []).map((entry) => entry.value), values.email ?? ""]
-    .map((value) => value.trim().toLowerCase())
+    .flatMap((value) => parseImportEmails(value))
+    .filter((result) => result.status === "valid" && result.canonical)
+    .map((result) => result.canonical!)
     .filter(Boolean);
 }
 
 function normalizedRowPhones(values: RowValues) {
   return [...(values.phones ?? []).map((entry) => entry.value), values.phone ?? ""]
-    .map(digits)
-    .filter((value) => value.length >= 7)
-    .map((value) => value.slice(-10));
+    .map(parseImportPhone)
+    .map((result) => result.identityKey)
+    .filter((value): value is string => Boolean(value));
 }
 
 /** Gather every plausible candidate, evaluate agreement and contradictions,

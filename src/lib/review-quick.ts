@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import { parseImportDate } from "@/lib/import-dates";
+import { parseImportDate, resolveImportDonationDate } from "@/lib/import-dates";
+import { allocateRegistrationCents, amountToCents, centsToAmount } from "@/lib/import-normalization";
 import {
   donationAmountAfterRegistrationFee,
   donationImportFingerprint,
@@ -52,7 +53,12 @@ export async function resolveReviewMergePayload(
   source: string,
   batchId: string | null,
 ): Promise<ResolvedMergePayload> {
-  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  if ((row.amount ?? "").trim() && amountToCents(row.amount) === null)
+    throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
+  if ((row.date ?? "").trim() && !parseImportDate(row.date))
+    throw new Error("The donation date is invalid or ambiguous and must be corrected first.");
+  const paymentCents = amountToCents(row.amount);
+  const paymentAmount = paymentCents === null ? Number.NaN : centsToAmount(paymentCents);
   let event: Json = null;
   let eventFee = 0;
   if ((row.event_name ?? "").trim()) {
@@ -64,7 +70,8 @@ export async function resolveReviewMergePayload(
     if (match) {
       const positivePayment =
         Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0;
-      eventFee = Math.min(Math.max(Number(match.registration_fee ?? 0), 0), positivePayment);
+      const { feeCents } = allocateRegistrationCents(paymentCents ?? 0, Number(match.registration_fee ?? 0));
+      eventFee = centsToAmount(feeCents);
       event = {
         event_id: match.id,
         fee_amount: eventFee,
@@ -80,8 +87,8 @@ export async function resolveReviewMergePayload(
     Number.isFinite(donationAmount) &&
     donationAmount > 0
   ) {
-    const giftDate = isoDate(row.date) ?? today();
-    donation = {
+    const giftDate = resolveImportDonationDate(row.date, today());
+    if (giftDate) donation = {
       amount: donationAmount,
       date: giftDate,
       campaign_id: await resolveCampaignId(row.campaign),
@@ -175,6 +182,10 @@ export async function processReviewRowActivity(
   source: string,
   batchId: string | null,
 ) {
+  if ((row.amount ?? "").trim() && amountToCents(row.amount) === null)
+    throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
+  if ((row.date ?? "").trim() && !parseImportDate(row.date))
+    throw new Error("The donation date is invalid or ambiguous and must be corrected first.");
   const created: Pick<
     QuickMergeResult,
     "donationId" | "registrationId" | "upgradedRegistration" | "interactionIds" | "addedActivity"
@@ -184,7 +195,8 @@ export async function processReviewRowActivity(
     interactionIds: [],
     addedActivity: [],
   };
-  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const paymentCents = amountToCents(row.amount);
+  const paymentAmount = paymentCents === null ? Number.NaN : centsToAmount(paymentCents);
   let eventFee = 0;
 
   if ((row.event_name ?? "").trim()) {
@@ -215,10 +227,7 @@ export async function processReviewRowActivity(
         ),
         paymentAmount: Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : null,
       });
-      eventFee = Math.min(
-        Math.max(Number(match.registration_fee ?? 0), 0),
-        Number.isFinite(paymentAmount) ? paymentAmount : 0,
-      );
+      eventFee = centsToAmount(allocateRegistrationCents(paymentCents ?? 0, Number(match.registration_fee ?? 0)).feeCents);
       if (!existing) {
         const { data: reg } = await supabase
           .from("registrations")
@@ -239,7 +248,8 @@ export async function processReviewRowActivity(
   if ((row.amount ?? "").toString().trim()) {
     const amount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
     if (Number.isFinite(amount) && amount > 0) {
-      const giftDate = isoDate(row.date) ?? today();
+      const giftDate = resolveImportDonationDate(row.date, today());
+      if (!giftDate) throw new Error("The donation date must be corrected first.");
       const fingerprint = donationImportFingerprint(row, amount, giftDate);
       const campaignId = await resolveCampaignId(row.campaign);
       const check = supabase

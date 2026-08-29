@@ -86,7 +86,6 @@ describe("transactional quick review merge", () => {
   it.each([
     ["zero", "0"],
     ["negative", "-10"],
-    ["invalid", "not a number"],
   ])("sends a zero registration fee for a %s payment", async (_label, amount) => {
     from.mockReturnValue({
       select: () => ({
@@ -110,6 +109,17 @@ describe("transactional quick review merge", () => {
         _event: expect.objectContaining({ fee_amount: 0 }),
       }),
     );
+  });
+
+  it("rejects an invalid payment before resolving the review", async () => {
+    await expect(
+      quickMerge(
+        { ...item, row_data: { ...item.row_data, event_name: "Dinner", amount: "not a number" } },
+        existing,
+        "Sarah Klein",
+      ),
+    ).rejects.toThrow("amount is invalid or ambiguous");
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("caps a positive registration fee at the payment and never sends a negative fee", async () => {

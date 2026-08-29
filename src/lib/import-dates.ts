@@ -61,24 +61,49 @@ function fullYear(raw: number) {
  * Read a spreadsheet date and return it as `YYYY-MM-DD`, or null when the cell
  * holds nothing we can trust. Nothing is ever guessed into today's date.
  */
-export function parseImportDate(raw: string | number | null | undefined): string | null {
-  if (raw === null || raw === undefined) return null;
-  const text = String(raw).trim();
-  if (!text) return null;
+export type ImportDateSource = {
+  raw: string | number | boolean | null;
+  display: string;
+  kind: "blank" | "string" | "number" | "boolean" | "date" | "formula";
+  format?: string;
+};
+
+export type ImportDateResult = {
+  value: string | null;
+  status: "valid" | "ambiguous" | "invalid" | "blank";
+  confidence: "typed" | "source-format" | "unambiguous-text" | "none";
+  interpretations?: string[];
+  sourceFormat?: string;
+};
+
+function excelSerial(raw: number) {
+  if (!Number.isFinite(raw) || raw < 1 || raw > 2958465) return null;
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(raw) * 86400000);
+  return iso(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+}
+
+export function parseImportDateResult(
+  raw: string | number | null | undefined | ImportDateSource,
+): ImportDateResult {
+  const source = typeof raw === "object" && raw !== null ? raw : null;
+  if (source?.kind === "date" && typeof source.raw === "number") {
+    const value = excelSerial(source.raw);
+    return value
+      ? { value, status: "valid", confidence: "typed", ...(source.format ? { sourceFormat: source.format } : {}) }
+      : { value: null, status: "invalid", confidence: "none", ...(source.format ? { sourceFormat: source.format } : {}) };
+  }
+  const scalar = source ? source.display : raw;
+  if (scalar === null || scalar === undefined) return { value: null, status: "blank", confidence: "none" };
+  const text = String(scalar).trim();
+  if (!text) return { value: null, status: "blank", confidence: "none" };
 
   // Already ISO, possibly with a time attached.
   const isoMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/.exec(text);
-  if (isoMatch) return iso(+isoMatch[1]!, +isoMatch[2]!, +isoMatch[3]!);
-
-  // Excel stores dates as days since 1899-12-30.
-  if (/^\d+(\.\d+)?$/.test(text)) {
-    const serial = Number(text);
-    if (serial >= 20000 && serial <= 80000) {
-      const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
-      return iso(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
-    }
-    return null;
+  if (isoMatch) {
+    const value = iso(+isoMatch[1]!, +isoMatch[2]!, +isoMatch[3]!);
+    return value ? { value, status: "valid", confidence: "unambiguous-text" } : { value: null, status: "invalid", confidence: "none" };
   }
+  if (/^\d+(\.\d+)?$/.test(text)) return { value: null, status: "invalid", confidence: "none" };
 
   // 14-Mar-1978 · 14 March 1978 · Mar 14, 1978 · March 14 1978
   const words = text.replace(/,/g, " ").split(/[\s./-]+/).filter(Boolean);
@@ -93,7 +118,8 @@ export function parseImportDate(raw: string | number | null | undefined): string
       if (numbers.length >= 2) {
         const yearRaw = numbers.find((n) => n > 31) ?? numbers[numbers.length - 1]!;
         const day = numbers.find((n) => n !== yearRaw) ?? numbers[0]!;
-        return iso(fullYear(yearRaw), month, day);
+        const value = iso(fullYear(yearRaw), month, day);
+        return value ? { value, status: "valid", confidence: "unambiguous-text" } : { value: null, status: "invalid", confidence: "none" };
       }
     }
   }
@@ -102,15 +128,36 @@ export function parseImportDate(raw: string | number | null | undefined): string
   const parts = text.split(/[./-]/).map((p) => p.trim());
   if (parts.length === 3 && parts.every((p) => /^\d{1,4}$/.test(p))) {
     const [a, b, c] = parts.map(Number) as [number, number, number];
-    if (parts[0]!.length === 4) return iso(a, b, c);
+    if (parts[0]!.length === 4) {
+      const value = iso(a, b, c);
+      return value ? { value, status: "valid", confidence: "unambiguous-text" } : { value: null, status: "invalid", confidence: "none" };
+    }
     const year = fullYear(c);
-    const dayFirst = a > 12 || (text.includes(".") && b <= 12);
-    const month = dayFirst ? b : a;
-    const day = dayFirst ? a : b;
-    return iso(year, month, day) ?? iso(year, day, month);
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 12) {
+      const interpretations = [...new Set([iso(year, a, b), iso(year, b, a)].filter((value): value is string => Boolean(value)))];
+      if (interpretations.length > 1)
+        return { value: null, status: "ambiguous", confidence: "none", interpretations };
+      if (interpretations.length === 1)
+        return { value: interpretations[0]!, status: "valid", confidence: "unambiguous-text" };
+      return { value: null, status: "invalid", confidence: "none" };
+    }
+    const value = a > 12 ? iso(year, b, a) : b > 12 ? iso(year, a, b) : null;
+    return value ? { value, status: "valid", confidence: "unambiguous-text" } : { value: null, status: "invalid", confidence: "none" };
   }
+  return { value: null, status: "invalid", confidence: "none" };
+}
 
-  return null;
+export function parseImportDate(raw: string | number | null | undefined): string | null {
+  return parseImportDateResult(raw).value;
+}
+
+/** Blank dates may use an explicit caller fallback; bad nonblank dates never do. */
+export function resolveImportDonationDate(
+  raw: string | null | undefined,
+  blankFallback: string,
+): string | null {
+  const result = parseImportDateResult(raw);
+  return result.status === "blank" ? blankFallback : result.status === "valid" ? result.value : null;
 }
 
 /** Today, as the database stores it. */

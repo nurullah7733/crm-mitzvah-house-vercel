@@ -1,4 +1,4 @@
-import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
+import { normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import {
   splitFullName,
   splitName,
@@ -8,9 +8,12 @@ import {
   type RowValues,
 } from "@/lib/import-mapping";
 import { decideCoupleName } from "@/lib/couple-semantics";
+import { parseImportDateResult } from "@/lib/import-dates";
+import { parseImportAmount, parseImportEmails, parseImportPhone } from "@/lib/import-normalization";
+import type { SourceCell } from "@/lib/import-workbook";
 
 /** Unpack one spreadsheet row: the main contact, their partner, and any children on the row. */
-export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues {
+export function buildRowValues(row: string[], mapping: ColumnGuess[], sourceCells?: SourceCell[]): RowValues {
   const out: RowValues = {};
   const childNames: string[] = [];
   const childFirsts: string[] = [];
@@ -20,6 +23,7 @@ export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues
   const childSchools: string[] = [];
   const phones: { value: string; method_type: string }[] = [];
   const emails: { value: string; method_type: string }[] = [];
+  const issues: NonNullable<RowValues["normalization_issues"]> = [];
   const PHONE_COLUMNS: Partial<Record<FieldKey, string>> = {
     phone: "Mobile",
     phone_mobile: "Mobile",
@@ -42,19 +46,48 @@ export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues
         .split(/[;,|]|\s\/\s/)
         .map((s) => s.trim())
         .filter(Boolean)) {
-        phones.push({ value: part, method_type: PHONE_COLUMNS[m.field]! });
+        const parsed = parseImportPhone(part);
+        if (parsed.status === "valid" && parsed.base)
+          phones.push({ value: parsed.base, method_type: PHONE_COLUMNS[m.field]! });
+        else
+          issues.push({ field: m.field, status: parsed.status === "unsafe" ? "unsafe" : "invalid", raw: part, message: parsed.status === "unsafe" ? "Phone format is not safe for identity matching." : "Phone number is invalid." });
       }
       if (!out.phone && phones[0]) out.phone = phones[0].value;
       return;
     }
     if (EMAIL_COLUMNS[m.field]) {
-      for (const part of value
-        .split(/[;,|\s]+/)
-        .map((s) => s.trim())
-        .filter((s) => s.includes("@"))) {
-        emails.push({ value: normalizeEmail(part), method_type: EMAIL_COLUMNS[m.field]! });
+      for (const parsed of parseImportEmails(value)) {
+        if (parsed.status === "valid" && parsed.canonical)
+          emails.push({ value: parsed.canonical, method_type: EMAIL_COLUMNS[m.field]! });
+        else if (parsed.status === "invalid")
+          issues.push({ field: m.field, status: "invalid", raw: parsed.raw, message: "Email address is malformed and cannot identify a person." });
       }
       if (!out.email && emails[0]) out.email = emails[0].value;
+      return;
+    }
+    if (m.field === "spouse_email") {
+      const parsed = parseImportEmails(value);
+      const valid = [...new Set(parsed.flatMap((result) => result.canonical ? [result.canonical] : []))];
+      if (valid[0]) out.spouse_email = valid[0];
+      parsed.filter((result) => result.status === "invalid").forEach((result) => issues.push({ field: m.field, status: "invalid", raw: result.raw, message: "Partner email is malformed and cannot identify a person." }));
+      return;
+    }
+    if (m.field === "spouse_phone") {
+      const parsed = parseImportPhone(value);
+      if (parsed.status === "valid" && parsed.base) out.spouse_phone = parsed.base;
+      else issues.push({ field: m.field, status: parsed.status === "unsafe" ? "unsafe" : "invalid", raw: value, message: "Partner phone is not safe for identity matching." });
+      return;
+    }
+    if (["date", "birth_date", "anniversary_date"].includes(m.field)) {
+      const parsed = parseImportDateResult(sourceCells?.[i] ?? value);
+      if (parsed.status === "valid" && parsed.value) out[m.field] = parsed.value;
+      else issues.push({ field: m.field, status: parsed.status === "ambiguous" ? "ambiguous" : "invalid", raw: value, message: parsed.status === "ambiguous" ? "Date order is ambiguous." : "Date is invalid." });
+      return;
+    }
+    if (m.field === "amount") {
+      const parsed = parseImportAmount(value);
+      if (parsed.status === "valid" && parsed.canonical) out.amount = parsed.canonical;
+      else issues.push({ field: m.field, status: parsed.status === "ambiguous_locale" ? "ambiguous_locale" : "invalid", raw: value, message: parsed.status === "ambiguous_locale" ? "Amount uses an ambiguous number format." : "Amount is invalid." });
       return;
     }
     if (m.field === "child_name") {
@@ -70,7 +103,12 @@ export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues
       return;
     }
     if (m.field === "child_birth_date") {
-      childDobs.push(value);
+      const parsed = parseImportDateResult(sourceCells?.[i] ?? value);
+      if (parsed.status === "valid" && parsed.value) childDobs.push(parsed.value);
+      else {
+        childDobs.push("");
+        issues.push({ field: m.field, status: parsed.status === "ambiguous" ? "ambiguous" : "invalid", raw: value, message: parsed.status === "ambiguous" ? "Child birth-date order is ambiguous." : "Child birth date is invalid." });
+      }
       return;
     }
     if (m.field === "child_age") {
@@ -111,8 +149,11 @@ export function buildRowValues(row: string[], mapping: ColumnGuess[]): RowValues
     });
   });
   if (children.length > 0) out.children = children;
-  if (phones.length > 0) out.phones = phones;
-  if (emails.length > 0) out.emails = emails;
+  if (phones.length > 0)
+    out.phones = [...new Map(phones.map((entry) => [entry.value, entry])).values()];
+  if (emails.length > 0)
+    out.emails = [...new Map(emails.map((entry) => [entry.value, entry])).values()];
+  if (issues.length > 0) out.normalization_issues = issues;
   const tidied = tidyCase(out);
   if (tidied.full_name) {
     const couple = decideCoupleName(tidied.full_name);

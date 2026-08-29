@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseImportDate } from "@/lib/import-dates";
+import { parseImportDate, parseImportDateResult } from "@/lib/import-dates";
 import { hebrewDateFromEnglish } from "@/lib/hebrew";
 
 describe("parseImportDate", () => {
@@ -25,8 +25,24 @@ describe("parseImportDate", () => {
     expect(parseImportDate(null)).toBeNull();
   });
 
-  it("reads Excel serial numbers", () => {
-    expect(parseImportDate("28563")).toBe("1978-03-14");
+  it("reads Excel serials only from typed date cells", () => {
+    expect(parseImportDate("28563")).toBeNull();
+    expect(parseImportDateResult({ raw: 28563, display: "3/14/1978", kind: "date", format: "m/d/yyyy" })).toMatchObject({
+      value: "1978-03-14",
+      status: "valid",
+      confidence: "typed",
+    });
+  });
+
+  it("does not guess ambiguous numeric dates", () => {
+    expect(parseImportDateResult("04/05/1988")).toEqual({
+      value: null,
+      status: "ambiguous",
+      confidence: "none",
+      interpretations: ["1988-04-05", "1988-05-04"],
+    });
+    expect(parseImportDateResult("8.9.2023").status).toBe("ambiguous");
+    expect(parseImportDate("13.9.2023")).toBe("2023-09-13");
   });
 
   it.each(["3/14/1978", "1978-03-14", "14-Mar-1978", "12/25/90", "2/29/1992"])(

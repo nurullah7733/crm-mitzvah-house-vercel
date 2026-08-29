@@ -448,12 +448,12 @@ describe("unpacking a row into people", () => {
     );
     expect(v.phones).toHaveLength(3);
     expect(v.phones?.map((p) => p.method_type)).toEqual(["Mobile", "Home", "Work"]);
-    expect(v.phone).toBe("404-555-0100");
+    expect(v.phone).toBe("4045550100");
   });
 
   it("splits several numbers inside one cell", () => {
     const v = build(["Cell Phone"], ["404-555-0100 / 404-555-0199"]);
-    expect(v.phones?.map((p) => p.value)).toEqual(["404-555-0100", "404-555-0199"]);
+    expect(v.phones?.map((p) => p.value)).toEqual(["4045550100", "4045550199"]);
   });
 
   it("collects several email columns and lower-cases them", () => {
@@ -474,11 +474,11 @@ describe("unpacking a row into people", () => {
   });
 
   it.each([
-    ["3/14/1978", "3/14/1978"],
+    ["3/14/1978", "1978-03-14"],
     ["1978-03-14", "1978-03-14"],
-    ["14-Mar-1978", "14-Mar-1978"],
-    ["12/25/90", "12/25/90"],
-    ["2/29/1992", "2/29/1992"],
+    ["14-Mar-1978", "1978-03-14"],
+    ["12/25/90", "1990-12-25"],
+    ["2/29/1992", "1992-02-29"],
   ])("carries a mapped birth date through the row builder: %s", (raw, expected) => {
     const v = build(["First Name", "Last Name", "Date of Birth"], ["Test", "Person", raw]);
     expect(v.birth_date).toBe(expected);
