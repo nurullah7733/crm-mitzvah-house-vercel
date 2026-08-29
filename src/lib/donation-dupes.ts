@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { personName } from "@/lib/names";
 import { amountToCents } from "@/lib/import-normalization";
 import type { RowValues } from "@/lib/import-mapping";
+import { parseExternalTransactionId } from "@/lib/external-transaction-id";
 
 /** A gift of the same amount on the same day, sitting on a *different* contact. */
 export type OtherContactGift = {
@@ -44,7 +45,7 @@ export function isExactTransactionDonationRepeat({
   eventId: string | null;
   existing: ExistingImportDonation[];
 }) {
-  const transactionId = normalizedText(row.transaction_id);
+  const transactionId = parseExternalTransactionId(row.transaction_id).identityValue;
   if (!transactionId || !personId || !fingerprint) return false;
   return existing.some((donation) =>
     donation.person_id === personId &&

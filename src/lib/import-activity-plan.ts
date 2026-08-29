@@ -1,6 +1,7 @@
 import { resolveImportDonationDate } from "@/lib/import-dates";
 import { donationImportFingerprintFromCents, type RowValues } from "@/lib/import-mapping";
 import { allocateRegistrationCents, amountToCents } from "@/lib/import-normalization";
+import { parseExternalTransactionId } from "@/lib/external-transaction-id";
 
 export type ActivityEventDecision =
   | { kind: "attend"; id: string; registrationFee: number }
@@ -80,7 +81,12 @@ export function buildActivityPlan({
   if (hasAmount && grossPaymentCents === null) blockingIssues.push("The donation amount is invalid or ambiguous.");
   if (hasAmount && !donationDate) blockingIssues.push("The donation date is invalid or ambiguous.");
   if (decision.kind === "unresolved") blockingIssues.push("The event attendance value must be linked, created, or ignored.");
-  const sourceTransactionId = (row.transaction_id ?? "").trim() || null;
+  const transaction = parseExternalTransactionId(row.transaction_id);
+  const sourceTransactionId = transaction.status === "valid" ? transaction.storedValue : null;
+  const unsafeTransaction = row.normalization_issues?.find(
+    (issue) => issue.field === "transaction_id" && issue.status === "unsafe",
+  );
+  if (unsafeTransaction) blockingIssues.push(unsafeTransaction.message);
   return {
     owner,
     donationIntent,

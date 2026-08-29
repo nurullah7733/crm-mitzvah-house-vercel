@@ -2,6 +2,7 @@ import { parseImportDate } from "@/lib/import-dates";
 import { allocateRegistrationCents, centsToAmount, parseImportAmount, parseImportEmails, parseImportPhone } from "@/lib/import-normalization";
 import { fuzzyScore } from "@/lib/nl-search";
 import { PencilOff } from "lucide-react";
+import { parseExternalTransactionId } from "@/lib/external-transaction-id";
 
 /** Fields a spreadsheet column can be mapped to. */
 export type FieldKey =
@@ -638,7 +639,7 @@ export function rowOccurrenceKeys(v: RowValues): string[] {
   // A repeated person is not a repeated source occurrence. Only activity has a
   // stable occurrence identity here; person correlation is handled separately.
   if (!hasGift) return [];
-  const transactionId = (v.transaction_id ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const transactionId = parseExternalTransactionId(v.transaction_id).identityValue;
   if (transactionId)
     return identities.map((identity) => [identity, "transaction", transactionId].join("|"));
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -826,7 +827,7 @@ export function donationImportFingerprint(
 export function donationImportFingerprintFromCents(v: RowValues, cents: number, date: string) {
   const donor = rowDedupeKey(v);
   if (!donor || !Number.isSafeInteger(cents) || cents <= 0 || !date) return null;
-  const transactionId = (v.transaction_id ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const transactionId = parseExternalTransactionId(v.transaction_id).identityValue;
   if (transactionId) return [donor, "transaction", transactionId].join("|");
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   return [donor, date, `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`, campaign].join("|");
@@ -964,6 +965,19 @@ export type RowValues = Partial<Record<FieldKey, string>> & {
     message: string;
   }[];
 };
+
+/** Apply canonical-value safety issues before preview or approval classification. */
+export function applyNormalizationReview(values: RowValues, match: MatchResult): MatchResult {
+  const issue = values.normalization_issues?.[0];
+  return issue
+    ? {
+        status: "ambiguous",
+        reason: issue.message,
+        candidates: match.candidates,
+        ...(match.evidence ? { evidence: match.evidence } : {}),
+      }
+    : match;
+}
 
 /** Every email a stored contact has, lower-cased. */
 export function personEmails(p: ExistingPerson): string[] {

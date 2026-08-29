@@ -11,6 +11,7 @@ import { decideCoupleName } from "@/lib/couple-semantics";
 import { parseImportDateResult } from "@/lib/import-dates";
 import { parseImportAmount, parseImportEmails, parseImportPhone } from "@/lib/import-normalization";
 import type { SourceCell } from "@/lib/import-workbook";
+import { parseExternalTransactionId } from "@/lib/external-transaction-id";
 
 /** Unpack one spreadsheet row: the main contact, their partner, and any children on the row. */
 export function buildRowValues(row: string[], mapping: ColumnGuess[], sourceCells?: SourceCell[]): RowValues {
@@ -88,6 +89,18 @@ export function buildRowValues(row: string[], mapping: ColumnGuess[], sourceCell
       const parsed = parseImportAmount(value);
       if (parsed.status === "valid" && parsed.canonical) out.amount = parsed.canonical;
       else issues.push({ field: m.field, status: parsed.status === "ambiguous_locale" ? "ambiguous_locale" : "invalid", raw: value, message: parsed.status === "ambiguous_locale" ? "Amount uses an ambiguous number format." : "Amount is invalid." });
+      return;
+    }
+    if (m.field === "transaction_id") {
+      const parsed = parseExternalTransactionId(sourceCells?.[i] ?? value);
+      if (parsed.status === "valid" && parsed.storedValue) out.transaction_id = parsed.storedValue;
+      else if (parsed.status === "unsafe")
+        issues.push({
+          field: m.field,
+          status: "unsafe",
+          raw: parsed.storedValue ?? value,
+          message: parsed.reason!,
+        });
       return;
     }
     if (m.field === "child_name") {

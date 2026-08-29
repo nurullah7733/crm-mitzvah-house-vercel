@@ -52,6 +52,7 @@ import {
   FIELD_PAIRS,
   REPEATABLE_FIELDS,
   addressKey,
+  applyNormalizationReview,
   buildFileClaimGraph,
   composeAddress,
   correlateFileCoupleResolution,
@@ -123,13 +124,6 @@ const importedAmount = (raw: string | number | null | undefined) => {
   const cents = amountToCents(raw);
   return cents === null ? Number.NaN : centsToAmount(cents);
 };
-
-function applyNormalizationReview(values: RowValues, match: MatchResult): MatchResult {
-  const issue = values.normalization_issues?.[0];
-  return issue
-    ? { status: "ambiguous", reason: issue.message, candidates: match.candidates, ...(match.evidence ? { evidence: match.evidence } : {}) }
-    : match;
-}
 
 function splitList(raw: string | undefined) {
   return raw
@@ -2659,7 +2653,7 @@ function ImportCenter() {
                       {m.header || `Column ${i + 1}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Looks like {sheet.columnProfiles[i]?.shape.replace("_", " ") ?? "unknown"}
+                      Value pattern: {sheet.columnProfiles[i]?.shape.replace("_", " ") ?? "unknown"}
                       {sheet.columnProfiles[i]?.samples.length
                         ? ` · ${sheet.columnProfiles[i]!.samples.join(" · ")}`
                         : " · no sample values"}

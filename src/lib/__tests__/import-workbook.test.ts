@@ -7,7 +7,14 @@ import {
   stagedRowPayload,
   validateImportMapping,
 } from "@/lib/import-workbook";
-import { guessMapping, type ColumnGuess } from "@/lib/import-mapping";
+import {
+  applyNormalizationReview,
+  guessMapping,
+  matchRow,
+  type ColumnGuess,
+} from "@/lib/import-mapping";
+import { buildRowValues } from "@/lib/import-rows";
+import { presentCoupleDecision } from "@/lib/couple-semantics";
 
 function workbookFile(
   name: string,
@@ -103,6 +110,58 @@ describe("header detection and selection", () => {
 });
 
 describe("column profiles and source preservation", () => {
+  it("routes a genuine numeric XLSX transaction cell to review through the full workbook path", async () => {
+    const profile = await profileImportFile(
+      workbookFile("numeric-transaction.xlsx", [{
+        name: "Gifts",
+        rows: [
+          ["First Name", "Last Name", "Email", "Donation Amount", "Donation Date", "External transaction ID"],
+          ["G2", "NumericUnsafe", "m2g.g2.numericunsafe@example.test", 30, "2026-08-29", 1234567890123456],
+        ],
+      }]),
+    );
+    const selected = selectWorkbookSheet(profile, 0, 1, "manual");
+    const mapping = guessMapping(selected.headers);
+    const transactionColumn = mapping.findIndex((entry) => entry.field === "transaction_id");
+    const sourceCell = selected.rawRows[0]!.cells[transactionColumn]!;
+    const values = buildRowValues(selected.rows[0]!, mapping, selected.rawRows[0]!.cells);
+    const match = applyNormalizationReview(values, matchRow(values, []));
+    const presentation = presentCoupleDecision(values.couple_decision, match.status);
+    const needReview = presentation.status === "review" ? 1 : 0;
+    const directImport = presentation.status === "review" ? 0 : 1;
+
+    expect(sourceCell).toMatchObject({ raw: 1234567890123456, kind: "number" });
+    expect(values.transaction_id).toBeUndefined();
+    expect(values.normalization_issues?.[0]).toMatchObject({
+      field: "transaction_id",
+      status: "unsafe",
+    });
+    expect(match.status).toBe("ambiguous");
+    expect(presentation.status).toBe("review");
+    expect({ needReview, directImport }).toEqual({ needReview: 1, directImport: 0 });
+  });
+
+  it("keeps numeric-looking XLSX string IDs as opaque text with leading zeroes", async () => {
+    const profile = await profileImportFile(
+      workbookFile("text-transaction.xlsx", [{
+        name: "Gifts",
+        rows: [
+          ["First Name", "Donation Amount", "Donation Date", "External transaction ID"],
+          ["G2", 30, "2026-08-29", "00012345"],
+        ],
+      }]),
+    );
+    const selected = selectWorkbookSheet(profile, 0, 1, "manual");
+    const mapping = guessMapping(selected.headers);
+    const transactionColumn = mapping.findIndex((entry) => entry.field === "transaction_id");
+    const sourceCell = selected.rawRows[0]!.cells[transactionColumn]!;
+    const values = buildRowValues(selected.rows[0]!, mapping, selected.rawRows[0]!.cells);
+
+    expect(sourceCell).toMatchObject({ raw: "00012345", display: "00012345", kind: "string" });
+    expect(values.transaction_id).toBe("00012345");
+    expect(values.normalization_issues).toBeUndefined();
+  });
+
   it("profiles values independently of source-specific headers", async () => {
     const profile = await profileImportFile(
       csvFile("shapes.csv", "A,B,C,D\none@example.test,(404) 555-0100,3/4/2026,$18.00"),
