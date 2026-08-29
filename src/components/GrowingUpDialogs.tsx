@@ -225,36 +225,25 @@ export function MoveHouseholdDialog({
 
   const move = useMutation({
     mutationFn: async () => {
-      let targetId = householdId;
-      if (mode === "new") {
-        if (!newName.trim()) throw new Error("Give the new household a name.");
-        const { data, error } = await supabase
-          .from("households")
-          .insert({ name: properCase(newName.trim()), address: newAddress.trim() || null })
-          .select("id")
-          .single();
-        if (error) throw error;
-        targetId = data.id;
-      }
-      if (!targetId) throw new Error("Pick a household to move them to.");
-      const { error: upErr } = await supabase
-        .from("people")
-        .update({ household_id: targetId })
-        .eq("id", personId);
-      if (upErr) throw upErr;
+      if (mode === "new" && !newName.trim()) throw new Error("Give the new household a name.");
+      if (mode !== "new" && !householdId) throw new Error("Pick a household to move them to.");
       const to =
         mode === "new"
           ? newName.trim()
-          : ((households ?? []).find((h) => h.id === targetId)?.name ?? "a household");
-      await guard(
-        supabase.from("interactions").insert({
-          person_id: personId,
-          type: "note",
-          date: todayISO(),
-          text: `Moved household: ${currentHouseholdName ?? "no household"} → ${to}. All history stayed with them.`,
-        }),
-        { area: "people", action: "Add the timeline note" },
-      );
+          : ((households ?? []).find((h) => h.id === householdId)?.name ?? "a household");
+      const { error } = await supabase.rpc("mutate_household_membership", {
+        _person_id: personId,
+        _expected_household_id: currentHouseholdId,
+        _intent: mode === "new" ? "create" : "link",
+        _target_household_id: mode === "new" ? null : householdId,
+        _relationship: null,
+        _new_household:
+          mode === "new"
+            ? { name: properCase(newName.trim()), address: newAddress.trim() || null }
+            : null,
+        _note: `Moved household: ${currentHouseholdName ?? "no household"} → ${to}. All history stayed with them.`,
+      });
+      if (error) throw error;
       return to;
     },
     onSuccess: async (to) => {

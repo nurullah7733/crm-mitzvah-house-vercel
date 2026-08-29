@@ -179,7 +179,7 @@ export function ReviewCompareDialog({
       createReviewPerson(
         { ...item, row_data: edited },
         incoming,
-        selectedExisting?.household_id ?? null,
+        null,
       ),
     onSuccess: () => {
       queryClient.invalidateQueries();

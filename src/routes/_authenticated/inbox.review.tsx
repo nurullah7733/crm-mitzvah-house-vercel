@@ -577,8 +577,18 @@ function DataInbox() {
             action,
             item_id: r.id,
             person_id: existing.id,
+            expected_household_id: existing.household_id,
             relationship: choice?.relationship || "",
-            person_patch: patch,
+            person_patch: {
+              __h2_contract: "manual",
+              __h2_values: patch,
+              __h2_expected: Object.fromEntries(
+                Object.keys(patch).map((key) => [
+                  key,
+                  existing[key as keyof ReviewPerson] ?? null,
+                ]),
+              ),
+            },
             traceable_fields: changedFields.filter((key) =>
               ["email", "phone", "school", "notes"].includes(key),
             ),

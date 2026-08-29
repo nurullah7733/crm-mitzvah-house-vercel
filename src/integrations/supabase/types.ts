@@ -1795,6 +1795,17 @@ export type Database = {
         };
         Returns: string;
       };
+      merge_people_with_households: {
+        Args: {
+          _expected_merged_household_id?: string | null;
+          _expected_surviving_household_id?: string | null;
+          _field_values?: Json;
+          _merge_households?: boolean;
+          _merged_id: string;
+          _surviving_id: string;
+        };
+        Returns: Json;
+      };
       merge_people: {
         Args: {
           _field_values?: Json;
@@ -1802,6 +1813,34 @@ export type Database = {
           _surviving_id: string;
         };
         Returns: string;
+      };
+      mutate_household_membership: {
+        Args: {
+          _expected_household_id: string | null;
+          _intent: string;
+          _new_household?: Json | null;
+          _note?: string | null;
+          _person_id: string;
+          _relationship?: string | null;
+          _target_household_id?: string | null;
+        };
+        Returns: Json;
+      };
+      delete_households_transactional: {
+        Args: { _household_ids: string[] };
+        Returns: number;
+      };
+      household_address_key: { Args: { _address: string | null }; Returns: string | null };
+      resolve_household_at_address: {
+        Args: {
+          _address: string;
+          _batch_id?: string | null;
+          _name: string;
+          _notes?: string | null;
+          _phone?: string | null;
+          _status?: string;
+        };
+        Returns: Json;
       };
       money_text: { Args: { _amount: number }; Returns: string };
       pledges_missing_payments: {
