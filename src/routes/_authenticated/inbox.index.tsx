@@ -134,16 +134,42 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
 
 type Sheet = SelectedSheet & { name: string };
 
-/** A row that finished `failed` this run, with what it takes to retry it: a fresh claim plus the
- * exact execution decision already made for it (not recomputed — re-running the matching/dedup
- * pipeline for one row in isolation is out of scope for this minimal retry path). */
+/** A row that is durably `failed`, with what it takes to retry it. `execution` is the exact
+ * decision already made for it — present only when it failed during THIS session (reused
+ * directly for inline retry). A row discovered durably from a prior, already-ended session has
+ * no captured payload — nothing durable records the original create/match decision — so
+ * retrying it only queues it (failed -> pending); the next Resume pass reprocesses it through
+ * the same full matching pipeline every other row gets, rather than a second, simplified
+ * decision path guessing at it in isolation. */
 type FailedRetryRow = {
   rowNumber: number;
   outcomeId: string;
   stagedRowId: string;
-  execution: Json;
+  execution: Json | null;
   retrying: boolean;
   error: string | null;
+};
+
+/** The single most relevant unfinished batch, per find_active_import_batch (I7). Not a history
+ * list — Past Imports below already covers that. */
+type ActiveImportBatch = {
+  batchId: string;
+  filename: string;
+  status: string;
+  kind: "resumable" | "needs_attention";
+  progress: {
+    total_rows: number;
+    pending_count: number;
+    processing_count: number;
+    processing_active_count: number;
+    processing_reclaimable_count: number;
+    created_count: number;
+    matched_count: number;
+    flagged_count: number;
+    failed_count: number;
+    terminal_count: number;
+    incomplete: boolean;
+  };
 };
 
 /** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
@@ -200,6 +226,137 @@ function ImportCenter() {
   const [failedRetryRows, setFailedRetryRows] = useState<FailedRetryRow[]>([]);
   /** The still-leased batch a pending retry needs; cleared once every failed row is resolved. */
   const activeRetryBatchRef = useRef<{ batchId: string; leaseOwner: string } | null>(null);
+  const isAdmin = useIsAdmin();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  /** The single most relevant unfinished batch (I7 discovery) — not a history list. */
+  const [activeBatch, setActiveBatch] = useState<ActiveImportBatch | null>(null);
+  /** Failed rows on the discovered batch, read durably — independent of any in-memory session. */
+  const [oldFailedRows, setOldFailedRows] = useState<
+    {
+      rowNumber: number;
+      outcomeId: string;
+      stagedRowId: string;
+      lastError: string | null;
+      queuing: boolean;
+      error: string | null;
+    }[]
+  >([]);
+  const [startingOver, setStartingOver] = useState(false);
+
+  /** Re-checks durable state for an unfinished batch. Safe to call any time — it only reads. */
+  async function refreshActiveBatch() {
+    const { data, error } = await (supabase.rpc as any)("find_active_import_batch", {});
+    if (error) {
+      console.error("Could not check for an unfinished import", error);
+      return;
+    }
+    const result = data as {
+      found: boolean;
+      batch_id?: string;
+      filename?: string;
+      status?: string;
+      kind?: "resumable" | "needs_attention";
+      progress?: ActiveImportBatch["progress"];
+    };
+    if (!result.found || !result.batch_id || !result.progress) {
+      setActiveBatch(null);
+      setOldFailedRows([]);
+      return;
+    }
+    setActiveBatch({
+      batchId: result.batch_id,
+      filename: result.filename ?? "that import",
+      status: result.status ?? "processing",
+      kind: result.kind ?? "resumable",
+      progress: result.progress,
+    });
+    if (result.progress.failed_count > 0) {
+      const { data: failedRows } = await supabase
+        .from("import_row_outcomes")
+        .select("id, row_number, staged_row_id, last_error")
+        .eq("batch_id", result.batch_id)
+        .eq("outcome", "failed")
+        .order("row_number");
+      setOldFailedRows(
+        (failedRows ?? []).map((r) => ({
+          rowNumber: r.row_number,
+          outcomeId: r.id,
+          stagedRowId: r.staged_row_id ?? "",
+          lastError: r.last_error,
+          queuing: false,
+          error: null,
+        })),
+      );
+    } else {
+      setOldFailedRows([]);
+    }
+  }
+
+  useEffect(() => {
+    void refreshActiveBatch();
+  }, []);
+
+  /** Flips a durably-failed row from a prior session back to `pending`. It is deliberately NOT
+   * executed inline here — nothing durable captured its original create/match decision, and
+   * guessing at one in a second, simplified code path is exactly the risk I7 avoids. The next
+   * Resume pass claims it and runs it through the same full matching pipeline every row gets. */
+  async function queueOldFailedRowForRetry(row: {
+    rowNumber: number;
+    outcomeId: string;
+    stagedRowId: string;
+  }) {
+    if (!activeBatch) return;
+    setOldFailedRows((prev) =>
+      prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, queuing: true, error: null } : r)),
+    );
+    try {
+      await retryFailedImportRow({
+        batchId: activeBatch.batchId,
+        outcomeId: row.outcomeId,
+        stagedRowId: row.stagedRowId,
+        expectedAttemptCount: null,
+        expectedLastError: null,
+      });
+      toast.success(`Row ${row.rowNumber} queued — click Resume Import to process it.`);
+      await refreshActiveBatch();
+    } catch (e) {
+      const why = await friendlyDbError(e, "Could not queue that row for retry.");
+      setOldFailedRows((prev) =>
+        prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, queuing: false, error: why } : r)),
+      );
+    }
+  }
+
+  /** Opens the same file picker used for a new upload — the file itself isn't stored anywhere
+   * durable, so continuing an interrupted batch means selecting it again. begin_or_resume_import_batch
+   * already recognizes the matching raw/source identity and reconnects to the existing batch. */
+  function resumeActiveBatch() {
+    fileInputRef.current?.click();
+  }
+
+  /** Start Over reuses the existing, already-proven undo_import RPC rather than a new revert
+   * mechanism — it safely removes exactly what this batch contributed (people/donations/etc. by
+   * import_batch_id) regardless of whether execution ever started, so it is correct for a
+   * staging/ready batch with zero writes and for a processing/needs_attention batch with
+   * committed CRM writes alike. Admin-gated, matching the existing "Undo this import" action. */
+  async function startOverActiveBatch() {
+    if (!activeBatch) return;
+    setStartingOver(true);
+    try {
+      const { data, error } = await supabase.rpc("undo_import", { _batch_id: activeBatch.batchId });
+      if (error) throw error;
+      const counts = (data ?? {}) as Record<string, number>;
+      toast.success(
+        `Started over — removed ${counts["people"] ?? 0} contacts and ${counts["donations"] ?? 0} gifts it had added.`,
+      );
+      await refreshActiveBatch();
+      await queryClient.invalidateQueries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start over.");
+    } finally {
+      setStartingOver(false);
+    }
+  }
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
@@ -790,6 +947,28 @@ function ImportCenter() {
       if (executionStartError) throwImportLeaseError(executionStartError);
       leasedBatchId = batchId;
 
+      // Durable outcomes already on file for this batch — some may be terminal from a
+      // previous, already-ended session (a genuine resume). Used below to (a) skip re-claiming
+      // already-terminal rows, since claim_import_rows will never return them and the claim
+      // loop otherwise expects rows in strict source order, and (b) seed in-file duplicate/
+      // couple detection so a person whose first occurrence finished in an earlier session is
+      // still recognized against a second occurrence later in the file.
+      const { data: existingOutcomes, error: existingOutcomesError } = await supabase
+        .from("import_row_outcomes")
+        .select("row_number, outcome, person_id, result")
+        .eq("batch_id", batchId);
+      if (existingOutcomesError) throw existingOutcomesError;
+      const terminalRowNumbers = new Set(
+        (existingOutcomes ?? [])
+          .filter((o) =>
+            o.outcome === "created" ||
+            o.outcome === "matched" ||
+            o.outcome === "flagged" ||
+            o.outcome === "failed",
+          )
+          .map((o) => o.row_number),
+      );
+
       let activeClaimedRow: ClaimedImportRow | null = null;
 
       const fieldSources: {
@@ -1023,6 +1202,25 @@ function ImportCenter() {
       const claimGraph = buildFileClaimGraph(analysed.map((item) => item.values));
       const databasePersonByLogicalId = new Map<string, string>();
 
+      // Resuming: replay identity/couple registration for rows that are already terminal, so
+      // the claim loop below sees this file exactly as if it had processed those rows itself.
+      for (const outcome of existingOutcomes ?? []) {
+        if (!terminalRowNumbers.has(outcome.row_number)) continue;
+        const idx = outcome.row_number - 1;
+        const item = analysed[idx];
+        if (!item) continue;
+        matchRowOnce(item.values, livePeople, loopSeen, idx);
+        if (outcome.person_id) {
+          const logicalMain = logicalFilePerson(claimGraph, idx, "main");
+          if (logicalMain) databasePersonByLogicalId.set(logicalMain.id, outcome.person_id);
+        }
+        const spouseId = (outcome.result as Record<string, unknown> | null)?.["spouse_id"];
+        if (typeof spouseId === "string") {
+          const logicalPartner = logicalFilePerson(claimGraph, idx, "partner");
+          if (logicalPartner) databasePersonByLogicalId.set(logicalPartner.id, spouseId);
+        }
+      }
+
       /** Resolve fee allocation once so the duplicate pre-check and insert cannot drift. */
       function planRowDonation(v: RowValues, giftDate: string) {
         const eventKey = normalizeLabel(v.event_name ?? "");
@@ -1066,6 +1264,9 @@ function ImportCenter() {
       }
 
       for (let index = 0; index < analysed.length; index++) {
+        // Already terminal from this batch's durable state (this session or an earlier one) —
+        // claim_import_rows will never return it, so don't attempt to.
+        if (terminalRowNumbers.has(index + 1)) continue;
         const item = analysed[index]!;
         const v = item.values;
         const { error: heartbeatError } = await supabase.rpc("heartbeat_import_batch", {
@@ -1082,7 +1283,9 @@ function ImportCenter() {
         if (claimError) throwImportLeaseError(claimError);
         const claimedRow = (claimedRows as unknown as ClaimedImportRow[] | null)?.[0];
         if (!claimedRow || claimedRow.row_number !== index + 1)
-          throw new Error(`Import row ${index + 1} could not be claimed in source order.`);
+          throw new Error(
+            `Import row ${index + 1} could not be claimed in source order (it may be actively processing in another tab).`,
+          );
         activeClaimedRow = claimedRow;
         let rowCommitted = false;
         /** Set right before execute_claimed_import_row, so a failure can be retried with the
@@ -2245,6 +2448,7 @@ function ImportCenter() {
           `${retryableFailures.length} row${retryableFailures.length === 1 ? "" : "s"} failed to save. Retry ${retryableFailures.length === 1 ? "it" : "them"} below, or leave this page and re-import the file later.`,
           { duration: 15000 },
         );
+        await refreshActiveBatch();
       } else {
         // The only call allowed to move this batch into a terminal status. It re-derives
         // counts itself server-side rather than trusting anything computed above.
@@ -2277,6 +2481,7 @@ function ImportCenter() {
           );
         }
         await queryClient.invalidateQueries();
+        await refreshActiveBatch();
         reset();
       }
     } catch (e) {
@@ -2322,6 +2527,7 @@ function ImportCenter() {
     await supabase.rpc("release_import_batch", { _batch_id: batchId, _lease_owner: leaseOwner });
     activeRetryBatchRef.current = null;
     await queryClient.invalidateQueries();
+    await refreshActiveBatch();
     reset();
     if (reconcileResult.status === "completed") {
       toast.success("All rows saved.");
@@ -2429,6 +2635,82 @@ function ImportCenter() {
         </Link>
       }
     >
+      {activeBatch && (
+        <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <AlertTriangle className="size-4 text-amber-600" />
+            {activeBatch.kind === "needs_attention" ? "Import needs attention" : "Unfinished import found"}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{activeBatch.filename}</span> ·{" "}
+            {activeBatch.progress.terminal_count} of {activeBatch.progress.total_rows} rows processed ·{" "}
+            {activeBatch.progress.created_count} created · {activeBatch.progress.matched_count} matched ·{" "}
+            {activeBatch.progress.flagged_count} flagged · {activeBatch.progress.failed_count} failed
+            {activeBatch.progress.incomplete
+              ? ` · ${activeBatch.progress.pending_count + activeBatch.progress.processing_count} still unfinished`
+              : ""}
+          </p>
+          {activeBatch.kind === "resumable" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Select {activeBatch.filename} again below to continue exactly where it left off.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {activeBatch.kind === "resumable" && (
+              <Button type="button" size="sm" onClick={resumeActiveBatch}>
+                Resume Import
+              </Button>
+            )}
+            {activeBatch.kind === "needs_attention" && activeBatch.progress.flagged_count > 0 && (
+              <Link
+                to="/inbox/review"
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground"
+              >
+                Review Issues
+              </Link>
+            )}
+            {isAdmin && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="text-urgent"
+                disabled={startingOver}
+                onClick={() => void startOverActiveBatch()}
+              >
+                {startingOver ? "Starting over…" : "Start Over"}
+              </Button>
+            )}
+          </div>
+          {oldFailedRows.length > 0 && (
+            <ul className="mt-3 space-y-2 border-t border-amber-500/20 pt-3">
+              {oldFailedRows.map((row) => (
+                <li
+                  key={row.outcomeId}
+                  className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Row {row.rowNumber} failed</p>
+                    {row.lastError && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.lastError}</p>
+                    )}
+                    {row.error && <p className="mt-0.5 text-xs text-destructive">{row.error}</p>}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={row.queuing}
+                    onClick={() => void queueOldFailedRowForRetry(row)}
+                  >
+                    {row.queuing ? "Queuing…" : "Queue for Retry"}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {failedRetryRows.length > 0 && (
         <div className="mb-4 rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
           <div className="flex items-center gap-2 text-sm font-medium text-destructive">
@@ -2474,6 +2756,7 @@ function ImportCenter() {
           </p>
           <label className="mt-4 inline-block">
             <input
+              ref={fileInputRef}
               type="file"
               accept=".csv,.xlsx,.xls,text/csv"
               className="hidden"
