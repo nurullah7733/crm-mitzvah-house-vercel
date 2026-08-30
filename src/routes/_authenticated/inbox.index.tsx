@@ -2198,46 +2198,28 @@ function ImportCenter() {
         }
       }
 
-      const { data: outcomeRows, error: outcomeError } = await supabase
-        .from("import_row_outcomes")
-        .select("outcome")
-        .eq("batch_id", batchId);
-      if (outcomeError) throw outcomeError;
-      const reconciliation = {
-        created: (outcomeRows ?? []).filter((row) => row.outcome === "created").length,
-        matched: (outcomeRows ?? []).filter((row) => row.outcome === "matched").length,
-        flagged: (outcomeRows ?? []).filter((row) => row.outcome === "flagged").length,
-        failed: (outcomeRows ?? []).filter((row) => row.outcome === "failed").length,
+      // Authoritative, durable progress — derived server-side from import_row_outcomes,
+      // never from a client-computed count. This is the only thing that decides whether
+      // the loop actually finished everything it was supposed to.
+      const { data: progressData, error: progressError } = await (supabase.rpc as any)("import_batch_progress", {
+        _batch_id: batchId,
+      });
+      if (progressError) throw progressError;
+      const progress = progressData as {
+        total_rows: number;
+        terminal_count: number;
+        created_count: number;
+        matched_count: number;
+        flagged_count: number;
+        failed_count: number;
+        incomplete: boolean;
       };
-      const processed = Object.values(reconciliation).reduce((sum, count) => sum + count, 0);
-      const reconciled = processed === analysed.length;
-      // A row can only be retried while the batch is still `processing` with an active lease
-      // (claim_import_rows requires both). So a failed row we captured an execution payload for
-      // keeps the batch open here instead of closing it out as `needs_attention` — closing and
-      // reopening a batch's lease/status is resumable-import (I6/I7) territory, not this fix.
-      const hasRetryableFailures = reconciliation.failed > 0 && retryableFailures.length > 0;
-      const { error: batchFinishError } = await supabase
-        .from("import_batches")
-        .update({
-          processed_rows: processed,
-          created_rows: reconciliation.created,
-          matched_rows: reconciliation.matched,
-          flagged_rows: reconciliation.flagged,
-          failed_rows: reconciliation.failed,
-          ...(hasRetryableFailures
-            ? { status: "processing" }
-            : {
-                completed_at: new Date().toISOString(),
-                status: reconciled && reconciliation.failed === 0 ? "completed" : "needs_attention",
-              }),
-        })
-        .eq("id", batchId);
-      if (batchFinishError) throw batchFinishError;
-      if (!reconciled) {
+      if (progress.incomplete || progress.total_rows !== analysed.length) {
         throw new Error(
-          `Import stopped before reconciliation: ${processed} of ${analysed.length} rows have a final outcome.`,
+          `Import stopped before reconciliation: ${progress.terminal_count} of ${analysed.length} rows have a final outcome.`,
         );
       }
+
       const notes = [
         queued > 0
           ? "The rows that need a person to look at them are waiting in the Data Inbox."
@@ -2248,7 +2230,14 @@ function ImportCenter() {
             } left out because the date in the file couldn't be read — nothing was dated today by mistake.`
           : "",
       ].filter(Boolean);
-      if (hasRetryableFailures) {
+
+      if (retryableFailures.length > 0) {
+        // A row can only be retried while the batch is still `processing` with an active
+        // lease (claim_import_rows requires both), so this deliberately does NOT call
+        // reconcile_import_batch yet — that would immediately finalize the batch to
+        // `needs_attention` and the retry panel needs `processing` to claim rows. It gets
+        // authoritatively reconciled for real in finalizeBatchAfterRetries once the panel
+        // empties. import_batch_progress stays live and correct for a reload in the meantime.
         keepLeaseOpenForRetry = true;
         activeRetryBatchRef.current = { batchId, leaseOwner: leaseOwner! };
         setFailedRetryRows(retryableFailures);
@@ -2257,15 +2246,36 @@ function ImportCenter() {
           { duration: 15000 },
         );
       } else {
-        toast.success(
-          `${analysed.length} rows reconciled · ${reconciliation.created} created · ${reconciliation.matched} matched · ${reconciliation.flagged} flagged · ${reconciliation.failed} failed${
-            counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
-          }`,
-          {
-            duration: 12000,
-            ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
-          },
-        );
+        // The only call allowed to move this batch into a terminal status. It re-derives
+        // counts itself server-side rather than trusting anything computed above.
+        const { data: reconcileData, error: reconcileError } = await (supabase.rpc as any)("reconcile_import_batch", {
+          _batch_id: batchId,
+        });
+        if (reconcileError) throw reconcileError;
+        const reconcileResult = reconcileData as { status: string; reconciled: boolean; progress?: typeof progress };
+        if (!reconcileResult.reconciled) {
+          throw new Error("Import stopped before reconciliation: the database does not yet show every row as final.");
+        }
+        const finalProgress = reconcileResult.progress ?? progress;
+        if (reconcileResult.status === "completed") {
+          toast.success(
+            `${analysed.length} rows reconciled · ${finalProgress.created_count} created · ${finalProgress.matched_count} matched · ${finalProgress.flagged_count} flagged · ${finalProgress.failed_count} failed${
+              counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
+            }`,
+            {
+              duration: 12000,
+              ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
+            },
+          );
+        } else {
+          toast.warning(
+            `Import needs attention · ${finalProgress.failed_count} failed · ${finalProgress.flagged_count} flagged. Check the Data Inbox and try again.`,
+            {
+              duration: 15000,
+              ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
+            },
+          );
+        }
         await queryClient.invalidateQueries();
         reset();
       }
@@ -2284,17 +2294,44 @@ function ImportCenter() {
     }
   }
 
-  /** Finish the batch once every row captured for retry has been resolved. */
+  /** Finish the batch once every row captured for retry has been resolved. Calls the same
+   * authoritative reconciliation the main run uses — it does NOT assume "completed" just
+   * because the local retry panel emptied; a flagged row this panel never handles could
+   * still be outstanding, and reconcile_import_batch is what actually checks that. */
   async function finalizeBatchAfterRetries(batchId: string, leaseOwner: string) {
-    await supabase
-      .from("import_batches")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
-      .eq("id", batchId);
+    const { data: reconcileData, error: reconcileError } = await (supabase.rpc as any)("reconcile_import_batch", {
+      _batch_id: batchId,
+    });
+    if (reconcileError) {
+      toast.error(await friendlyDbError(reconcileError, "Could not finish reconciling this import."));
+      return;
+    }
+    const reconcileResult = reconcileData as {
+      status: string;
+      reconciled: boolean;
+      progress?: { failed_count: number; flagged_count: number };
+    };
+    if (!reconcileResult.reconciled) {
+      // Genuinely outstanding work remains (e.g. a row still processing elsewhere) —
+      // leave the batch and lease exactly as they are rather than pretending it's done.
+      toast.warning("This import still has unfinished rows. It will stay open until they resolve.", {
+        duration: 12000,
+      });
+      return;
+    }
     await supabase.rpc("release_import_batch", { _batch_id: batchId, _lease_owner: leaseOwner });
     activeRetryBatchRef.current = null;
     await queryClient.invalidateQueries();
     reset();
-    toast.success("All rows saved.");
+    if (reconcileResult.status === "completed") {
+      toast.success("All rows saved.");
+    } else {
+      const flagged = reconcileResult.progress?.flagged_count ?? 0;
+      toast.warning(
+        `Row saved, but this import still needs attention${flagged > 0 ? ` · ${flagged} flagged` : ""}. Check the Data Inbox.`,
+        { duration: 15000 },
+      );
+    }
   }
 
   /** Retry exactly one failed row: retry_failed_import_row -> claim_import_rows ->
