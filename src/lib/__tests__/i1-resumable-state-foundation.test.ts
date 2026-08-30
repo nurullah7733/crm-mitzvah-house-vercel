@@ -10,7 +10,9 @@ const route = readFileSync("src/routes/_authenticated/inbox.index.tsx", "utf8");
 
 describe("M2-I1 resumable import state foundation", () => {
   it("defines canonical batch states while retaining historical imported rows", () => {
-    expect(sql).toContain("'staging','ready','processing','needs_attention','completed','reverted','imported'");
+    expect(sql).toContain(
+      "'staging','ready','processing','needs_attention','completed','reverted','imported'",
+    );
     expect(sql).toContain("NOT VALID");
     expect(sql).toContain("ALTER COLUMN status SET DEFAULT 'staging'");
   });
@@ -21,7 +23,13 @@ describe("M2-I1 resumable import state foundation", () => {
   });
 
   it("seeds new rows pending and transitions the current loop to processing", () => {
-    expect(route).toContain('outcome: "pending"');
+    expect(route).toContain('supabase.rpc("stage_import_rows"');
+    expect(
+      readFileSync(
+        "supabase/migrations/20260830000700_atomic_import_begin_and_staging.sql",
+        "utf8",
+      ),
+    ).toContain("'pending'");
     expect(route).toContain('.update({ outcome: "processing", attempt_count: 1 })');
     expect(route).toContain('.eq("batch_id", batchId)');
     expect(route).toContain('.eq("row_number", index + 1)');
@@ -33,14 +41,26 @@ describe("M2-I1 resumable import state foundation", () => {
     expect(sql).toContain("FOREIGN KEY (staged_row_id, batch_id)");
     expect(sql).toContain("REFERENCES public.import_staged_rows(id, batch_id)");
     expect(sql).toContain("CREATE UNIQUE INDEX import_row_outcomes_staged_row_unique");
-    expect(route).toContain("staged_row_id: stagedRowIdByPhysicalRow.get");
+    expect(
+      readFileSync(
+        "supabase/migrations/20260830000700_atomic_import_begin_and_staging.sql",
+        "utf8",
+      ),
+    ).toContain("VALUES (_batch_id,v_row_number,v_staged_id");
   });
 
   it("provides attempt, claim, lease, completion, error, and structured result metadata", () => {
     for (const column of [
-      "attempt_count", "claim_token", "claimed_by", "claimed_at", "lease_expires_at",
-      "completed_at", "last_error", "result jsonb",
-    ]) expect(sql).toContain(column);
+      "attempt_count",
+      "claim_token",
+      "claimed_by",
+      "claimed_at",
+      "lease_expires_at",
+      "completed_at",
+      "last_error",
+      "result jsonb",
+    ])
+      expect(sql).toContain(column);
     expect(sql).toContain("CHECK (attempt_count >= 0)");
   });
 
@@ -70,7 +90,7 @@ describe("M2-I1 resumable import state foundation", () => {
 
   it("keeps historical outcome binding nullable but requires new active imports to bind", () => {
     expect(sql).toContain("Nullable only for historical outcomes created before M2-I1");
-    expect(route).toContain('.select("id, physical_row_number")');
+    expect(route).toContain('supabase.rpc("stage_import_rows"');
   });
 
   it("updates failure logging for pending rows and terminal metadata", () => {

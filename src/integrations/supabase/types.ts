@@ -600,6 +600,7 @@ export type Database = {
           orchestration_context: Json;
           processed_rows: number;
           raw_file_hash: string | null;
+          resumable_identity: string | null;
           selected_sheet_index: number | null;
           selected_sheet_name: string | null;
           source_data_hash: string | null;
@@ -633,6 +634,7 @@ export type Database = {
           orchestration_context?: Json;
           processed_rows?: number;
           raw_file_hash?: string | null;
+          resumable_identity?: string | null;
           selected_sheet_index?: number | null;
           selected_sheet_name?: string | null;
           source_data_hash?: string | null;
@@ -666,6 +668,7 @@ export type Database = {
           orchestration_context?: Json;
           processed_rows?: number;
           raw_file_hash?: string | null;
+          resumable_identity?: string | null;
           selected_sheet_index?: number | null;
           selected_sheet_name?: string | null;
           source_data_hash?: string | null;
@@ -1628,6 +1631,28 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      begin_or_resume_import_batch: {
+        Args: {
+          _ambiguous_rows: number;
+          _expected_total_rows: number;
+          _filename: string;
+          _header_mode: string | null;
+          _header_row_number: number | null;
+          _mapping: Json;
+          _matched_rows: number;
+          _new_rows: number;
+          _orchestration_context: Json;
+          _raw_file_hash: string;
+          _selected_sheet_index: number | null;
+          _selected_sheet_name: string | null;
+          _source_data_hash: string;
+          _source_structure: Json | null;
+          _source_system: string | null;
+          _source_system_confidence: string;
+          _transaction_object_type: string | null;
+        };
+        Returns: Json;
+      };
       apply_import_activity_core: {
         Args: {
           _batch_id?: string | null;
@@ -1657,6 +1682,15 @@ export type Database = {
           person_b: string;
           reason: string;
         }[];
+      };
+      finalize_import_staging: {
+        Args: {
+          _batch_id: string;
+          _expected_mapping: Json;
+          _expected_orchestration_context: Json;
+          _expected_resumable_identity: string;
+        };
+        Returns: Json;
       };
       get_integration_credentials: {
         Args: { _provider: string };
@@ -1752,6 +1786,10 @@ export type Database = {
           _row_number: number;
         };
         Returns: string;
+      };
+      stage_import_rows: {
+        Args: { _batch_id: string; _rows: Json };
+        Returns: Json;
       };
       resolve_import_row: {
         Args: {

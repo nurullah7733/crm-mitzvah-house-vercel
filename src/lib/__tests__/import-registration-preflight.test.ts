@@ -12,7 +12,9 @@ describe("M2-F registration payment preflight", () => {
       '.select("person_id, event_id, payment_amount, fee_amount, status")',
     );
     expect(route).toContain("const previewAnalysed = useMemo(");
-    expect(route).toContain("presentation: { status: \"review\" as const, reason: conflict.reason");
+    expect(route).toMatch(
+      /presentation:\s*\{\s*status:\s*"review" as const,\s*reason:\s*conflict\.reason/,
+    );
     expect(route).toContain("const review = previewAnalysed.reduce(");
     expect(route).toContain("Math.max(previewAnalysed.length - review, 0)");
   });

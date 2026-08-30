@@ -80,7 +80,10 @@ import { presentCoupleDecision } from "@/lib/couple-semantics";
 import { buildRowValues, mainName } from "@/lib/import-rows";
 import { amountToCents, centsToAmount } from "@/lib/import-normalization";
 import { buildActivityPlan, chooseActivityEventDecision } from "@/lib/import-activity-plan";
-import { findRegistrationPaymentConflict, type RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
+import {
+  findRegistrationPaymentConflict,
+  type RegistrationPaymentConflictContext,
+} from "@/lib/registration-payment-conflict";
 import {
   TRANSACTION_SOURCE_OPTIONS,
   transactionReviewCondition,
@@ -98,7 +101,11 @@ import {
   type SelectedSheet,
   type WorkbookProfile,
 } from "@/lib/import-workbook";
-import { buildImportOrchestrationContext } from "@/lib/import-orchestration";
+import {
+  buildImportOrchestrationContext,
+  type BeginOrResumeImportBatchResult,
+  type FinalizeImportStagingResult,
+} from "@/lib/import-orchestration";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -200,7 +207,11 @@ function ImportCenter() {
 
   useEffect(() => {
     try {
-      if (sheet) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ workbook, sheet, mapping, transactionSourceSystem }));
+      if (sheet)
+        sessionStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ workbook, sheet, mapping, transactionSourceSystem }),
+        );
       else sessionStorage.removeItem(DRAFT_KEY);
     } catch {
       /* the file is too big to stash — the import still works */
@@ -256,11 +267,13 @@ function ImportCenter() {
           .from("import_batches")
           .select(select)
           .or(`raw_file_hash.eq.${sheet!.rawFileHash},source_data_hash.eq.${sheet!.sourceDataHash}`)
+          .in("status", ["completed", "imported", "reverted"])
           .order("created_at", { ascending: false }),
         supabase
           .from("import_batches")
           .select(select)
           .eq("filename", sheet!.name)
+          .in("status", ["completed", "imported", "reverted"])
           .order("created_at", { ascending: false }),
       ]);
       if (identity.error) throw identity.error;
@@ -441,7 +454,11 @@ function ImportCenter() {
       if (analysed[i]?.match.status === "ambiguous") return;
       totals.set(label, (totals.get(label) ?? 0) + 1);
     });
-    return { perRow, eventIds, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
+    return {
+      perRow,
+      eventIds,
+      totals: [...totals.entries()].map(([name, count]) => ({ name, count })),
+    };
   }, [analysed, fileEvents, eventDecisions, events, bulkTarget.eventId]);
 
   /**
@@ -495,7 +512,11 @@ function ImportCenter() {
         return conflict
           ? {
               ...item,
-              presentation: { status: "review" as const, reason: conflict.reason, willCreate: "review" as const },
+              presentation: {
+                status: "review" as const,
+                reason: conflict.reason,
+                willCreate: "review" as const,
+              },
             }
           : item;
       }),
@@ -506,7 +527,9 @@ function ImportCenter() {
     () => ({
       total: previewAnalysed.length,
       matched: previewAnalysed.filter((a) => a.match.status === "matched").length,
-      new: previewAnalysed.filter((a) => a.presentation.status === "single" && a.match.status === "new").length,
+      new: previewAnalysed.filter(
+        (a) => a.presentation.status === "single" && a.match.status === "new",
+      ).length,
       ambiguous: previewAnalysed.filter((a) => a.presentation.status === "review").length,
       couples: previewAnalysed.filter((a) => a.presentation.status === "couple").length,
       extraPeople: previewAnalysed.reduce(
@@ -653,86 +676,98 @@ function ImportCenter() {
     setBusy(true);
     setProgress({ done: 0, total: analysed.length });
     try {
-      const importDate = new Date().toISOString().slice(0, 10);
-      const source = `${sheet.name}, imported ${importDate}`;
-      const sourceConfidence: TransactionSourceConfidence = transactionSourceSystem ? "explicit" : "unknown";
+      let importDate = new Date().toISOString().slice(0, 10);
+      const sourceConfidence: TransactionSourceConfidence = transactionSourceSystem
+        ? "explicit"
+        : "unknown";
       const transactionObjectType = transactionSourceSystem ? "donation" : null;
 
-      const { data: batch, error: batchError } = await supabase
-        .from("import_batches")
-        .insert({
-          filename: sheet.name,
-          import_date: importDate,
-          total_rows: counts.total,
-          matched_rows: counts.matched,
-          new_rows: counts.new,
-          ambiguous_rows: counts.ambiguous,
-          status: "processing",
-          started_at: new Date().toISOString(),
-          raw_file_hash: sheet.rawFileHash,
-          source_data_hash: sheet.sourceDataHash,
-          selected_sheet_name: sheet.sheetName,
-          selected_sheet_index: sheet.sheetIndex,
-          header_row_number: sheet.headerRowNumber,
-          header_mode: sheet.headerMode,
-          source_structure: {
-            kind: workbook?.kind ?? "xlsx",
-            used_range: sheet.usedRange,
-            visibility: sheet.visibility,
-            column_ids: sheet.columnIds,
-            headers: sheet.headers,
-          },
-          source_system: transactionSourceSystem || null,
-          source_system_confidence: sourceConfidence,
-          transaction_object_type: transactionObjectType,
-          orchestration_context: buildImportOrchestrationContext({
-            effectiveDate: importDate,
-            sourceSystem: transactionSourceSystem || null,
-            sourceConfidence,
-            transactionObjectType,
-            eventDecisions,
-            addressDecisions,
-            giftEventDecisions,
-            bulkTarget,
-            repeatedFileConfirmed: reimportConfirmed,
-            manualHeaderRiskConfirmed: headerRiskConfirmed,
-          }) as Json,
-          mapping: mapping.reduce<Record<string, string>>((acc, m, i) => {
-            acc[sheet.columnIds[i] ?? `column_${i + 1}`] = m.field;
-            return acc;
-          }, {}),
-        })
-        .select("id")
-        .single();
+      const orchestrationContext = buildImportOrchestrationContext({
+        effectiveDate: importDate,
+        sourceSystem: transactionSourceSystem || null,
+        sourceConfidence,
+        transactionObjectType,
+        eventDecisions,
+        addressDecisions,
+        giftEventDecisions,
+        bulkTarget,
+        repeatedFileConfirmed: reimportConfirmed,
+        manualHeaderRiskConfirmed: headerRiskConfirmed,
+      });
+      const durableMapping = mapping.reduce<Record<string, string>>((acc, m, i) => {
+        acc[sheet.columnIds[i] ?? `column_${i + 1}`] = m.field;
+        return acc;
+      }, {});
+      const sourceStructure = {
+        kind: workbook?.kind ?? "xlsx",
+        used_range: sheet.usedRange,
+        visibility: sheet.visibility,
+        column_ids: sheet.columnIds,
+        headers: sheet.headers,
+      };
+      const { data: batch, error: batchError } = await supabase.rpc(
+        "begin_or_resume_import_batch",
+        {
+          _filename: sheet.name,
+          _raw_file_hash: sheet.rawFileHash,
+          _source_data_hash: sheet.sourceDataHash,
+          _selected_sheet_name: sheet.sheetName,
+          _selected_sheet_index: sheet.sheetIndex,
+          _header_row_number: sheet.headerRowNumber,
+          _header_mode: sheet.headerMode,
+          _source_structure: sourceStructure as Json,
+          _source_system: transactionSourceSystem || null,
+          _source_system_confidence: sourceConfidence,
+          _transaction_object_type: transactionObjectType,
+          _mapping: durableMapping,
+          _expected_total_rows: counts.total,
+          _matched_rows: counts.matched,
+          _new_rows: counts.new,
+          _ambiguous_rows: counts.ambiguous,
+          _orchestration_context: orchestrationContext as Json,
+        },
+      );
       if (batchError) throw batchError;
-      const batchId = batch.id;
+      const batchResult = batch as unknown as BeginOrResumeImportBatchResult;
+      const batchId = batchResult.batch_id;
+      if (!batchId) throw new Error("The import batch could not be initialized.");
+      const persistedOrchestrationContext = batchResult.orchestration_context;
+      importDate = persistedOrchestrationContext.effective_date;
+      const source = `${sheet.name}, imported ${importDate}`;
 
       const stagedRows = stagedRowPayload(
         sheet,
         mapping,
         analysed.map((item) => item.values),
-      ).map((row) => ({ ...row, batch_id: batchId }));
-      const stagedRowIdByPhysicalRow = new Map<number, string>();
+      ).map((row, index) => ({ ...row, row_number: index + 1 }));
       for (let offset = 0; offset < stagedRows.length; offset += 250) {
-        const { data: insertedStagedRows, error: stagingError } = await supabase
-          .from("import_staged_rows")
-          .insert(stagedRows.slice(offset, offset + 250) as never[])
-          .select("id, physical_row_number");
+        const { error: stagingError } = await supabase.rpc("stage_import_rows", {
+          _batch_id: batchId,
+          _rows: stagedRows.slice(offset, offset + 250) as unknown as Json,
+        });
         if (stagingError) throw stagingError;
-        for (const stagedRow of insertedStagedRows ?? [])
-          stagedRowIdByPhysicalRow.set(stagedRow.physical_row_number, stagedRow.id);
       }
-
-      const { error: outcomeSeedError } = await supabase.from("import_row_outcomes").insert(
-        analysed.map((item, index) => ({
-          batch_id: batchId,
-          row_number: index + 1,
-          staged_row_id: stagedRowIdByPhysicalRow.get(stagedRows[index]!.physical_row_number)!,
-          row_data: item.values as never,
-          outcome: "pending",
-        })),
+      const { data: finalized, error: finalizeError } = await supabase.rpc(
+        "finalize_import_staging",
+        {
+          _batch_id: batchId,
+          _expected_resumable_identity: batchResult.resumable_identity,
+          _expected_mapping: durableMapping,
+          _expected_orchestration_context: persistedOrchestrationContext as unknown as Json,
+        },
       );
-      if (outcomeSeedError) throw outcomeSeedError;
+      if (finalizeError) throw finalizeError;
+      const finalizeResult = finalized as unknown as FinalizeImportStagingResult;
+      if (finalizeResult.status !== "ready") throw new Error("Import staging was not finalized.");
+      const { data: executionBatch, error: executionStartError } = await supabase
+        .from("import_batches")
+        .update({ status: "processing", started_at: new Date().toISOString() })
+        .eq("id", batchId)
+        .eq("status", "ready")
+        .select("id")
+        .maybeSingle();
+      if (executionStartError) throw executionStartError;
+      if (!executionBatch) throw new Error("This import has already started in another session.");
 
       async function recordOutcome(
         index: number,
@@ -747,7 +782,7 @@ function ImportCenter() {
             review_queue_id: details.reviewQueueId ?? null,
             message: details.message ?? null,
             completed_at: new Date().toISOString(),
-            last_error: outcome === "failed" ? details.message ?? null : null,
+            last_error: outcome === "failed" ? (details.message ?? null) : null,
             result: {
               person_id: details.personId ?? null,
               review_queue_id: details.reviewQueueId ?? null,
@@ -772,16 +807,17 @@ function ImportCenter() {
       let unreadableGiftDates = 0;
 
       const existingImportDonations = await fetchAll<ExistingImportDonation>((f, t) =>
-            supabase
-              .from("donations")
-              .select("person_id, import_fingerprint, amount, date, event_id, campaigns(name)")
-              .not("import_fingerprint", "is", null)
-              .is("deleted_at", null)
-              .order("id")
-              .range(f, t),
-          );
+        supabase
+          .from("donations")
+          .select("person_id, import_fingerprint, amount, date, event_id, campaigns(name)")
+          .not("import_fingerprint", "is", null)
+          .is("deleted_at", null)
+          .order("id")
+          .range(f, t),
+      );
       const existingGiftFingerprints = new Set(
-        existingImportDonations.map((gift) => gift.import_fingerprint)
+        existingImportDonations
+          .map((gift) => gift.import_fingerprint)
           .filter((value): value is string => Boolean(value)),
       );
 
@@ -987,9 +1023,7 @@ function ImportCenter() {
       function planRowDonation(v: RowValues, giftDate: string) {
         const eventKey = normalizeLabel(v.event_name ?? "");
         const targetEventId =
-          (eventKey ? eventIdByKey.get(eventKey) : undefined) ??
-          bulkTarget.eventId ??
-          "";
+          (eventKey ? eventIdByKey.get(eventKey) : undefined) ?? bulkTarget.eventId ?? "";
         const explicitEvent = targetEventId
           ? ((events ?? []).find((event) => event.id === targetEventId) ?? {
               id: targetEventId,
@@ -999,7 +1033,8 @@ function ImportCenter() {
         const nearbyGroup = explicitEvent
           ? undefined
           : giftEventGroups.find(
-              (g) => g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+              (g) =>
+                g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
             );
         const nearbyDecision = nearbyGroup ? giftEventDecisions[nearbyGroup.event.id] : undefined;
         const eventDecision = chooseActivityEventDecision({
@@ -1087,7 +1122,8 @@ function ImportCenter() {
           const giftAlreadyImported = Boolean(
             giftFingerprint && existingGiftFingerprints.has(giftFingerprint),
           );
-          const exactTransactionRepeat = live.status === "matched" &&
+          const exactTransactionRepeat =
+            live.status === "matched" &&
             isExactTransactionDonationRepeat({
               row: v,
               personId: live.candidates[0]?.id ?? null,
@@ -1531,7 +1567,7 @@ function ImportCenter() {
                     event_id: giftPlan.activityPlan.donationEventId,
                     source,
                     notes: v.notes ?? null,
-                    import_batch_id: batch.id,
+                    import_batch_id: batchId,
                     import_fingerprint: fingerprint,
                     external_transaction_id: giftPlan.activityPlan.sourceTransactionId,
                     external_transaction_id_key: giftPlan.activityPlan.sourceTransactionIdentity,
@@ -1570,9 +1606,10 @@ function ImportCenter() {
                 );
                 if (paymentConflict) {
                   const eventId = String(incomingRegistration["event_id"]);
-                  const eventName = (events ?? []).find((event) => event.id === eventId)?.name
-                    ?? v.event_name
-                    ?? "Event";
+                  const eventName =
+                    (events ?? []).find((event) => event.id === eventId)?.name ??
+                    v.event_name ??
+                    "Event";
                   const reviewContext: RegistrationPaymentConflictContext = {
                     kind: "registration_payment_conflict",
                     person_id: personId,
@@ -1592,7 +1629,10 @@ function ImportCenter() {
                     groupInfo,
                     reviewContext,
                   );
-                  await recordOutcome(index, "flagged", { reviewQueueId, message: "Registration payment requires an explicit decision." });
+                  await recordOutcome(index, "flagged", {
+                    reviewQueueId,
+                    message: "Registration payment requires an explicit decision.",
+                  });
                   continue;
                 }
               }
@@ -1710,7 +1750,7 @@ function ImportCenter() {
                   tags: splitList(v.tags),
                   programs: splitList(v.programs),
                   ...(relationship ? { household_relationship: relationship } : {}),
-                  import_batch_id: batch.id,
+                  import_batch_id: batchId,
                 })
                 .select("id")
                 .single();
@@ -2005,7 +2045,7 @@ function ImportCenter() {
                   field_name: key,
                   source,
                   recorded_date: importDate,
-                  import_batch_id: batch.id,
+                  import_batch_id: batchId,
                 });
             }
 
@@ -2050,7 +2090,7 @@ function ImportCenter() {
                       campaign_id: rowCampaignId,
                       source,
                       notes: v.notes ?? null,
-                      import_batch_id: batch.id,
+                      import_batch_id: batchId,
                       import_fingerprint: fingerprint,
                     })
                     .select("id")
@@ -2106,7 +2146,7 @@ function ImportCenter() {
                   date: importDate,
                   text: noteParts,
                   author: "Import",
-                  import_batch_id: batch.id,
+                  import_batch_id: batchId,
                 }),
                 { area: "import", action: "Save an imported detail" },
               );
@@ -2180,7 +2220,7 @@ function ImportCenter() {
           flagged_rows: reconciliation.flagged,
           failed_rows: reconciliation.failed,
           completed_at: new Date().toISOString(),
-          status: reconciled && reconciliation.failed === 0 ? "imported" : "needs_attention",
+          status: reconciled && reconciliation.failed === 0 ? "completed" : "needs_attention",
         })
         .eq("id", batchId);
       if (batchFinishError) throw batchFinishError;
@@ -2436,8 +2476,8 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                These are the explicit event names in the file. Every unmatched event must be linked,
-                created, or ignored before import. We never create an event without asking.
+                These are the explicit event names in the file. Every unmatched event must be
+                linked, created, or ignored before import. We never create an event without asking.
                 {unansweredEvents.length > 0
                   ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
                   : ""}
@@ -2739,11 +2779,15 @@ function ImportCenter() {
             </div>
             <div className="mt-4 space-y-2">
               <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <label className="text-sm font-medium text-foreground" htmlFor="transaction-source-system">
+                <label
+                  className="text-sm font-medium text-foreground"
+                  htmlFor="transaction-source-system"
+                >
                   Transaction source
                 </label>
                 <p className="mb-2 text-xs text-muted-foreground">
-                  Select a known system to namespace external transaction IDs. Unknown files remain fully importable.
+                  Select a known system to namespace external transaction IDs. Unknown files remain
+                  fully importable.
                 </p>
                 <select
                   id="transaction-source-system"

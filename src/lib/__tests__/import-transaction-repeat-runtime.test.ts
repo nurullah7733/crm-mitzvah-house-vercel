@@ -5,7 +5,7 @@ const route = readFileSync(new URL("../../routes/_authenticated/inbox.index.tsx"
 
 describe("transaction repeat import routing", () => {
   it("only bypasses duplicate-gift review for an exact matched transaction repeat", () => {
-    expect(route).toContain('const exactTransactionRepeat = live.status === "matched"');
+    expect(route).toMatch(/const exactTransactionRepeat\s*=\s*live\.status === "matched"/);
     expect(route).toContain("isExactTransactionDonationRepeat({");
     expect(route).toContain("(giftAlreadyImported && !exactTransactionRepeat)");
   });

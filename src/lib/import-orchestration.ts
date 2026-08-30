@@ -19,6 +19,26 @@ export type ImportOrchestrationContextV1 = {
   };
 };
 
+export type BeginOrResumeImportBatchResult = {
+  created: boolean;
+  resumed: boolean;
+  batch_id: string;
+  status: "staging" | "ready" | "processing" | "needs_attention";
+  resumable_identity: string;
+  expected_rows: number;
+  staged_rows: number;
+  outcomes: number;
+  orchestration_context: ImportOrchestrationContextV1;
+};
+
+export type FinalizeImportStagingResult = {
+  batch_id: string;
+  status: "ready";
+  expected_rows: number;
+  staged_rows: number;
+  outcomes: number;
+};
+
 export function buildImportOrchestrationContext(input: {
   effectiveDate: string;
   sourceSystem: string | null;
