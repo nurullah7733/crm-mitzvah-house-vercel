@@ -32,3 +32,29 @@ export async function recordImportRowFailureAndRethrow(
   }
   throw originalError;
 }
+
+export type ImportRowRetryArgs = {
+  batchId: string;
+  outcomeId: string;
+  stagedRowId: string;
+  expectedAttemptCount?: number | null;
+  expectedLastError?: string | null;
+};
+
+/** Minimal retry hook for the active Import Center row retry lane. */
+export async function retryFailedImportRow(args: ImportRowRetryArgs) {
+  const { data, error } = await (supabase.rpc as any)("retry_failed_import_row", {
+    _batch_id: args.batchId,
+    _outcome_id: args.outcomeId,
+    _staged_row_id: args.stagedRowId,
+    _expected_attempt_count: args.expectedAttemptCount ?? null,
+    _expected_last_error: args.expectedLastError ?? null,
+  });
+  if (error) throw error;
+  return data as unknown as {
+    outcome?: string;
+    outcome_id?: string;
+    retry_count?: number;
+    result?: Record<string, unknown>;
+  } | null;
+}

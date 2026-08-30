@@ -24,7 +24,7 @@ import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
 import { attributeGiftToEvent, recordAttendance } from "@/lib/gift-events";
-import { recordImportRowFailureAndRethrow } from "@/lib/import-row-failure";
+import { recordImportRowFailureAndRethrow, retryFailedImportRow } from "@/lib/import-row-failure";
 import {
   findGiftsOnOtherContacts,
   isExactTransactionDonationRepeat,
@@ -134,6 +134,18 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
 
 type Sheet = SelectedSheet & { name: string };
 
+/** A row that finished `failed` this run, with what it takes to retry it: a fresh claim plus the
+ * exact execution decision already made for it (not recomputed — re-running the matching/dedup
+ * pipeline for one row in isolation is out of scope for this minimal retry path). */
+type FailedRetryRow = {
+  rowNumber: number;
+  outcomeId: string;
+  stagedRowId: string;
+  execution: Json;
+  retrying: boolean;
+  error: string | null;
+};
+
 /** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
 const isoDate = (raw: string | undefined) => parseImportDate(raw);
 const importedAmount = (raw: string | number | null | undefined) => {
@@ -184,6 +196,10 @@ function ImportCenter() {
   const [transactionSourceSystem, setTransactionSourceSystem] = useState("");
   /** Blocks a double-tap or a browser retry from running the same import twice. */
   const runningRef = useRef(false);
+  /** Rows that finished this run as `failed`, kept open for a one-row retry before the batch closes. */
+  const [failedRetryRows, setFailedRetryRows] = useState<FailedRetryRow[]>([]);
+  /** The still-leased batch a pending retry needs; cleared once every failed row is resolved. */
+  const activeRetryBatchRef = useRef<{ batchId: string; leaseOwner: string } | null>(null);
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
@@ -679,6 +695,8 @@ function ImportCenter() {
     setProgress({ done: 0, total: analysed.length });
     let leasedBatchId: string | null = null;
     let leaseOwner: string | null = null;
+    let keepLeaseOpenForRetry = false;
+    const retryableFailures: FailedRetryRow[] = [];
     try {
       let importDate = new Date().toISOString().slice(0, 10);
       const sourceConfidence: TransactionSourceConfidence = transactionSourceSystem
@@ -801,7 +819,6 @@ function ImportCenter() {
           .filter((value): value is string => Boolean(value)),
       );
 
-      /** Park a row in the Data Inbox, with the address it shares so it can be grouped there. */
       async function queueForReview(
         values: RowValues,
         reason: string,
@@ -1068,6 +1085,9 @@ function ImportCenter() {
           throw new Error(`Import row ${index + 1} could not be claimed in source order.`);
         activeClaimedRow = claimedRow;
         let rowCommitted = false;
+        /** Set right before execute_claimed_import_row, so a failure can be retried with the
+         * exact same decision instead of re-running matching for this one row in isolation. */
+        let executionPayload: Json | undefined;
 
         try {
           // Exactly the same check the preview ran, now against the contacts this
@@ -1602,6 +1622,29 @@ function ImportCenter() {
               }
             }
 
+            executionPayload = {
+              kind: "direct",
+              terminal_outcome: match.status === "new" ? "created" : "matched",
+              person: {
+                action: match.status === "new" ? "create" : "update",
+                ...(personId ? { id: personId } : {}),
+                values: personValues,
+              },
+              household: householdPayload,
+              contact_methods: contactMethods,
+              labels: {
+                tags: bulkTarget.tag ? [bulkTarget.tag] : [],
+                programs: bulkTarget.program ? [bulkTarget.program] : [],
+              },
+              provenance,
+              spouse: spousePayload,
+              children: childrenPayload,
+              activity: {
+                registrations: [...registrations.values()],
+                donation: donationPayload,
+                note: notePayload,
+              },
+            } as Json;
             const { data: resolved, error: resolveError } = await supabase.rpc(
               "execute_claimed_import_row",
               {
@@ -1610,29 +1653,7 @@ function ImportCenter() {
                 _staged_row_id: claimedRow.staged_row_id,
                 _claim_token: claimedRow.claim_token,
                 _claimed_by: leaseOwner,
-                _execution: {
-                  kind: "direct",
-                  terminal_outcome: match.status === "new" ? "created" : "matched",
-                  person: {
-                    action: match.status === "new" ? "create" : "update",
-                    ...(personId ? { id: personId } : {}),
-                    values: personValues,
-                  },
-                  household: householdPayload,
-                  contact_methods: contactMethods,
-                  labels: {
-                    tags: bulkTarget.tag ? [bulkTarget.tag] : [],
-                    programs: bulkTarget.program ? [bulkTarget.program] : [],
-                  },
-                  provenance,
-                  spouse: spousePayload,
-                  children: childrenPayload,
-                  activity: {
-                    registrations: [...registrations.values()],
-                    donation: donationPayload,
-                    note: notePayload,
-                  },
-                } as Json,
+                _execution: executionPayload,
               },
             );
             if (resolveError) throw resolveError;
@@ -2158,6 +2179,16 @@ function ImportCenter() {
           } catch (preservedError) {
             console.error("Import row remains failed", preservedError);
           }
+          if (executionPayload) {
+            retryableFailures.push({
+              rowNumber: index + 1,
+              outcomeId: claimedRow.outcome_id,
+              stagedRowId: claimedRow.staged_row_id,
+              execution: executionPayload,
+              retrying: false,
+              error: null,
+            });
+          }
         }
 
         // Let the browser breathe so a long import never freezes the page.
@@ -2180,6 +2211,11 @@ function ImportCenter() {
       };
       const processed = Object.values(reconciliation).reduce((sum, count) => sum + count, 0);
       const reconciled = processed === analysed.length;
+      // A row can only be retried while the batch is still `processing` with an active lease
+      // (claim_import_rows requires both). So a failed row we captured an execution payload for
+      // keeps the batch open here instead of closing it out as `needs_attention` — closing and
+      // reopening a batch's lease/status is resumable-import (I6/I7) territory, not this fix.
+      const hasRetryableFailures = reconciliation.failed > 0 && retryableFailures.length > 0;
       const { error: batchFinishError } = await supabase
         .from("import_batches")
         .update({
@@ -2188,8 +2224,12 @@ function ImportCenter() {
           matched_rows: reconciliation.matched,
           flagged_rows: reconciliation.flagged,
           failed_rows: reconciliation.failed,
-          completed_at: new Date().toISOString(),
-          status: reconciled && reconciliation.failed === 0 ? "completed" : "needs_attention",
+          ...(hasRetryableFailures
+            ? { status: "processing" }
+            : {
+                completed_at: new Date().toISOString(),
+                status: reconciled && reconciliation.failed === 0 ? "completed" : "needs_attention",
+              }),
         })
         .eq("id", batchId);
       if (batchFinishError) throw batchFinishError;
@@ -2208,22 +2248,32 @@ function ImportCenter() {
             } left out because the date in the file couldn't be read — nothing was dated today by mistake.`
           : "",
       ].filter(Boolean);
-      toast.success(
-        `${analysed.length} rows reconciled · ${reconciliation.created} created · ${reconciliation.matched} matched · ${reconciliation.flagged} flagged · ${reconciliation.failed} failed${
-          counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
-        }`,
-        {
-          duration: 12000,
-          ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
-        },
-      );
-      await queryClient.invalidateQueries();
-      reset();
+      if (hasRetryableFailures) {
+        keepLeaseOpenForRetry = true;
+        activeRetryBatchRef.current = { batchId, leaseOwner: leaseOwner! };
+        setFailedRetryRows(retryableFailures);
+        toast.warning(
+          `${retryableFailures.length} row${retryableFailures.length === 1 ? "" : "s"} failed to save. Retry ${retryableFailures.length === 1 ? "it" : "them"} below, or leave this page and re-import the file later.`,
+          { duration: 15000 },
+        );
+      } else {
+        toast.success(
+          `${analysed.length} rows reconciled · ${reconciliation.created} created · ${reconciliation.matched} matched · ${reconciliation.flagged} flagged · ${reconciliation.failed} failed${
+            counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
+          }`,
+          {
+            duration: 12000,
+            ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
+          },
+        );
+        await queryClient.invalidateQueries();
+        reset();
+      }
     } catch (e) {
       const why = await friendlyDbError(e, "Import failed.");
       toast.error(`${why} Your file is still here, nothing was lost.`);
     } finally {
-      if (leasedBatchId && leaseOwner) {
+      if (leasedBatchId && leaseOwner && !keepLeaseOpenForRetry) {
         await supabase.rpc("release_import_batch", {
           _batch_id: leasedBatchId,
           _lease_owner: leaseOwner,
@@ -2231,6 +2281,101 @@ function ImportCenter() {
       }
       setBusy(false);
       runningRef.current = false;
+    }
+  }
+
+  /** Finish the batch once every row captured for retry has been resolved. */
+  async function finalizeBatchAfterRetries(batchId: string, leaseOwner: string) {
+    await supabase
+      .from("import_batches")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .eq("id", batchId);
+    await supabase.rpc("release_import_batch", { _batch_id: batchId, _lease_owner: leaseOwner });
+    activeRetryBatchRef.current = null;
+    await queryClient.invalidateQueries();
+    reset();
+    toast.success("All rows saved.");
+  }
+
+  /** Retry exactly one failed row: retry_failed_import_row -> claim_import_rows ->
+   * execute_claimed_import_row, reusing the decision already made for it. No direct table
+   * writes, no fabricated claim state — every step is the same RPC the active importer uses. */
+  async function retryOneFailedRow(row: FailedRetryRow) {
+    const active = activeRetryBatchRef.current;
+    if (!active) {
+      setFailedRetryRows((prev) =>
+        prev.map((r) =>
+          r.outcomeId === row.outcomeId
+            ? { ...r, error: "This import session has ended. Re-import the file to retry this row." }
+            : r,
+        ),
+      );
+      return;
+    }
+    setFailedRetryRows((prev) =>
+      prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, retrying: true, error: null } : r)),
+    );
+    try {
+      await retryFailedImportRow({
+        batchId: active.batchId,
+        outcomeId: row.outcomeId,
+        stagedRowId: row.stagedRowId,
+        expectedAttemptCount: null,
+        expectedLastError: null,
+      });
+      const { error: heartbeatError } = await supabase.rpc("heartbeat_import_batch", {
+        _batch_id: active.batchId,
+        _lease_owner: active.leaseOwner,
+        _lease_seconds: 300,
+      });
+      if (heartbeatError) throwImportLeaseError(heartbeatError);
+      const { data: claimedRows, error: claimError } = await supabase.rpc("claim_import_rows", {
+        _batch_id: active.batchId,
+        _lease_owner: active.leaseOwner,
+        _max_rows: 1,
+      });
+      if (claimError) throwImportLeaseError(claimError);
+      const claimed = (claimedRows as unknown as ClaimedImportRow[] | null)?.[0];
+      if (!claimed || claimed.staged_row_id !== row.stagedRowId) {
+        throw new Error(
+          "The retried row could not be claimed (another retry may be in progress). Try again.",
+        );
+      }
+      const { error: resolveError } = await supabase.rpc("execute_claimed_import_row", {
+        _batch_id: active.batchId,
+        _outcome_id: claimed.outcome_id,
+        _staged_row_id: claimed.staged_row_id,
+        _claim_token: claimed.claim_token,
+        _claimed_by: active.leaseOwner,
+        _execution: row.execution,
+      });
+      if (resolveError) {
+        const why = await friendlyDbError(resolveError, "We couldn't save this row.");
+        await recordImportRowFailureAndRethrow(
+          {
+            batchId: active.batchId,
+            outcomeId: claimed.outcome_id,
+            stagedRowId: claimed.staged_row_id,
+            claimToken: claimed.claim_token,
+            claimedBy: active.leaseOwner,
+            message: why,
+          },
+          resolveError,
+        );
+      }
+      toast.success(`Row ${row.rowNumber} saved.`);
+      let remaining = 0;
+      setFailedRetryRows((prev) => {
+        const next = prev.filter((r) => r.outcomeId !== row.outcomeId);
+        remaining = next.length;
+        return next;
+      });
+      if (remaining === 0) await finalizeBatchAfterRetries(active.batchId, active.leaseOwner);
+    } catch (e) {
+      const why = await friendlyDbError(e, "That row still couldn't be saved.");
+      setFailedRetryRows((prev) =>
+        prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, retrying: false, error: why } : r)),
+      );
     }
   }
 
@@ -2247,6 +2392,40 @@ function ImportCenter() {
         </Link>
       }
     >
+      {failedRetryRows.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+            <AlertTriangle className="size-4" />
+            {failedRetryRows.length} row{failedRetryRows.length === 1 ? "" : "s"} failed to save
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The rest of this import is saved. Retry each row below, or leave this page and
+            re-import the file later to pick these back up.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {failedRetryRows.map((row) => (
+              <li
+                key={row.outcomeId}
+                className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Row {row.rowNumber}</p>
+                  {row.error && <p className="mt-0.5 text-xs text-destructive">{row.error}</p>}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={row.retrying || failedRetryRows.some((r) => r.retrying)}
+                  onClick={() => void retryOneFailedRow(row)}
+                >
+                  {row.retrying ? "Retrying…" : "Retry Failed Row"}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!workbook && (
         <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center shadow-sm">
           <UploadCloud className="mx-auto size-8 text-primary" />
