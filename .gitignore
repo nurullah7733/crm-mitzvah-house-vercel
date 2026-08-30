@@ -39,3 +39,4 @@ dist-ssr
 
 supabase/.temp
 qa-fixtures/
+.vercel*
