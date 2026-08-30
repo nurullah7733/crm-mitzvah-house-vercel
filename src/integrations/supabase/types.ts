@@ -591,9 +591,13 @@ export type Database = {
           header_row_number: number | null;
           id: string;
           import_date: string;
+          last_heartbeat_at: string | null;
+          lease_expires_at: string | null;
+          lease_owner: string | null;
           mapping: Json;
           matched_rows: number;
           new_rows: number;
+          orchestration_context: Json;
           processed_rows: number;
           raw_file_hash: string | null;
           selected_sheet_index: number | null;
@@ -603,6 +607,7 @@ export type Database = {
           source_system_confidence: string;
           source_structure: Json | null;
           status: string;
+          started_at: string | null;
           total_rows: number;
           transaction_object_type: string | null;
           uploaded_by: string | null;
@@ -619,9 +624,13 @@ export type Database = {
           header_row_number?: number | null;
           id?: string;
           import_date?: string;
+          last_heartbeat_at?: string | null;
+          lease_expires_at?: string | null;
+          lease_owner?: string | null;
           mapping?: Json;
           matched_rows?: number;
           new_rows?: number;
+          orchestration_context?: Json;
           processed_rows?: number;
           raw_file_hash?: string | null;
           selected_sheet_index?: number | null;
@@ -631,6 +640,7 @@ export type Database = {
           source_system_confidence?: string;
           source_structure?: Json | null;
           status?: string;
+          started_at?: string | null;
           total_rows?: number;
           transaction_object_type?: string | null;
           uploaded_by?: string | null;
@@ -647,9 +657,13 @@ export type Database = {
           header_row_number?: number | null;
           id?: string;
           import_date?: string;
+          last_heartbeat_at?: string | null;
+          lease_expires_at?: string | null;
+          lease_owner?: string | null;
           mapping?: Json;
           matched_rows?: number;
           new_rows?: number;
+          orchestration_context?: Json;
           processed_rows?: number;
           raw_file_hash?: string | null;
           selected_sheet_index?: number | null;
@@ -659,6 +673,7 @@ export type Database = {
           source_system_confidence?: string;
           source_structure?: Json | null;
           status?: string;
+          started_at?: string | null;
           total_rows?: number;
           transaction_object_type?: string | null;
           uploaded_by?: string | null;
@@ -708,39 +723,66 @@ export type Database = {
       };
       import_row_outcomes: {
         Row: {
+          attempt_count: number;
           batch_id: string;
+          claim_token: string | null;
+          claimed_at: string | null;
+          claimed_by: string | null;
+          completed_at: string | null;
           created_at: string;
           id: string;
+          last_error: string | null;
+          lease_expires_at: string | null;
           message: string | null;
           outcome: string;
           person_id: string | null;
           review_queue_id: string | null;
+          result: Json;
           row_data: Json;
           row_number: number;
+          staged_row_id: string | null;
           updated_at: string;
         };
         Insert: {
+          attempt_count?: number;
           batch_id: string;
+          claim_token?: string | null;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           id?: string;
+          last_error?: string | null;
+          lease_expires_at?: string | null;
           message?: string | null;
           outcome?: string;
           person_id?: string | null;
           review_queue_id?: string | null;
+          result?: Json;
           row_data?: Json;
           row_number: number;
+          staged_row_id?: string | null;
           updated_at?: string;
         };
         Update: {
+          attempt_count?: number;
           batch_id?: string;
+          claim_token?: string | null;
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           id?: string;
+          last_error?: string | null;
+          lease_expires_at?: string | null;
           message?: string | null;
           outcome?: string;
           person_id?: string | null;
           review_queue_id?: string | null;
+          result?: Json;
           row_data?: Json;
           row_number?: number;
+          staged_row_id?: string | null;
           updated_at?: string;
         };
         Relationships: [
@@ -750,6 +792,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "import_batches";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "import_row_outcomes_staged_batch_fkey";
+            columns: ["staged_row_id", "batch_id"];
+            isOneToOne: true;
+            referencedRelation: "import_staged_rows";
+            referencedColumns: ["id", "batch_id"];
           },
           {
             foreignKeyName: "import_row_outcomes_person_id_fkey";

@@ -98,6 +98,7 @@ import {
   type SelectedSheet,
   type WorkbookProfile,
 } from "@/lib/import-workbook";
+import { buildImportOrchestrationContext } from "@/lib/import-orchestration";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -667,6 +668,7 @@ function ImportCenter() {
           new_rows: counts.new,
           ambiguous_rows: counts.ambiguous,
           status: "processing",
+          started_at: new Date().toISOString(),
           raw_file_hash: sheet.rawFileHash,
           source_data_hash: sheet.sourceDataHash,
           selected_sheet_name: sheet.sheetName,
@@ -683,6 +685,18 @@ function ImportCenter() {
           source_system: transactionSourceSystem || null,
           source_system_confidence: sourceConfidence,
           transaction_object_type: transactionObjectType,
+          orchestration_context: buildImportOrchestrationContext({
+            effectiveDate: importDate,
+            sourceSystem: transactionSourceSystem || null,
+            sourceConfidence,
+            transactionObjectType,
+            eventDecisions,
+            addressDecisions,
+            giftEventDecisions,
+            bulkTarget,
+            repeatedFileConfirmed: reimportConfirmed,
+            manualHeaderRiskConfirmed: headerRiskConfirmed,
+          }) as Json,
           mapping: mapping.reduce<Record<string, string>>((acc, m, i) => {
             acc[sheet.columnIds[i] ?? `column_${i + 1}`] = m.field;
             return acc;
@@ -697,20 +711,25 @@ function ImportCenter() {
         sheet,
         mapping,
         analysed.map((item) => item.values),
-      ).map((row) => ({ ...row, batch_id: batchId })) as never[];
+      ).map((row) => ({ ...row, batch_id: batchId }));
+      const stagedRowIdByPhysicalRow = new Map<number, string>();
       for (let offset = 0; offset < stagedRows.length; offset += 250) {
-        const { error: stagingError } = await supabase
+        const { data: insertedStagedRows, error: stagingError } = await supabase
           .from("import_staged_rows")
-          .insert(stagedRows.slice(offset, offset + 250));
+          .insert(stagedRows.slice(offset, offset + 250) as never[])
+          .select("id, physical_row_number");
         if (stagingError) throw stagingError;
+        for (const stagedRow of insertedStagedRows ?? [])
+          stagedRowIdByPhysicalRow.set(stagedRow.physical_row_number, stagedRow.id);
       }
 
       const { error: outcomeSeedError } = await supabase.from("import_row_outcomes").insert(
         analysed.map((item, index) => ({
           batch_id: batchId,
           row_number: index + 1,
+          staged_row_id: stagedRowIdByPhysicalRow.get(stagedRows[index]!.physical_row_number)!,
           row_data: item.values as never,
-          outcome: "processing",
+          outcome: "pending",
         })),
       );
       if (outcomeSeedError) throw outcomeSeedError;
@@ -727,6 +746,13 @@ function ImportCenter() {
             person_id: details.personId ?? null,
             review_queue_id: details.reviewQueueId ?? null,
             message: details.message ?? null,
+            completed_at: new Date().toISOString(),
+            last_error: outcome === "failed" ? details.message ?? null : null,
+            result: {
+              person_id: details.personId ?? null,
+              review_queue_id: details.reviewQueueId ?? null,
+              message: details.message ?? null,
+            },
           })
           .eq("batch_id", batchId)
           .eq("row_number", index + 1);
@@ -1003,6 +1029,17 @@ function ImportCenter() {
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
+        const { data: processingOutcome, error: processingError } = await supabase
+          .from("import_row_outcomes")
+          .update({ outcome: "processing", attempt_count: 1 })
+          .eq("batch_id", batchId)
+          .eq("row_number", index + 1)
+          .eq("outcome", "pending")
+          .select("id")
+          .maybeSingle();
+        if (processingError) throw processingError;
+        if (!processingOutcome)
+          throw new Error(`Import row ${index + 1} was not pending before execution.`);
         let rowCommitted = false;
 
         try {
