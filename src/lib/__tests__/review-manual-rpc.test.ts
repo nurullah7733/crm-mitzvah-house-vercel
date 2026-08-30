@@ -28,6 +28,19 @@ const item = {
   filename: "people.csv",
   row_data: { first_name: "Sarah", email: "new@example.com" },
 };
+const existingBefore = {
+  first_name: "Sarah",
+  last_name: "Klein",
+  display_name: "Sarah Klein",
+  email: null,
+  phone: null,
+  role: "Adult",
+  birth_date: null,
+  anniversary_date: null,
+  school: null,
+  notes: null,
+  met_source: null,
+};
 
 beforeEach(() => rpc.mockReset());
 
@@ -40,7 +53,7 @@ describe("transactional manual review merge", () => {
       [...fields],
       {},
       {
-        existingBefore: { email: null },
+        existingBefore,
         survivingAfter: { email: "new@example.com" },
       },
     );
@@ -51,10 +64,10 @@ describe("transactional manual review merge", () => {
       expect.objectContaining({
         _person_patch: {
           __h2_contract: "manual",
-          __h2_expected: { email: null },
+          __h2_expected: existingBefore,
           __h2_values: { email: "new@example.com" },
         },
-        _existing_before: { email: null },
+        _existing_before: existingBefore,
         _surviving_after: { email: "new@example.com" },
       }),
     );

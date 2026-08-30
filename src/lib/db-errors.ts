@@ -37,6 +37,12 @@ export async function friendlyDbError(e: unknown, fallback = "That didn't save."
     return "This row needs its dedicated review action. Refresh the Data Inbox and use the household, activity-owner, or payment-conflict choice shown there.";
   if (/REVIEW_STALE_HOUSEHOLD/.test(raw))
     return "This person's household changed after the screen opened. Refresh and review the household choice again; nothing was partially moved.";
+  if (/MERGE_STALE_PERSON/.test(raw))
+    return "One of these contacts changed after the merge screen opened. Refresh and compare them again; no merge was applied.";
+  if (/MERGE_STALE_HOUSEHOLD_MEMBERSHIP/.test(raw))
+    return "Someone's household membership changed after the merge screen opened. Refresh and compare the households again; no merge was applied.";
+  if (/MERGE_STALE_HOUSEHOLD/.test(raw))
+    return "One of these households changed after the merge screen opened. Refresh and compare them again; no merge was applied.";
   if (/REVIEW_HOUSEHOLD_TARGET_INVALID|HOUSEHOLD_(TARGET|MERGE_TARGET)_INVALID/.test(raw))
     return "That household choice no longer matches the records on screen. Refresh and choose again.";
   if (/HOUSEHOLD_RELATIONSHIP_(INVALID|REQUIRED)/.test(raw))

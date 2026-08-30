@@ -1789,6 +1789,10 @@ export type Database = {
       };
       merge_households: {
         Args: {
+          _expected_merged_household: Json;
+          _expected_merged_members: Json;
+          _expected_surviving_household: Json;
+          _expected_surviving_members: Json;
           _field_values?: Json;
           _merged_id: string;
           _surviving_id: string;
@@ -1798,7 +1802,9 @@ export type Database = {
       merge_people_with_households: {
         Args: {
           _expected_merged_household_id?: string | null;
+          _expected_merged_person: Json;
           _expected_surviving_household_id?: string | null;
+          _expected_surviving_person: Json;
           _field_values?: Json;
           _merge_households?: boolean;
           _merged_id: string;

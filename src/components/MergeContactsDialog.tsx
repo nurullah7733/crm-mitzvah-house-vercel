@@ -58,6 +58,11 @@ const FIELDS: MergeField[] = [
   { key: "programs", label: "Programs" },
 ];
 
+/** Exact editable values this dialog was based on, used for stale-write rejection. */
+function mergePersonSnapshot(person: Person) {
+  return Object.fromEntries(FIELDS.map(({ key }) => [key, person[key as keyof Person] ?? null]));
+}
+
 /** Households are shown by name; the id is put back when saving. */
 function toCompareRecord(p: Person, houseNames: Map<string, string>) {
   const rec: Record<string, unknown> = { ...p };
@@ -274,6 +279,8 @@ export function MergeContactsDialog({
         _merge_households: twoHouseholds && mergeHouses,
         _expected_surviving_household_id: survivor.household_id,
         _expected_merged_household_id: loser.household_id,
+        _expected_surviving_person: mergePersonSnapshot(survivor),
+        _expected_merged_person: mergePersonSnapshot(loser),
       });
       if (error) throw error;
       const result = (data ?? {}) as Record<string, unknown>;

@@ -14,6 +14,7 @@ import { buildActivityPlan, type ActivityEventDecision } from "@/lib/import-acti
 import type { RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
 import { must } from "@/lib/app-errors";
 import {
+  COMPARE_FIELDS,
   compareRecords,
   hasConflict,
   incomingPatch,
@@ -55,8 +56,10 @@ function h2PatchContract(
   patch: Partial<Record<CompareKey, string | null>>,
   expected: Partial<Record<CompareKey, string | null>>,
 ) {
+  const expectedKeys =
+    contract === "manual" ? COMPARE_FIELDS.map(({ key }) => key) : Object.keys(patch);
   const expectedForPatch = Object.fromEntries(
-    Object.keys(patch).map((key) => [key, expected[key as CompareKey] ?? null]),
+    expectedKeys.map((key) => [key, expected[key as CompareKey] ?? null]),
   );
   return { __h2_contract: contract, __h2_values: patch, __h2_expected: expectedForPatch };
 }

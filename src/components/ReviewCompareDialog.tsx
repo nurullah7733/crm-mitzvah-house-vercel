@@ -83,7 +83,9 @@ export function ReviewCompareDialog({
       setReason("");
       setShowSame(false);
       setContactSearch("");
-      setSelectedExisting(existing);
+      // Keep the exact person state this dialog was opened against. Query-cache
+      // refreshes must not turn an old reviewer decision into a fresh request.
+      setSelectedExisting(existing ? { ...existing } : null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, item.id]);
@@ -441,7 +443,7 @@ export function ReviewCompareDialog({
                     variant="ghost"
                     className="w-full justify-start rounded-lg"
                     onClick={() => {
-                      setSelectedExisting(person);
+                      setSelectedExisting({ ...person });
                       setChoices({});
                       setEditedExisting({});
                       setContactSearch("");
