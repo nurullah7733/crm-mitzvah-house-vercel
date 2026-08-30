@@ -104,7 +104,9 @@ import {
 import {
   buildImportOrchestrationContext,
   type BeginOrResumeImportBatchResult,
+  type ClaimedImportRow,
   type FinalizeImportStagingResult,
+  throwImportLeaseError,
 } from "@/lib/import-orchestration";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
@@ -675,6 +677,8 @@ function ImportCenter() {
     runningRef.current = true;
     setBusy(true);
     setProgress({ done: 0, total: analysed.length });
+    let leasedBatchId: string | null = null;
+    let leaseOwner: string | null = null;
     try {
       let importDate = new Date().toISOString().slice(0, 10);
       const sourceConfidence: TransactionSourceConfidence = transactionSourceSystem
@@ -759,15 +763,14 @@ function ImportCenter() {
       if (finalizeError) throw finalizeError;
       const finalizeResult = finalized as unknown as FinalizeImportStagingResult;
       if (finalizeResult.status !== "ready") throw new Error("Import staging was not finalized.");
-      const { data: executionBatch, error: executionStartError } = await supabase
-        .from("import_batches")
-        .update({ status: "processing", started_at: new Date().toISOString() })
-        .eq("id", batchId)
-        .eq("status", "ready")
-        .select("id")
-        .maybeSingle();
-      if (executionStartError) throw executionStartError;
-      if (!executionBatch) throw new Error("This import has already started in another session.");
+      leaseOwner = crypto.randomUUID();
+      const { error: executionStartError } = await supabase.rpc("claim_import_batch", {
+        _batch_id: batchId,
+        _lease_owner: leaseOwner,
+        _lease_seconds: 300,
+      });
+      if (executionStartError) throwImportLeaseError(executionStartError);
+      leasedBatchId = batchId;
 
       async function recordOutcome(
         index: number,
@@ -1064,17 +1067,21 @@ function ImportCenter() {
       for (let index = 0; index < analysed.length; index++) {
         const item = analysed[index]!;
         const v = item.values;
-        const { data: processingOutcome, error: processingError } = await supabase
-          .from("import_row_outcomes")
-          .update({ outcome: "processing", attempt_count: 1 })
-          .eq("batch_id", batchId)
-          .eq("row_number", index + 1)
-          .eq("outcome", "pending")
-          .select("id")
-          .maybeSingle();
-        if (processingError) throw processingError;
-        if (!processingOutcome)
-          throw new Error(`Import row ${index + 1} was not pending before execution.`);
+        const { error: heartbeatError } = await supabase.rpc("heartbeat_import_batch", {
+          _batch_id: batchId,
+          _lease_owner: leaseOwner,
+          _lease_seconds: 300,
+        });
+        if (heartbeatError) throwImportLeaseError(heartbeatError);
+        const { data: claimedRows, error: claimError } = await supabase.rpc("claim_import_rows", {
+          _batch_id: batchId,
+          _lease_owner: leaseOwner,
+          _max_rows: 1,
+        });
+        if (claimError) throwImportLeaseError(claimError);
+        const claimedRow = (claimedRows as unknown as ClaimedImportRow[] | null)?.[0];
+        if (!claimedRow || claimedRow.row_number !== index + 1)
+          throw new Error(`Import row ${index + 1} could not be claimed in source order.`);
         let rowCommitted = false;
 
         try {
@@ -2254,6 +2261,12 @@ function ImportCenter() {
       const why = await friendlyDbError(e, "Import failed.");
       toast.error(`${why} Your file is still here, nothing was lost.`);
     } finally {
+      if (leasedBatchId && leaseOwner) {
+        await supabase.rpc("release_import_batch", {
+          _batch_id: leasedBatchId,
+          _lease_owner: leaseOwner,
+        });
+      }
       setBusy(false);
       runningRef.current = false;
     }

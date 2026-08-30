@@ -39,6 +39,32 @@ export type FinalizeImportStagingResult = {
   outcomes: number;
 };
 
+export type ClaimedImportRow = {
+  outcome_id: string;
+  staged_row_id: string;
+  row_number: number;
+  physical_row_number: number;
+  attempt_count: number;
+  claim_token: string;
+  claimed_by: string;
+  claimed_at: string;
+  lease_expires_at: string;
+  reclaimed: boolean;
+  raw_cells: unknown;
+  source_columns: unknown;
+  mapping: unknown;
+  normalized_values: unknown;
+};
+
+export function throwImportLeaseError(error: { message?: string } | null): never {
+  const code = error?.message ?? "IMPORT_BATCH_LEASE_LOST";
+  if (code.includes("IMPORT_BATCH_LEASE_HELD"))
+    throw new Error("This import is already running in another session.");
+  if (code.includes("IMPORT_BATCH_LEASE_LOST"))
+    throw new Error("Import interrupted because this session no longer owns the execution lease.");
+  throw new Error(code);
+}
+
 export function buildImportOrchestrationContext(input: {
   effectiveDate: string;
   sourceSystem: string | null;

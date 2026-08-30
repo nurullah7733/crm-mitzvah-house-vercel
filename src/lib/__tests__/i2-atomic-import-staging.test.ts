@@ -82,14 +82,13 @@ describe("M2-I2 atomic begin/resume and staging", () => {
     );
   });
 
-  it("allows only one tab to transition ready into the existing execution loop", () => {
-    expect(route).toContain(
+  it("hands ready batches to the I3 lease gate before the existing execution loop", () => {
+    expect(route).toContain('supabase.rpc("claim_import_batch"');
+    expect(route).not.toContain(
       '.update({ status: "processing", started_at: new Date().toISOString() })',
     );
-    expect(route).toContain('.eq("status", "ready")');
-    expect(route).toContain("This import has already started in another session.");
     expect(route.indexOf('"finalize_import_staging"')).toBeLessThan(
-      route.indexOf('.update({ status: "processing", started_at:'),
+      route.indexOf('"claim_import_batch"'),
     );
   });
 });

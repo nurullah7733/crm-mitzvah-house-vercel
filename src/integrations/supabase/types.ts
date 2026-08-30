@@ -1631,6 +1631,16 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      assert_import_row_claim: {
+        Args: {
+          _batch_id: string;
+          _claim_token: string;
+          _claimed_by: string;
+          _outcome_id: string;
+          _staged_row_id: string;
+        };
+        Returns: boolean;
+      };
       begin_or_resume_import_batch: {
         Args: {
           _ambiguous_rows: number;
@@ -1651,6 +1661,14 @@ export type Database = {
           _source_system_confidence: string;
           _transaction_object_type: string | null;
         };
+        Returns: Json;
+      };
+      claim_import_batch: {
+        Args: { _batch_id: string; _lease_owner: string; _lease_seconds?: number };
+        Returns: Json;
+      };
+      claim_import_rows: {
+        Args: { _batch_id: string; _lease_owner: string; _max_rows?: number };
         Returns: Json;
       };
       apply_import_activity_core: {
@@ -1694,6 +1712,10 @@ export type Database = {
       };
       get_integration_credentials: {
         Args: { _provider: string };
+        Returns: Json;
+      };
+      heartbeat_import_batch: {
+        Args: { _batch_id: string; _lease_owner: string; _lease_seconds?: number };
         Returns: Json;
       };
       giving_total_mismatches: {
@@ -1786,6 +1808,10 @@ export type Database = {
           _row_number: number;
         };
         Returns: string;
+      };
+      release_import_batch: {
+        Args: { _batch_id: string; _lease_owner: string };
+        Returns: Json;
       };
       stage_import_rows: {
         Args: { _batch_id: string; _rows: Json };

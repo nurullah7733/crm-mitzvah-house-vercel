@@ -30,11 +30,11 @@ describe("M2-I1 resumable import state foundation", () => {
         "utf8",
       ),
     ).toContain("'pending'");
-    expect(route).toContain('.update({ outcome: "processing", attempt_count: 1 })');
-    expect(route).toContain('.eq("batch_id", batchId)');
-    expect(route).toContain('.eq("row_number", index + 1)');
-    expect(route).toContain('.eq("outcome", "pending")');
-    expect(route).toContain("was not pending before execution");
+    expect(route).toContain('supabase.rpc("claim_import_rows"');
+    expect(readFileSync("supabase/migrations/20260830000800_import_batch_and_row_claims.sql", "utf8"))
+      .toContain("attempt_count = o.attempt_count + 1");
+    expect(route).toContain("claimedRow.row_number !== index + 1");
+    expect(route).toContain("could not be claimed in source order");
   });
 
   it("binds each future outcome to exactly one staged row in the same batch", () => {
