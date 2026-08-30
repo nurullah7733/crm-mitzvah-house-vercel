@@ -46,6 +46,7 @@ export function ReviewCompareDialog({
   onOpenChange,
   item,
   existing,
+  candidatePersonIds = [],
   onDone,
 }: {
   open: boolean;
@@ -58,6 +59,7 @@ export function ReviewCompareDialog({
     batch_id?: string | null;
   };
   existing: ReviewPerson | null;
+  candidatePersonIds?: string[];
   onDone?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -112,7 +114,7 @@ export function ReviewCompareDialog({
   });
 
   const { data: searchResults } = useQuery({
-    queryKey: ["review-contact-search", contactSearch.trim()],
+    queryKey: ["review-contact-search", contactSearch.trim(), candidatePersonIds.join(",")],
     enabled: open && contactSearch.trim().length >= 2,
     queryFn: async () => {
       const { data: hits, error: searchError } = await supabase.rpc("search_people", {
@@ -120,7 +122,10 @@ export function ReviewCompareDialog({
         _limit: 8,
       });
       if (searchError) throw searchError;
-      const ids = (hits ?? []).map((hit) => hit.person_id);
+      const allowed = new Set(candidatePersonIds);
+      const ids = (hits ?? [])
+        .map((hit) => hit.person_id)
+        .filter((id) => allowed.size === 0 || allowed.has(id));
       if (ids.length === 0) return [] as ReviewPerson[];
       const { data: people, error } = await supabase
         .from("people")

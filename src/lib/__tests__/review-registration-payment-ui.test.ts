@@ -7,7 +7,8 @@ const dialog = readFileSync(new URL("../../components/RegistrationPaymentConflic
 describe("registration payment review UI", () => {
   it("excludes activity conflicts from quick and bulk same-person paths", () => {
     expect(route.match(/isRegistrationPaymentConflict\(/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(route).toContain("!isPaymentConflict");
+    expect(route).toContain("const dedicatedConflict = Boolean(");
+    expect(route).toContain("!dedicatedConflict");
     expect(route).toContain("skipped += 1");
   });
 

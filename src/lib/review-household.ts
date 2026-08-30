@@ -8,6 +8,9 @@ export async function linkHouseholdBeforeFinalize<T>(
   write: PromiseLike<{ error: { message?: string } | null }>,
   finalize: () => Promise<T>,
 ): Promise<T> {
+  throw new Error(
+    "LEGACY_UNSAFE_HELPER_DISABLED: use resolve_review_household_card for atomic household review resolution.",
+  );
   await mustWrite(write, "The contact couldn't be linked to the household.");
   return finalize();
 }

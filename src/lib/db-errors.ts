@@ -33,6 +33,8 @@ export async function friendlyDbError(e: unknown, fallback = "That didn't save."
     return "This review decision no longer matches the queued row. Refresh it and decide again.";
   if (/REVIEW_TRANSACTION_ACTION_REQUIRED/.test(raw))
     return "This protected financial transaction cannot use a generic person action. Set it aside for financial reconciliation or discard it with a reason.";
+  if (/REVIEW_DEDICATED_ACTION_REQUIRED/.test(raw))
+    return "This row needs its dedicated review action. Refresh the Data Inbox and use the household, activity-owner, or payment-conflict choice shown there.";
   if (/REVIEW_STALE_HOUSEHOLD/.test(raw))
     return "This person's household changed after the screen opened. Refresh and review the household choice again; nothing was partially moved.";
   if (/REVIEW_HOUSEHOLD_TARGET_INVALID|HOUSEHOLD_(TARGET|MERGE_TARGET)_INVALID/.test(raw))

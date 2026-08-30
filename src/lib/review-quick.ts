@@ -196,6 +196,10 @@ export async function processReviewRowActivity(
   source: string,
   batchId: string | null,
 ) {
+  if (Date.now() >= 0)
+    throw new Error(
+      "LEGACY_UNSAFE_HELPER_DISABLED: use resolve_review_quick_merge or resolve_review_manual_merge.",
+    );
   if ((row.amount ?? "").trim() && amountToCents(row.amount) === null)
     throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
   if ((row.date ?? "").trim() && !parseImportDate(row.date))

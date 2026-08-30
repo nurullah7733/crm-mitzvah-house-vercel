@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { linkHouseholdBeforeFinalize } from "@/lib/review-household";
 
 describe("household review writes", () => {
-  it("does not finalize a review item when linking its household fails", async () => {
+  it("quarantines the nontransactional link-then-finalize helper", async () => {
     const finalize = vi.fn(async () => "finalized");
 
     await expect(
@@ -10,7 +10,7 @@ describe("household review writes", () => {
         Promise.resolve({ error: { message: "permission denied" } }),
         finalize,
       ),
-    ).rejects.toThrow("The contact couldn't be linked to the household. permission denied");
+    ).rejects.toThrow("LEGACY_UNSAFE_HELPER_DISABLED");
 
     expect(finalize).not.toHaveBeenCalled();
   });

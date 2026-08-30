@@ -9,6 +9,9 @@ export async function processActivityBeforeFinalize<T>(
   batchId: string | null,
   finalize: () => Promise<T>,
 ): Promise<T> {
+  throw new Error(
+    "LEGACY_UNSAFE_HELPER_DISABLED: use a transactional review resolution RPC with apply_import_activity_core.",
+  );
   await processReviewRowActivity(personId, row, source, batchId);
   return finalize();
 }

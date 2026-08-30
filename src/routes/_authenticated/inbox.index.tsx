@@ -509,7 +509,12 @@ function ImportCenter() {
       ambiguous: previewAnalysed.filter((a) => a.presentation.status === "review").length,
       couples: previewAnalysed.filter((a) => a.presentation.status === "couple").length,
       extraPeople: previewAnalysed.reduce(
-        (n, a) => n + (a.values.children?.length ?? 0) + (a.values.spouse_full_name || a.values.spouse_first_name ? 1 : 0),
+        (n, a) =>
+          n +
+          (a.presentation.status === "review"
+            ? 0
+            : (a.values.children?.length ?? 0) +
+              (a.values.spouse_full_name || a.values.spouse_first_name ? 1 : 0)),
         0,
       ),
     }),

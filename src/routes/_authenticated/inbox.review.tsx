@@ -317,6 +317,8 @@ function DataInbox() {
       if (groupedIds.has(r.id)) return false;
       if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) return false;
       if (transactionReviewKind((r.row_data ?? {}) as Record<string, unknown>)) return false;
+      if (householdConflictContext((r.row_data ?? {}) as Record<string, unknown>)) return false;
+      if (coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)) return false;
       const existing = personById((r.candidate_person_ids ?? [])[0]);
       if (!existing) return false;
       if ((r.candidate_person_ids ?? []).length !== 1) return false;
@@ -445,6 +447,13 @@ function DataInbox() {
           continue;
         }
         if (transactionReviewKind((r.row_data ?? {}) as Record<string, unknown>)) {
+          skipped += 1;
+          continue;
+        }
+        if (
+          householdConflictContext((r.row_data ?? {}) as Record<string, unknown>) ||
+          coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)
+        ) {
           skipped += 1;
           continue;
         }
@@ -941,7 +950,11 @@ function DataInbox() {
                               {contactSearch?.rowId === r.id &&
                                 contactSearch.query.trim().length >= 2 && (
                                   <div className="mt-1 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
-                                    {(contactSearchResults ?? []).map((person) => (
+                                    {(contactSearchResults ?? [])
+                                      .filter((person) =>
+                                        (r.candidate_person_ids ?? []).includes(person.id),
+                                      )
+                                      .map((person) => (
                                       <Button
                                         key={person.id}
                                         type="button"
@@ -970,7 +983,9 @@ function DataInbox() {
                                         </span>
                                       </Button>
                                     ))}
-                                    {contactSearchResults?.length === 0 && (
+                                    {(contactSearchResults ?? []).filter((person) =>
+                                      (r.candidate_person_ids ?? []).includes(person.id),
+                                    ).length === 0 && (
                                       <p className="px-2 py-1 text-sm text-muted-foreground">
                                         No matching contacts found.
                                       </p>
@@ -1042,12 +1057,23 @@ function DataInbox() {
                   const transactionConflict = transactionReviewKind(
                     (r.row_data ?? {}) as Record<string, unknown>,
                   );
+                  const householdReviewConflict = householdConflictContext(
+                    (r.row_data ?? {}) as Record<string, unknown>,
+                  );
+                  const coupleReviewConflict = coupleActivityContext(
+                    (r.row_data ?? {}) as Record<string, unknown>,
+                  );
+                  const dedicatedConflict = Boolean(
+                    isPaymentConflict ||
+                      transactionConflict ||
+                      householdReviewConflict ||
+                      coupleReviewConflict,
+                  );
                   const safe =
                     Boolean(existing) &&
                     (r.candidate_person_ids ?? []).length === 1 &&
                     conflicts.length === 0 &&
-                    !isPaymentConflict &&
-                    !transactionConflict;
+                    !dedicatedConflict;
                   const fileName = incoming.display_name ?? "This row";
                   return (
                     <div
@@ -1075,6 +1101,10 @@ function DataInbox() {
                               >
                                 {isPaymentConflict
                                   ? "Activity conflict — choose how to handle the incoming event payment"
+                                  : householdReviewConflict
+                                    ? "Household conflict — review the current household memberships"
+                                    : coupleReviewConflict
+                                      ? "Activity owner required — choose which partner owns this activity"
                                   : conflicts.length > 0
                                   ? `${conflicts.length} field${conflicts.length === 1 ? "" : "s"} disagree — needs review`
                                   : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
@@ -1127,9 +1157,9 @@ function DataInbox() {
                           >
                             {isPaymentConflict
                               ? "Review activity conflict"
-                              : householdConflictContext((r.row_data ?? {}) as Record<string, unknown>)
+                              : householdReviewConflict
                               ? "Review household conflict"
-                              : coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)
+                              : coupleReviewConflict
                                 ? "Choose activity owner"
                                 : "✏️ Open and decide"}
                           </Button>}
@@ -1511,6 +1541,7 @@ function DataInbox() {
             row_data: (reviewItem.row_data ?? {}) as RowValues,
           }}
           existing={personById((reviewItem.candidate_person_ids ?? [])[0]) ?? null}
+          candidatePersonIds={reviewItem.candidate_person_ids ?? []}
           onDone={() => setReviewId(null)}
         />
       )}
