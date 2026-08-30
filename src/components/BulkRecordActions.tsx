@@ -47,12 +47,11 @@ export function BulkRecordBar({
         return;
       }
       if (table === "households") {
-        // Keep people; they simply stop belonging to a household.
-        const { error: unlink } = await supabase
-          .from("people")
-          .update({ household_id: null } as never)
-          .in("household_id", selectedIds);
-        if (unlink) throw unlink;
+        const { error } = await supabase.rpc("delete_households_transactional", {
+          _household_ids: selectedIds,
+        });
+        if (error) throw error;
+        return;
       }
       const { error } = await supabase.from(table).delete().in("id", selectedIds);
       if (error) throw error;

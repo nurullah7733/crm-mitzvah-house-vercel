@@ -58,6 +58,11 @@ const FIELDS: MergeField[] = [
   { key: "programs", label: "Programs" },
 ];
 
+/** Exact editable values this dialog was based on, used for stale-write rejection. */
+function mergePersonSnapshot(person: Person) {
+  return Object.fromEntries(FIELDS.map(({ key }) => [key, person[key as keyof Person] ?? null]));
+}
+
 /** Households are shown by name; the id is put back when saving. */
 function toCompareRecord(p: Person, houseNames: Map<string, string>) {
   const rec: Record<string, unknown> = { ...p };
@@ -267,31 +272,19 @@ export function MergeContactsDialog({
         else delete fieldValues["household_id"];
       }
 
-      const { error } = await supabase.rpc("merge_people", {
+      const { data, error } = await supabase.rpc("merge_people_with_households", {
         _surviving_id: survivor.id,
         _merged_id: loser.id,
         _field_values: fieldValues as never,
+        _merge_households: twoHouseholds && mergeHouses,
+        _expected_surviving_household_id: survivor.household_id,
+        _expected_merged_household_id: loser.household_id,
+        _expected_surviving_person: mergePersonSnapshot(survivor),
+        _expected_merged_person: mergePersonSnapshot(loser),
       });
       if (error) throw error;
-
-      // Consolidate the two households too, so we don't leave a near-identical
-      // household behind with nobody in it.
-      let housesMerged = false;
-      if (twoHouseholds && mergeHouses) {
-        const survivingHouse = String(fieldValues["household_id"] ?? survivor.household_id ?? "");
-        const otherHouse = [survivor.household_id, loser.household_id].find(
-          (id) => id && id !== survivingHouse,
-        );
-        if (survivingHouse && otherHouse) {
-          const { error: hErr } = await supabase.rpc("merge_households", {
-            _surviving_id: survivingHouse,
-            _merged_id: otherHouse,
-            _field_values: {} as never,
-          });
-          if (hErr) throw hErr;
-          housesMerged = true;
-        }
-      }
+      const result = (data ?? {}) as Record<string, unknown>;
+      const housesMerged = result["households_merged"] === true;
       return { id: survivor.id, housesMerged };
     },
     onSuccess: ({ id, housesMerged }) => {

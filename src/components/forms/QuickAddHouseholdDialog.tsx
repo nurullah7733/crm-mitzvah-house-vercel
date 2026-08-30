@@ -111,30 +111,32 @@ export function QuickAddHouseholdDialog({
       ].filter(Boolean);
 
       const family = properCase(lastName).trim();
-      const { data, error } = await supabase
-        .from("households")
-        .insert({
-          name: family ? `${family} — ${nameFromAddress(clean)}` : nameFromAddress(clean),
-          address: clean,
-          phone: phone.trim() || null,
-          notes: noteLines.join("\n") || null,
-          status: "address_only",
-        })
-        .select("id")
-        .single();
+      const { data, error } = await supabase.rpc("resolve_household_at_address", {
+        _name: family ? `${family} — ${nameFromAddress(clean)}` : nameFromAddress(clean),
+        _address: clean,
+        _phone: phone.trim() || null,
+        _notes: noteLines.join("\n") || null,
+        _status: "address_only",
+        _batch_id: null,
+      });
       if (error) throw error;
+      const resolved = (data ?? {}) as Record<string, unknown>;
+      const householdId = String(resolved["household_id"] ?? "");
+      if (!householdId) throw new Error("The household wasn't returned.");
+      if (resolved["reused"] === true)
+        throw new Error("There's already a household at this address.");
 
       if (noteLines.length) {
         await guard(
           supabase.from("interactions").insert({
-            household_id: data.id,
+            household_id: householdId,
             type: "note",
             text: noteLines.join(" · "),
           }),
           { area: "households", action: "Add the timeline note" },
         );
       }
-      await logActivities(activities, { householdId: data.id });
+      await logActivities(activities, { householdId });
       await createFindOutWhoTask(clean);
     },
     onSuccess: () => {

@@ -10,10 +10,9 @@ import {
   Users,
   Check,
 } from "lucide-react";
-import Papa from "papaparse";
-import * as XLSX from "@e965/xlsx";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { parseImportDate } from "@/lib/import-dates";
 import { resolveCampaignId } from "@/lib/campaigns";
 import { useIsAdmin } from "@/lib/is-admin";
@@ -25,7 +24,13 @@ import { addContactMethods, type MethodDraft } from "@/lib/contact-methods";
 import { normalizeEmail, normalizeState, properCase, properCaseAddress } from "@/lib/proper-case";
 import { friendlyDbError } from "@/lib/db-errors";
 import { attributeGiftToEvent, recordAttendance } from "@/lib/gift-events";
-import { findGiftsOnOtherContacts, sameGiftElsewhereReason } from "@/lib/donation-dupes";
+import { recordImportRowFailureAndRethrow, retryFailedImportRow } from "@/lib/import-row-failure";
+import {
+  findGiftsOnOtherContacts,
+  isExactTransactionDonationRepeat,
+  sameGiftElsewhereReason,
+  type ExistingImportDonation,
+} from "@/lib/donation-dupes";
 import {
   EMPTY_BULK_TARGET,
   GROUP_ADDRESS_FIELD,
@@ -47,12 +52,19 @@ import {
   FIELD_PAIRS,
   REPEATABLE_FIELDS,
   addressKey,
+  applyNormalizationReview,
+  buildFileClaimGraph,
   composeAddress,
-  donationImportFingerprint,
+  correlateFileCoupleResolution,
+  correlateFileMatch,
   guessMapping,
   namesAreClose,
   matchRowOnce,
+  logicalFilePerson,
   newRowIdentityRegistry,
+  resolveCoupleClaims,
+  needsCoupleActivityOwnerReview,
+  COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
   roleFromRow,
   splitFullName,
   splitName,
@@ -63,11 +75,39 @@ import {
   type MatchResult,
   type RowValues,
 } from "@/lib/import-mapping";
+import { presentCoupleDecision } from "@/lib/couple-semantics";
 
 import { buildRowValues, mainName } from "@/lib/import-rows";
+import { amountToCents, centsToAmount } from "@/lib/import-normalization";
+import { buildActivityPlan, chooseActivityEventDecision } from "@/lib/import-activity-plan";
+import {
+  findRegistrationPaymentConflict,
+  type RegistrationPaymentConflictContext,
+} from "@/lib/registration-payment-conflict";
+import {
+  TRANSACTION_SOURCE_OPTIONS,
+  transactionReviewCondition,
+  transactionReviewReason,
+  type TransactionSourceConfidence,
+} from "@/lib/transaction-namespace";
 import { FieldPicker } from "@/components/import/FieldPicker";
 import { RouteError } from "@/components/RouteError";
-import { guard } from "@/lib/app-errors";
+import { guard, mustWrite } from "@/lib/app-errors";
+import {
+  profileImportFile,
+  selectWorkbookSheet,
+  stagedRowPayload,
+  validateImportMapping,
+  type SelectedSheet,
+  type WorkbookProfile,
+} from "@/lib/import-workbook";
+import {
+  buildImportOrchestrationContext,
+  type BeginOrResumeImportBatchResult,
+  type ClaimedImportRow,
+  type FinalizeImportStagingResult,
+  throwImportLeaseError,
+} from "@/lib/import-orchestration";
 
 export const Route = createFileRoute("/_authenticated/inbox/")({
   head: () => ({
@@ -92,35 +132,52 @@ export const Route = createFileRoute("/_authenticated/inbox/")({
   component: ImportCenter,
 });
 
-type Sheet = { name: string; headers: string[]; rows: string[][] };
+type Sheet = SelectedSheet & { name: string };
 
-async function readFile(file: File): Promise<Sheet> {
-  const isCsv = /\.csv$/i.test(file.name);
-  let table: string[][] = [];
-  if (isCsv) {
-    const text = await file.text();
-    const parsed = Papa.parse<string[]>(text.trim(), { skipEmptyLines: true });
-    table = parsed.data;
-  } else {
-    const buffer = await file.arrayBuffer();
-    const wb = XLSX.read(buffer, { cellDates: false });
-    const first = wb.SheetNames[0];
-    if (!first) throw new Error("That workbook has no sheets.");
-    const ws = wb.Sheets[first]!;
-    table = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: "" });
-  }
-  const [headerRow, ...rest] = table;
-  if (!headerRow || rest.length === 0)
-    throw new Error("We need a header row plus at least one row of data.");
-  return {
-    name: file.name,
-    headers: headerRow.map((h) => String(h ?? "").trim()),
-    rows: rest.map((r) => headerRow.map((_, i) => String(r?.[i] ?? "").trim())),
+/** A row that is durably `failed`, with what it takes to retry it. `execution` is the exact
+ * decision already made for it — present only when it failed during THIS session (reused
+ * directly for inline retry). A row discovered durably from a prior, already-ended session has
+ * no captured payload — nothing durable records the original create/match decision — so
+ * retrying it only queues it (failed -> pending); the next Resume pass reprocesses it through
+ * the same full matching pipeline every other row gets, rather than a second, simplified
+ * decision path guessing at it in isolation. */
+type FailedRetryRow = {
+  rowNumber: number;
+  outcomeId: string;
+  stagedRowId: string;
+  execution: Json | null;
+  retrying: boolean;
+  error: string | null;
+};
+
+/** The single most relevant unfinished batch, per find_active_import_batch (I7). Not a history
+ * list — Past Imports below already covers that. */
+type ActiveImportBatch = {
+  batchId: string;
+  filename: string;
+  status: string;
+  kind: "resumable" | "needs_attention";
+  progress: {
+    total_rows: number;
+    pending_count: number;
+    processing_count: number;
+    processing_active_count: number;
+    processing_reclaimable_count: number;
+    created_count: number;
+    matched_count: number;
+    flagged_count: number;
+    failed_count: number;
+    terminal_count: number;
+    incomplete: boolean;
   };
-}
+};
 
 /** Spreadsheet dates are read by one shared parser — see src/lib/import-dates.ts. */
 const isoDate = (raw: string | undefined) => parseImportDate(raw);
+const importedAmount = (raw: string | number | null | undefined) => {
+  const cents = amountToCents(raw);
+  return cents === null ? Number.NaN : centsToAmount(cents);
+};
 
 function splitList(raw: string | undefined) {
   return raw
@@ -142,6 +199,7 @@ const DRAFT_KEY = "mh-import-draft";
 
 function ImportCenter() {
   const queryClient = useQueryClient();
+  const [workbook, setWorkbook] = useState<WorkbookProfile | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [mapping, setMapping] = useState<ColumnGuess[]>([]);
   const [adjusting, setAdjusting] = useState(false);
@@ -160,18 +218,162 @@ function ImportCenter() {
   >({});
   /** Set when staff confirm they really do want to import a file already imported before. */
   const [reimportConfirmed, setReimportConfirmed] = useState(false);
+  const [headerRiskConfirmed, setHeaderRiskConfirmed] = useState(false);
+  const [transactionSourceSystem, setTransactionSourceSystem] = useState("");
   /** Blocks a double-tap or a browser retry from running the same import twice. */
   const runningRef = useRef(false);
+  /** Rows that finished this run as `failed`, kept open for a one-row retry before the batch closes. */
+  const [failedRetryRows, setFailedRetryRows] = useState<FailedRetryRow[]>([]);
+  /** The still-leased batch a pending retry needs; cleared once every failed row is resolved. */
+  const activeRetryBatchRef = useRef<{ batchId: string; leaseOwner: string } | null>(null);
+  const isAdmin = useIsAdmin();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  /** The single most relevant unfinished batch (I7 discovery) — not a history list. */
+  const [activeBatch, setActiveBatch] = useState<ActiveImportBatch | null>(null);
+  /** Failed rows on the discovered batch, read durably — independent of any in-memory session. */
+  const [oldFailedRows, setOldFailedRows] = useState<
+    {
+      rowNumber: number;
+      outcomeId: string;
+      stagedRowId: string;
+      lastError: string | null;
+      queuing: boolean;
+      error: string | null;
+    }[]
+  >([]);
+  const [startingOver, setStartingOver] = useState(false);
+
+  /** Re-checks durable state for an unfinished batch. Safe to call any time — it only reads. */
+  async function refreshActiveBatch() {
+    const { data, error } = await (supabase.rpc as any)("find_active_import_batch", {});
+    if (error) {
+      console.error("Could not check for an unfinished import", error);
+      return;
+    }
+    const result = data as {
+      found: boolean;
+      batch_id?: string;
+      filename?: string;
+      status?: string;
+      kind?: "resumable" | "needs_attention";
+      progress?: ActiveImportBatch["progress"];
+    };
+    if (!result.found || !result.batch_id || !result.progress) {
+      setActiveBatch(null);
+      setOldFailedRows([]);
+      return;
+    }
+    setActiveBatch({
+      batchId: result.batch_id,
+      filename: result.filename ?? "that import",
+      status: result.status ?? "processing",
+      kind: result.kind ?? "resumable",
+      progress: result.progress,
+    });
+    if (result.progress.failed_count > 0) {
+      const { data: failedRows } = await supabase
+        .from("import_row_outcomes")
+        .select("id, row_number, staged_row_id, last_error")
+        .eq("batch_id", result.batch_id)
+        .eq("outcome", "failed")
+        .order("row_number");
+      setOldFailedRows(
+        (failedRows ?? []).map((r) => ({
+          rowNumber: r.row_number,
+          outcomeId: r.id,
+          stagedRowId: r.staged_row_id ?? "",
+          lastError: r.last_error,
+          queuing: false,
+          error: null,
+        })),
+      );
+    } else {
+      setOldFailedRows([]);
+    }
+  }
+
+  useEffect(() => {
+    void refreshActiveBatch();
+  }, []);
+
+  /** Flips a durably-failed row from a prior session back to `pending`. It is deliberately NOT
+   * executed inline here — nothing durable captured its original create/match decision, and
+   * guessing at one in a second, simplified code path is exactly the risk I7 avoids. The next
+   * Resume pass claims it and runs it through the same full matching pipeline every row gets. */
+  async function queueOldFailedRowForRetry(row: {
+    rowNumber: number;
+    outcomeId: string;
+    stagedRowId: string;
+  }) {
+    if (!activeBatch) return;
+    setOldFailedRows((prev) =>
+      prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, queuing: true, error: null } : r)),
+    );
+    try {
+      await retryFailedImportRow({
+        batchId: activeBatch.batchId,
+        outcomeId: row.outcomeId,
+        stagedRowId: row.stagedRowId,
+        expectedAttemptCount: null,
+        expectedLastError: null,
+      });
+      toast.success(`Row ${row.rowNumber} queued — click Resume Import to process it.`);
+      await refreshActiveBatch();
+    } catch (e) {
+      const why = await friendlyDbError(e, "Could not queue that row for retry.");
+      setOldFailedRows((prev) =>
+        prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, queuing: false, error: why } : r)),
+      );
+    }
+  }
+
+  /** Opens the same file picker used for a new upload — the file itself isn't stored anywhere
+   * durable, so continuing an interrupted batch means selecting it again. begin_or_resume_import_batch
+   * already recognizes the matching raw/source identity and reconnects to the existing batch. */
+  function resumeActiveBatch() {
+    fileInputRef.current?.click();
+  }
+
+  /** Start Over reuses the existing, already-proven undo_import RPC rather than a new revert
+   * mechanism — it safely removes exactly what this batch contributed (people/donations/etc. by
+   * import_batch_id) regardless of whether execution ever started, so it is correct for a
+   * staging/ready batch with zero writes and for a processing/needs_attention batch with
+   * committed CRM writes alike. Admin-gated, matching the existing "Undo this import" action. */
+  async function startOverActiveBatch() {
+    if (!activeBatch) return;
+    setStartingOver(true);
+    try {
+      const { data, error } = await supabase.rpc("undo_import", { _batch_id: activeBatch.batchId });
+      if (error) throw error;
+      const counts = (data ?? {}) as Record<string, number>;
+      toast.success(
+        `Started over — removed ${counts["people"] ?? 0} contacts and ${counts["donations"] ?? 0} gifts it had added.`,
+      );
+      await refreshActiveBatch();
+      await queryClient.invalidateQueries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start over.");
+    } finally {
+      setStartingOver(false);
+    }
+  }
 
   /** Keep the uploaded file in this browser so a refresh or a timed-out tab doesn't lose the work. */
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(DRAFT_KEY);
       if (!raw) return;
-      const draft = JSON.parse(raw) as { sheet: Sheet; mapping: ColumnGuess[] };
+      const draft = JSON.parse(raw) as {
+        workbook?: WorkbookProfile;
+        sheet: Sheet;
+        mapping: ColumnGuess[];
+        transactionSourceSystem?: string;
+      };
       if (draft?.sheet?.headers?.length) {
+        if (draft.workbook) setWorkbook(draft.workbook);
         setSheet(draft.sheet);
         setMapping(draft.mapping ?? guessMapping(draft.sheet.headers));
+        setTransactionSourceSystem(draft.transactionSourceSystem ?? "");
       }
     } catch {
       /* ignore a bad draft */
@@ -180,12 +382,16 @@ function ImportCenter() {
 
   useEffect(() => {
     try {
-      if (sheet) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ sheet, mapping }));
+      if (sheet)
+        sessionStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ workbook, sheet, mapping, transactionSourceSystem }),
+        );
       else sessionStorage.removeItem(DRAFT_KEY);
     } catch {
       /* the file is too big to stash — the import still works */
     }
-  }, [sheet, mapping]);
+  }, [workbook, sheet, mapping, transactionSourceSystem]);
 
   /** Warn before leaving mid-import. */
   useEffect(() => {
@@ -226,16 +432,32 @@ function ImportCenter() {
 
   /** Has this exact file been imported before? */
   const { data: priorImports } = useQuery({
-    queryKey: ["prior-imports", sheet?.name ?? ""],
-    enabled: Boolean(sheet?.name),
+    queryKey: ["prior-imports", sheet?.rawFileHash ?? "", sheet?.sourceDataHash ?? ""],
+    enabled: Boolean(sheet?.rawFileHash && sheet?.sourceDataHash),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("import_batches")
-        .select("id, import_date, total_rows, created_at")
-        .eq("filename", sheet!.name)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      const select =
+        "id, import_date, total_rows, created_at, filename, raw_file_hash, source_data_hash";
+      const [identity, legacyName] = await Promise.all([
+        supabase
+          .from("import_batches")
+          .select(select)
+          .or(`raw_file_hash.eq.${sheet!.rawFileHash},source_data_hash.eq.${sheet!.sourceDataHash}`)
+          .in("status", ["completed", "imported", "reverted"])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("import_batches")
+          .select(select)
+          .eq("filename", sheet!.name)
+          .in("status", ["completed", "imported", "reverted"])
+          .order("created_at", { ascending: false }),
+      ]);
+      if (identity.error) throw identity.error;
+      if (legacyName.error) throw legacyName.error;
+      return [
+        ...new Map(
+          [...(identity.data ?? []), ...(legacyName.data ?? [])].map((row) => [row.id, row]),
+        ).values(),
+      ];
     },
   });
 
@@ -250,6 +472,18 @@ function ImportCenter() {
       if (error) throw error;
       return (data ?? []) as EventOption[];
     },
+  });
+
+  const { data: existingRegistrations } = useQuery({
+    queryKey: ["import-registrations"],
+    queryFn: async () =>
+      fetchAll((from, to) =>
+        supabase
+          .from("registrations")
+          .select("person_id, event_id, payment_amount, fee_amount, status")
+          .order("id")
+          .range(from, to),
+      ),
   });
 
   const { data: programOptions } = useQuery({
@@ -270,32 +504,49 @@ function ImportCenter() {
     },
   });
 
-  const analysed = useMemo<{ row: string[]; values: RowValues; match: MatchResult }[]>(() => {
+  const analysed = useMemo<
+    {
+      row: string[];
+      values: RowValues;
+      match: MatchResult;
+      coupleResolution: ReturnType<typeof resolveCoupleClaims>;
+      presentation: ReturnType<typeof presentCoupleDecision>;
+    }[]
+  >(() => {
     if (!sheet || !people) return [];
+    const valuesByRow = sheet.rows.map((row, index) =>
+      buildRowValues(row, mapping, sheet.rawRows[index]?.cells),
+    );
+    const claimGraph = buildFileClaimGraph(valuesByRow);
     // One shared duplicate check, so the preview and the import loop agree.
     const seen = newRowIdentityRegistry();
     return sheet.rows.map((row, index) => {
-      const values = buildRowValues(row, mapping);
-      return { row, values, match: matchRowOnce(values, people, seen, index) };
+      const values = valuesByRow[index]!;
+      const match = applyNormalizationReview(
+        values,
+        correlateFileMatch(matchRowOnce(values, people, seen, index), claimGraph, index),
+      );
+      const coupleResolution = correlateFileCoupleResolution(
+        resolveCoupleClaims(values, people, match),
+        claimGraph,
+        index,
+      );
+      const activityOwnerReview = needsCoupleActivityOwnerReview(values);
+      return {
+        row,
+        values,
+        match,
+        coupleResolution,
+        activityOwnerReview,
+        presentation: presentCoupleDecision(
+          values.couple_decision,
+          match.status,
+          coupleResolution,
+          activityOwnerReview,
+        ),
+      };
     });
   }, [sheet, people, mapping]);
-
-  const counts = useMemo(
-    () => ({
-      total: analysed.length,
-      matched: analysed.filter((a) => a.match.status === "matched").length,
-      new: analysed.filter((a) => a.match.status === "new").length,
-      ambiguous: analysed.filter((a) => a.match.status === "ambiguous").length,
-      extraPeople: analysed.reduce(
-        (n, a) =>
-          n +
-          (a.values.children?.length ?? 0) +
-          (a.values.spouse_full_name || a.values.spouse_first_name ? 1 : 0),
-        0,
-      ),
-    }),
-    [analysed],
-  );
 
   /** Which of the four things a usable file needs are mapped, and which pairs are half-done. */
   const mappingReview = useMemo(() => {
@@ -304,11 +555,13 @@ function ImportCenter() {
       label: c.label,
       ok: c.fields.some((f) => mapped.has(f)),
     }));
-    const warnings = FIELD_PAIRS.filter((p) => mapped.has(p.field) && !mapped.has(p.needs)).map(
-      (p) => p.message,
-    );
-    return { checklist, warnings, mapped };
-  }, [mapping]);
+    const warnings = FIELD_PAIRS.filter((p) => {
+      const needs = Array.isArray(p.needs) ? p.needs : [p.needs];
+      return mapped.has(p.field) && !needs.some((field) => mapped.has(field));
+    }).map((p) => p.message);
+    const gate = validateImportMapping(mapping, sheet?.headers.length ?? 0, sheet?.columnProfiles);
+    return { checklist, warnings: [...warnings, ...gate.warnings], mapped, gate };
+  }, [mapping, sheet?.headers.length, sheet?.columnProfiles]);
 
   /** Every distinct event name the file mentions, and what it matched. */
   const fileEvents = useMemo(() => {
@@ -316,13 +569,10 @@ function ImportCenter() {
       string,
       { value: string; rows: number; matched: EventOption | null; origin: "event" | "campaign" }
     >();
-    // The event column first, then campaign names — a gift designated
-    // "Chanukah Dinner 2026" is usually the same thing as the event.
+    // Only explicit event semantics may create attendance. Campaign is a
+    // donation designation even when its text happens to match an event.
     analysed.forEach((a) => {
-      for (const [origin, raw] of [
-        ["event", a.values.event_name],
-        ["campaign", a.values.campaign],
-      ] as const) {
+      for (const [origin, raw] of [["event", a.values.event_name]] as const) {
         const value = (raw ?? "").trim();
         if (!value) continue;
         const key = normalizeLabel(value);
@@ -338,7 +588,7 @@ function ImportCenter() {
     return [...map.entries()].map(([key, v]) => ({ key, ...v }));
   }, [analysed, events]);
 
-  // Campaign names are only a maybe, so they never hold up an import.
+  // Explicit event attendance must never be silently discarded.
   const unansweredEvents = fileEvents.filter(
     (e) =>
       e.origin === "event" &&
@@ -349,17 +599,28 @@ function ImportCenter() {
   /** How each row will be linked, so the preview can be exact. */
   const eventLinkPlan = useMemo(() => {
     const bulkEvent = (events ?? []).find((e) => e.id === bulkTarget.eventId) ?? null;
+    const eventIds: (string | null)[] = [];
     const perRow = analysed.map((a) => {
       const value = (a.values.event_name ?? "").trim();
       const key = normalizeLabel(value);
       const entry = fileEvents.find((f) => f.key === key);
       const decision = eventDecisions[key];
       let label: string | null = null;
-      if (entry?.matched) label = entry.matched.name;
-      else if (decision?.action === "create") label = entry?.value ?? null;
-      else if (decision?.action === "existing")
-        label = (events ?? []).find((e) => e.id === decision.eventId)?.name ?? null;
-      if (!label && bulkEvent) label = bulkEvent.name;
+      let eventId: string | null = null;
+      if (entry?.matched) {
+        label = entry.matched.name;
+        eventId = entry.matched.id;
+      } else if (decision?.action === "create") label = entry?.value ?? null;
+      else if (decision?.action === "existing") {
+        const selected = (events ?? []).find((e) => e.id === decision.eventId) ?? null;
+        label = selected?.name ?? null;
+        eventId = selected?.id ?? null;
+      }
+      if (!label && bulkEvent) {
+        label = bulkEvent.name;
+        eventId = bulkEvent.id;
+      }
+      eventIds.push(eventId);
       return label;
     });
     const totals = new Map<string, number>();
@@ -368,7 +629,11 @@ function ImportCenter() {
       if (analysed[i]?.match.status === "ambiguous") return;
       totals.set(label, (totals.get(label) ?? 0) + 1);
     });
-    return { perRow, totals: [...totals.entries()].map(([name, count]) => ({ name, count })) };
+    return {
+      perRow,
+      eventIds,
+      totals: [...totals.entries()].map(([name, count]) => ({ name, count })),
+    };
   }, [analysed, fileEvents, eventDecisions, events, bulkTarget.eventId]);
 
   /**
@@ -377,9 +642,10 @@ function ImportCenter() {
    */
   const giftEventGroups = useMemo(() => {
     const groups = new Map<string, { event: EventOption; rows: number; total: number }>();
-    analysed.forEach((a) => {
+    analysed.forEach((a, index) => {
       if (a.match.status === "ambiguous") return;
-      const amount = Number(String(a.values.amount ?? "").replace(/[^0-9.-]/g, ""));
+      if (eventLinkPlan.eventIds[index]) return;
+      const amount = importedAmount(a.values.amount);
       if (!Number.isFinite(amount) || amount <= 0) return;
       const giftDate = isoDate(a.values.date);
       if (!giftDate) return;
@@ -393,7 +659,66 @@ function ImportCenter() {
       groups.set(match.id, entry);
     });
     return [...groups.values()];
-  }, [analysed, events]);
+  }, [analysed, events, eventLinkPlan.eventIds]);
+
+  const previewAnalysed = useMemo(
+    () =>
+      analysed.map((item, index) => {
+        const personId = item.match.status === "matched" ? item.match.candidates[0]?.id : null;
+        const eventId = eventLinkPlan.eventIds[index];
+        if (!personId || !eventId) return item;
+        const event = (events ?? []).find((candidate) => candidate.id === eventId) ?? null;
+        if (!event) return item;
+        const activityPlan = buildActivityPlan({
+          row: item.values,
+          effectiveDate: isoDate(item.values.date) ?? new Date().toISOString().slice(0, 10),
+          eventDecision: chooseActivityEventDecision({
+            explicitEvent: event,
+            nearbyEvent: null,
+          }),
+        });
+        const registration = (existingRegistrations ?? []).find(
+          (candidate) => candidate.person_id === personId && candidate.event_id === eventId,
+        );
+        const conflict = findRegistrationPaymentConflict(
+          registration?.payment_amount,
+          activityPlan.grossPaymentCents,
+        );
+        return conflict
+          ? {
+              ...item,
+              presentation: {
+                status: "review" as const,
+                reason: conflict.reason,
+                willCreate: "review" as const,
+              },
+            }
+          : item;
+      }),
+    [analysed, eventLinkPlan.eventIds, events, existingRegistrations],
+  );
+
+  const counts = useMemo(
+    () => ({
+      total: previewAnalysed.length,
+      matched: previewAnalysed.filter((a) => a.match.status === "matched").length,
+      new: previewAnalysed.filter(
+        (a) => a.presentation.status === "single" && a.match.status === "new",
+      ).length,
+      ambiguous: previewAnalysed.filter((a) => a.presentation.status === "review").length,
+      couples: previewAnalysed.filter((a) => a.presentation.status === "couple").length,
+      extraPeople: previewAnalysed.reduce(
+        (n, a) =>
+          n +
+          (a.presentation.status === "review"
+            ? 0
+            : (a.values.children?.length ?? 0) +
+              (a.values.spouse_full_name || a.values.spouse_first_name ? 1 : 0)),
+        0,
+      ),
+    }),
+    [previewAnalysed],
+  );
 
   /** People at the same address with different surnames — a question, never an assumption. */
   const addressGroups = useMemo(
@@ -428,30 +753,58 @@ function ImportCenter() {
 
   /** How many rows go straight in, and how many wait in the Data Inbox. */
   const plan = useMemo(() => {
-    const review = analysed.reduce(
-      (n, a, i) => n + (a.match.status === "ambiguous" || addressReviewRows.has(i) ? 1 : 0),
+    const review = previewAnalysed.reduce(
+      (n, a, i) => n + (a.presentation.status === "review" || addressReviewRows.has(i) ? 1 : 0),
       0,
     );
-    return { review, importNow: Math.max(analysed.length - review, 0) };
-  }, [analysed, addressReviewRows]);
+    return { review, importNow: Math.max(previewAnalysed.length - review, 0) };
+  }, [previewAnalysed, addressReviewRows]);
 
   async function handleFile(file: File) {
     setError(null);
     try {
-      const parsed = await readFile(file);
-      setSheet(parsed);
-      setMapping(guessMapping(parsed.headers));
+      const parsed = await profileImportFile(file);
+      setWorkbook(parsed);
+      setSheet(null);
+      setMapping([]);
       setAdjusting(false);
       setEventDecisions({});
       setAddressDecisions({});
       setBulkTarget(EMPTY_BULK_TARGET);
+      setHeaderRiskConfirmed(false);
+      setReimportConfirmed(false);
+      setTransactionSourceSystem("");
+      if (parsed.kind === "csv" && parsed.sheets[0]) {
+        const detected = parsed.sheets[0].detectedHeader;
+        if (detected.rowNumber !== null)
+          applySheetSelection(parsed, 0, detected.rowNumber, "detected");
+      }
     } catch (e) {
+      setWorkbook(null);
       setSheet(null);
       setError(e instanceof Error ? e.message : "We couldn't read that file.");
     }
   }
 
+  function applySheetSelection(
+    source: WorkbookProfile,
+    sheetIndex: number,
+    headerRowNumber: number | null,
+    mode: SelectedSheet["headerMode"],
+  ) {
+    const selected = selectWorkbookSheet(source, sheetIndex, headerRowNumber, mode);
+    setSheet({ ...selected, name: source.filename });
+    setMapping(guessMapping(selected.headers));
+    setHeaderRiskConfirmed(false);
+    setTransactionSourceSystem("");
+    setReimportConfirmed(false);
+    setEventDecisions({});
+    setAddressDecisions({});
+    setGiftEventDecisions({});
+  }
+
   function reset() {
+    setWorkbook(null);
     setSheet(null);
     setMapping([]);
     setError(null);
@@ -461,6 +814,7 @@ function ImportCenter() {
     setBulkTarget(EMPTY_BULK_TARGET);
     setGiftEventDecisions({});
     setReimportConfirmed(false);
+    setHeaderRiskConfirmed(false);
     try {
       sessionStorage.removeItem(DRAFT_KEY);
     } catch {
@@ -469,8 +823,24 @@ function ImportCenter() {
   }
 
   async function approve() {
+    if (unansweredEvents.length > 0) {
+      toast.error("Decide whether to link, create, or ignore every unmatched event first.");
+      return;
+    }
     if (!sheet) return;
     if (runningRef.current || busy) return;
+    if (!mappingReview.gate.valid) {
+      toast.error(mappingReview.gate.errors[0] ?? "Fix the column mapping before importing.");
+      return;
+    }
+    const profiledSheet = workbook?.sheets[sheet.sheetIndex];
+    const riskyHeader =
+      sheet.headerRowNumber !== null &&
+      profiledSheet?.detectedHeader.rowNumber !== sheet.headerRowNumber;
+    if (riskyHeader && !headerRiskConfirmed) {
+      toast.error("Confirm the manually selected header row before importing.");
+      return;
+    }
     if ((priorImports ?? []).length > 0 && !reimportConfirmed) {
       toast.error(
         "This file was imported before. Tick the box to confirm you want to import it again.",
@@ -480,57 +850,126 @@ function ImportCenter() {
     runningRef.current = true;
     setBusy(true);
     setProgress({ done: 0, total: analysed.length });
+    let leasedBatchId: string | null = null;
+    let leaseOwner: string | null = null;
+    let keepLeaseOpenForRetry = false;
+    const retryableFailures: FailedRetryRow[] = [];
     try {
-      const importDate = new Date().toISOString().slice(0, 10);
+      let importDate = new Date().toISOString().slice(0, 10);
+      const sourceConfidence: TransactionSourceConfidence = transactionSourceSystem
+        ? "explicit"
+        : "unknown";
+      const transactionObjectType = transactionSourceSystem ? "donation" : null;
+
+      const orchestrationContext = buildImportOrchestrationContext({
+        effectiveDate: importDate,
+        sourceSystem: transactionSourceSystem || null,
+        sourceConfidence,
+        transactionObjectType,
+        eventDecisions,
+        addressDecisions,
+        giftEventDecisions,
+        bulkTarget,
+        repeatedFileConfirmed: reimportConfirmed,
+        manualHeaderRiskConfirmed: headerRiskConfirmed,
+      });
+      const durableMapping = mapping.reduce<Record<string, string>>((acc, m, i) => {
+        acc[sheet.columnIds[i] ?? `column_${i + 1}`] = m.field;
+        return acc;
+      }, {});
+      const sourceStructure = {
+        kind: workbook?.kind ?? "xlsx",
+        used_range: sheet.usedRange,
+        visibility: sheet.visibility,
+        column_ids: sheet.columnIds,
+        headers: sheet.headers,
+      };
+      const { data: batch, error: batchError } = await supabase.rpc(
+        "begin_or_resume_import_batch",
+        {
+          _filename: sheet.name,
+          _raw_file_hash: sheet.rawFileHash,
+          _source_data_hash: sheet.sourceDataHash,
+          _selected_sheet_name: sheet.sheetName,
+          _selected_sheet_index: sheet.sheetIndex,
+          _header_row_number: sheet.headerRowNumber,
+          _header_mode: sheet.headerMode,
+          _source_structure: sourceStructure as Json,
+          _source_system: transactionSourceSystem || null,
+          _source_system_confidence: sourceConfidence,
+          _transaction_object_type: transactionObjectType,
+          _mapping: durableMapping,
+          _expected_total_rows: counts.total,
+          _matched_rows: counts.matched,
+          _new_rows: counts.new,
+          _ambiguous_rows: counts.ambiguous,
+          _orchestration_context: orchestrationContext as Json,
+        },
+      );
+      if (batchError) throw batchError;
+      const batchResult = batch as unknown as BeginOrResumeImportBatchResult;
+      const batchId = batchResult.batch_id;
+      if (!batchId) throw new Error("The import batch could not be initialized.");
+      const persistedOrchestrationContext = batchResult.orchestration_context;
+      importDate = persistedOrchestrationContext.effective_date;
       const source = `${sheet.name}, imported ${importDate}`;
 
-      const { data: batch, error: batchError } = await supabase
-        .from("import_batches")
-        .insert({
-          filename: sheet.name,
-          import_date: importDate,
-          total_rows: counts.total,
-          matched_rows: counts.matched,
-          new_rows: counts.new,
-          ambiguous_rows: counts.ambiguous,
-          status: "processing",
-          mapping: mapping.reduce<Record<string, string>>((acc, m, i) => {
-            acc[m.header || `Column ${i + 1}`] = m.field;
-            return acc;
-          }, {}),
-        })
-        .select("id")
-        .single();
-      if (batchError) throw batchError;
-      const batchId = batch.id;
-
-      const { error: outcomeSeedError } = await supabase.from("import_row_outcomes").insert(
-        analysed.map((item, index) => ({
-          batch_id: batchId,
-          row_number: index + 1,
-          row_data: item.values as never,
-          outcome: "processing",
-        })),
-      );
-      if (outcomeSeedError) throw outcomeSeedError;
-
-      async function recordOutcome(
-        index: number,
-        outcome: "created" | "matched" | "flagged" | "failed",
-        details: { personId?: string | null; reviewQueueId?: string | null; message?: string } = {},
-      ) {
-        const { error } = await supabase
-          .from("import_row_outcomes")
-          .update({
-            outcome,
-            person_id: details.personId ?? null,
-            review_queue_id: details.reviewQueueId ?? null,
-            message: details.message ?? null,
-          })
-          .eq("batch_id", batchId)
-          .eq("row_number", index + 1);
-        if (error) throw error;
+      const stagedRows = stagedRowPayload(
+        sheet,
+        mapping,
+        analysed.map((item) => item.values),
+      ).map((row, index) => ({ ...row, row_number: index + 1 }));
+      for (let offset = 0; offset < stagedRows.length; offset += 250) {
+        const { error: stagingError } = await supabase.rpc("stage_import_rows", {
+          _batch_id: batchId,
+          _rows: stagedRows.slice(offset, offset + 250) as unknown as Json,
+        });
+        if (stagingError) throw stagingError;
       }
+      const { data: finalized, error: finalizeError } = await supabase.rpc(
+        "finalize_import_staging",
+        {
+          _batch_id: batchId,
+          _expected_resumable_identity: batchResult.resumable_identity,
+          _expected_mapping: durableMapping,
+          _expected_orchestration_context: persistedOrchestrationContext as unknown as Json,
+        },
+      );
+      if (finalizeError) throw finalizeError;
+      const finalizeResult = finalized as unknown as FinalizeImportStagingResult;
+      if (finalizeResult.status !== "ready") throw new Error("Import staging was not finalized.");
+      leaseOwner = crypto.randomUUID();
+      const { error: executionStartError } = await supabase.rpc("claim_import_batch", {
+        _batch_id: batchId,
+        _lease_owner: leaseOwner,
+        _lease_seconds: 300,
+      });
+      if (executionStartError) throwImportLeaseError(executionStartError);
+      leasedBatchId = batchId;
+
+      // Durable outcomes already on file for this batch — some may be terminal from a
+      // previous, already-ended session (a genuine resume). Used below to (a) skip re-claiming
+      // already-terminal rows, since claim_import_rows will never return them and the claim
+      // loop otherwise expects rows in strict source order, and (b) seed in-file duplicate/
+      // couple detection so a person whose first occurrence finished in an earlier session is
+      // still recognized against a second occurrence later in the file.
+      const { data: existingOutcomes, error: existingOutcomesError } = await supabase
+        .from("import_row_outcomes")
+        .select("row_number, outcome, person_id, result")
+        .eq("batch_id", batchId);
+      if (existingOutcomesError) throw existingOutcomesError;
+      const terminalRowNumbers = new Set(
+        (existingOutcomes ?? [])
+          .filter((o) =>
+            o.outcome === "created" ||
+            o.outcome === "matched" ||
+            o.outcome === "flagged" ||
+            o.outcome === "failed",
+          )
+          .map((o) => o.row_number),
+      );
+
+      let activeClaimedRow: ClaimedImportRow | null = null;
 
       const fieldSources: {
         person_id: string;
@@ -544,49 +983,74 @@ function ImportCenter() {
       /** Gifts we refused to date ourselves, so no gift is ever silently dated today. */
       let unreadableGiftDates = 0;
 
+      const existingImportDonations = await fetchAll<ExistingImportDonation>((f, t) =>
+        supabase
+          .from("donations")
+          .select("person_id, import_fingerprint, amount, date, event_id, campaigns(name)")
+          .not("import_fingerprint", "is", null)
+          .is("deleted_at", null)
+          .order("id")
+          .range(f, t),
+      );
       const existingGiftFingerprints = new Set(
-        (
-          await fetchAll<{ import_fingerprint: string | null }>((f, t) =>
-            supabase
-              .from("donations")
-              .select("import_fingerprint")
-              .not("import_fingerprint", "is", null)
-              .is("deleted_at", null)
-              .order("id")
-              .range(f, t),
-          )
-        )
+        existingImportDonations
           .map((gift) => gift.import_fingerprint)
           .filter((value): value is string => Boolean(value)),
       );
 
-      /** Park a row in the Data Inbox, with the address it shares so it can be grouped there. */
       async function queueForReview(
         values: RowValues,
         reason: string,
         candidateIds: string[],
         group: { key: string; address: string } | null,
+        reviewContext?: Record<string, unknown>,
       ): Promise<string> {
+        if (!activeClaimedRow || !leaseOwner)
+          throw new Error("The import row has not been claimed.");
         queued += 1;
-        const { data, error } = await supabase
-          .from("review_queue")
-          .insert({
-            batch_id: batchId,
-            filename: sheet!.name,
-            reason,
-            row_data: {
-              ...(values as unknown as Record<string, unknown>),
-              ...(group
-                ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address }
-                : {}),
-            } as unknown as Record<string, string>,
-            candidate_person_ids: candidateIds,
-            status: "pending",
-          })
-          .select("id")
-          .single();
+        const rowData = {
+          ...(values as unknown as Record<string, unknown>),
+          activity_effective_date: importDate,
+          ...(eventDecisions[normalizeLabel(values.event_name ?? "")]?.action === "ignore"
+            ? { activity_event_ignored: "true" }
+            : {}),
+          ...(eventIdByKey.get(normalizeLabel(values.event_name ?? ""))
+            ? { activity_event_id: eventIdByKey.get(normalizeLabel(values.event_name ?? "")) }
+            : {}),
+          _source_sheet: sheet!.sheetName,
+          _source_row_number:
+            sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ?? null,
+          ...(group ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address } : {}),
+          ...(reviewContext ? { review_context: reviewContext } : {}),
+          ...(transactionSourceSystem
+            ? {
+                transaction_source_system: transactionSourceSystem,
+                transaction_source_confidence: sourceConfidence,
+                transaction_object_type: transactionObjectType,
+              }
+            : { transaction_source_confidence: "unknown" }),
+        } as unknown as Record<string, string>;
+        const { data, error } = await supabase.rpc("execute_claimed_import_row", {
+          _batch_id: batchId,
+          _outcome_id: activeClaimedRow.outcome_id,
+          _staged_row_id: activeClaimedRow.staged_row_id,
+          _claim_token: activeClaimedRow.claim_token,
+          _claimed_by: leaseOwner,
+          _execution: {
+            kind: "review",
+            message: reason,
+            review: {
+              filename: sheet!.name,
+              reason,
+              row_data: rowData,
+              candidate_person_ids: candidateIds,
+            },
+          },
+        });
         if (error) throw error;
-        return data.id;
+        const result = data as { review_queue_id?: string } | null;
+        if (!result?.review_queue_id) throw new Error("The review item ID was not returned.");
+        return result.review_queue_id;
       }
 
       // Existing households, so people at the same address join one household
@@ -689,61 +1153,174 @@ function ImportCenter() {
         postal_code: string | null;
       };
 
-      /** Find the household for this row, or create it once and remember it. */
-      async function ensureHousehold(
+      /** Resolve household intent without writing; the row RPC applies it. */
+      function resolveHouseholdIntent(
         name: string,
         parts: HouseParts,
         allowAddressLink = true,
-      ): Promise<string | null> {
+        allowNameLink = false,
+      ) {
         const key = allowAddressLink ? addressKey(parts.address) : null;
-        const nameKey = `name:${name.trim().toLowerCase()}`;
+        const nameKey = allowNameLink ? `name:${name.trim().toLowerCase()}` : "";
         const found =
-          (key ? houseByKey.get(key) : undefined) ?? (name ? houseByKey.get(nameKey) : undefined);
+          (key ? houseByKey.get(key) : undefined) ??
+          (nameKey ? houseByKey.get(nameKey) : undefined);
         if (found) {
-          // Fill in any address details the stored household is missing.
           const patch: Partial<HouseParts> = {};
           if (parts.address) patch.address = parts.address;
           if (parts.address_line2) patch.address_line2 = parts.address_line2;
           if (parts.city) patch.city = parts.city;
           if (parts.state) patch.state = parts.state;
           if (parts.postal_code) patch.postal_code = parts.postal_code;
-          // People are joining this address, so an address-only record becomes a real household.
-          await guard(
-            supabase
-              .from("households")
-              .update({ ...patch, status: "active" } as never)
-              .eq("id", found),
-            { area: "import", action: "Save an imported detail" },
-          );
-          return found;
+          return {
+            id: found,
+            key,
+            nameKey,
+            payload: { action: "update", id: found, values: { ...patch, status: "active" } },
+          };
         }
-        const { data: household } = await supabase
-          .from("households")
-          .insert({ name, ...parts, import_batch_id: batchId })
-          .select("id")
-          .single();
-        if (household?.id) {
-          if (key) houseByKey.set(key, household.id);
-          if (name) houseByKey.set(nameKey, household.id);
-          return household.id;
-        }
-        return null;
+        return {
+          id: null,
+          key,
+          nameKey,
+          payload: { action: "create", values: { name, ...parts, status: "active" } },
+        };
       }
 
-      // The same in-file identity registry the preview used, applied again here
-      // against the contacts this import has created as it goes.
+      /** Compile-only legacy branch guard; direct rows never call this path. */
+      async function ensureHousehold(
+        _name: string,
+        _parts: HouseParts,
+        _allowAddressLink = true,
+      ): Promise<string | null> {
+        throw new Error("Legacy household write path is disabled");
+      }
+
+      // Activity occurrence checks run again against contacts created as the
+      // import proceeds; person identity comes from the shared file claim graph.
       const loopSeen = newRowIdentityRegistry();
+      const claimGraph = buildFileClaimGraph(analysed.map((item) => item.values));
+      const databasePersonByLogicalId = new Map<string, string>();
+
+      // Resuming: replay identity/couple registration for rows that are already terminal, so
+      // the claim loop below sees this file exactly as if it had processed those rows itself.
+      for (const outcome of existingOutcomes ?? []) {
+        if (!terminalRowNumbers.has(outcome.row_number)) continue;
+        const idx = outcome.row_number - 1;
+        const item = analysed[idx];
+        if (!item) continue;
+        matchRowOnce(item.values, livePeople, loopSeen, idx);
+        if (outcome.person_id) {
+          const logicalMain = logicalFilePerson(claimGraph, idx, "main");
+          if (logicalMain) databasePersonByLogicalId.set(logicalMain.id, outcome.person_id);
+        }
+        const spouseId = (outcome.result as Record<string, unknown> | null)?.["spouse_id"];
+        if (typeof spouseId === "string") {
+          const logicalPartner = logicalFilePerson(claimGraph, idx, "partner");
+          if (logicalPartner) databasePersonByLogicalId.set(logicalPartner.id, spouseId);
+        }
+      }
+
+      /** Resolve fee allocation once so the duplicate pre-check and insert cannot drift. */
+      function planRowDonation(v: RowValues, giftDate: string) {
+        const eventKey = normalizeLabel(v.event_name ?? "");
+        const targetEventId =
+          (eventKey ? eventIdByKey.get(eventKey) : undefined) ?? bulkTarget.eventId ?? "";
+        const explicitEvent = targetEventId
+          ? ((events ?? []).find((event) => event.id === targetEventId) ?? {
+              id: targetEventId,
+              registration_fee: 0,
+            })
+          : null;
+        const nearbyGroup = explicitEvent
+          ? undefined
+          : giftEventGroups.find(
+              (g) =>
+                g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+            );
+        const nearbyDecision = nearbyGroup ? giftEventDecisions[nearbyGroup.event.id] : undefined;
+        const eventDecision = chooseActivityEventDecision({
+          explicitEvent,
+          nearbyEvent: nearbyGroup?.event ?? null,
+          nearbyDecision,
+        });
+        const activityPlan = buildActivityPlan({
+          row: v,
+          effectiveDate: giftDate,
+          eventDecision,
+          transactionSourceSystem: transactionSourceSystem || null,
+          transactionObjectType,
+        });
+        const registrationFee = centsToAmount(activityPlan.registrationFeeCents);
+        return {
+          targetEventId,
+          nearbyGroup,
+          nearbyDecision,
+          registrationFee,
+          donationAmount: centsToAmount(activityPlan.netDonationCents),
+          fingerprint: activityPlan.fingerprint,
+          activityPlan,
+        };
+      }
 
       for (let index = 0; index < analysed.length; index++) {
+        // Already terminal from this batch's durable state (this session or an earlier one) —
+        // claim_import_rows will never return it, so don't attempt to.
+        if (terminalRowNumbers.has(index + 1)) continue;
         const item = analysed[index]!;
         const v = item.values;
+        const { error: heartbeatError } = await supabase.rpc("heartbeat_import_batch", {
+          _batch_id: batchId,
+          _lease_owner: leaseOwner,
+          _lease_seconds: 300,
+        });
+        if (heartbeatError) throwImportLeaseError(heartbeatError);
+        const { data: claimedRows, error: claimError } = await supabase.rpc("claim_import_rows", {
+          _batch_id: batchId,
+          _lease_owner: leaseOwner,
+          _max_rows: 1,
+        });
+        if (claimError) throwImportLeaseError(claimError);
+        const claimedRow = (claimedRows as unknown as ClaimedImportRow[] | null)?.[0];
+        if (!claimedRow || claimedRow.row_number !== index + 1)
+          throw new Error(
+            `Import row ${index + 1} could not be claimed in source order (it may be actively processing in another tab).`,
+          );
+        activeClaimedRow = claimedRow;
+        let rowCommitted = false;
+        /** Set right before execute_claimed_import_row, so a failure can be retried with the
+         * exact same decision instead of re-running matching for this one row in isolation. */
+        let executionPayload: Json | undefined;
 
         try {
           // Exactly the same check the preview ran, now against the contacts this
           // import has already created.
-          const live = matchRowOnce(v, livePeople, loopSeen, index);
+          const logicalMain = logicalFilePerson(claimGraph, index, "main");
+          const mappedMainId = logicalMain
+            ? databasePersonByLogicalId.get(logicalMain.id)
+            : undefined;
+          const mappedMain = mappedMainId
+            ? livePeople.find((person) => person.id === mappedMainId)
+            : undefined;
+          const rawLive = matchRowOnce(v, livePeople, loopSeen, index);
+          const live: MatchResult = applyNormalizationReview(
+            v,
+            mappedMain
+              ? {
+                  status: "matched",
+                  reason: "Same person elsewhere in this file",
+                  candidates: [mappedMain],
+                }
+              : rawLive,
+          );
           const flaggedByPreview = item.match.status === "ambiguous";
           const match = live;
+          const coupleDecision = v.couple_decision;
+          const coupleResolution = correlateFileCoupleResolution(
+            resolveCoupleClaims(v, livePeople, match),
+            claimGraph,
+            index,
+          );
           const shared = addressReviewRows.get(index);
           const rowAddress = composeAddress(v);
           const groupInfo = shared
@@ -753,12 +1330,24 @@ function ImportCenter() {
                 return k ? { key: k, address: rowAddress ?? "" } : null;
               })();
 
-          const rowAmount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
+          const rowAmount = importedAmount(v.amount);
           const rowGiftDate = isoDate(v.date) ?? importDate;
-          const giftFingerprint = donationImportFingerprint(v, rowAmount, rowGiftDate);
+          const giftPlan = planRowDonation(v, rowGiftDate);
+          const giftFingerprint = giftPlan.fingerprint;
           const giftAlreadyImported = Boolean(
             giftFingerprint && existingGiftFingerprints.has(giftFingerprint),
           );
+          const exactTransactionRepeat =
+            live.status === "matched" &&
+            isExactTransactionDonationRepeat({
+              row: v,
+              personId: live.candidates[0]?.id ?? null,
+              fingerprint: giftFingerprint,
+              netAmountCents: giftPlan.activityPlan.netDonationCents,
+              donationDate: giftPlan.activityPlan.donationDate ?? rowGiftDate,
+              eventId: giftPlan.activityPlan.donationEventId,
+              existing: existingImportDonations,
+            });
 
           // The gift itself, not the person: the same amount on the same day sitting
           // on a contact we did NOT match to usually means a second record for one donor.
@@ -775,24 +1364,119 @@ function ImportCenter() {
                 )
               : []
           ).filter((g) => rowFullName && namesAreClose(rowFullName, g.name));
+          const activityOwnerReview = needsCoupleActivityOwnerReview(v);
 
           // Certain identity matches (one exact email, phone, or name plus address/birth date)
           // continue into the fill-blanks path below. Sharing an address must not turn a
           // certain match back into a review item — that was also where mapped birthdays
           // were previously abandoned before the update payload was built.
           if (
+            coupleResolution?.kind === "household_conflict" ||
+            coupleResolution?.kind === "ambiguous"
+          ) {
+            const mainPerson = coupleResolution.main.candidates[0];
+            const partnerPerson = coupleResolution.partner.candidates[0];
+            const reviewContext =
+              coupleResolution.kind === "household_conflict" && mainPerson && partnerPerson
+                ? {
+                    kind: "household_conflict",
+                    main_person_id: mainPerson.id,
+                    partner_person_id: partnerPerson.id,
+                    main_household_id: mainPerson.household_id,
+                    partner_household_id: partnerPerson.household_id,
+                    main_household_name: mainPerson.households?.name ?? null,
+                    partner_household_name: partnerPerson.households?.name ?? null,
+                    main_name: [mainPerson.first_name, mainPerson.last_name]
+                      .filter(Boolean)
+                      .join(" "),
+                    partner_name: [partnerPerson.first_name, partnerPerson.last_name]
+                      .filter(Boolean)
+                      .join(" "),
+                  }
+                : undefined;
+            await queueForReview(
+              v,
+              coupleResolution.reason,
+              [
+                ...new Set([
+                  ...coupleResolution.main.candidates.map((c) => c.id),
+                  ...coupleResolution.partner.candidates.map((c) => c.id),
+                ]),
+              ],
+              groupInfo,
+              reviewContext,
+            );
+            continue;
+          }
+          if (
+            coupleDecision &&
+            (coupleDecision.kind === "ambiguous_couple" || coupleDecision.kind === "household_only")
+          ) {
+            await queueForReview(
+              v,
+              coupleDecision.reason,
+              live.candidates.map((c) => c.id),
+              groupInfo,
+            );
+            continue;
+          }
+          if (activityOwnerReview) {
+            const mainClaim = coupleDecision?.person1;
+            const partnerClaim = coupleDecision?.person2;
+            const activity = v.amount
+              ? {
+                  type: "donation",
+                  amount: importedAmount(v.amount),
+                  date: isoDate(v.date) ?? importDate,
+                }
+              : v.event_name
+                ? { type: "event", name: v.event_name }
+                : v.notes
+                  ? { type: "note", text: v.notes }
+                  : { type: "labels", tags: v.tags ?? null, programs: v.programs ?? null };
+            const reviewContext =
+              mainClaim && partnerClaim
+                ? {
+                    kind: "couple_activity_owner",
+                    main_claim: {
+                      first_name: mainClaim.first,
+                      last_name: mainClaim.last,
+                      email: v.email ?? null,
+                      phone: v.phone ?? null,
+                      resolved_person_id: coupleResolution?.main.candidates[0]?.id ?? null,
+                    },
+                    partner_claim: {
+                      first_name: partnerClaim.first,
+                      last_name: partnerClaim.last,
+                      email: v.spouse_email ?? null,
+                      phone: v.spouse_phone ?? null,
+                      resolved_person_id: coupleResolution?.partner.candidates[0]?.id ?? null,
+                    },
+                    activity,
+                  }
+                : undefined;
+            await queueForReview(
+              v,
+              COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
+              live.candidates.map((c) => c.id),
+              groupInfo,
+              reviewContext,
+            );
+            continue;
+          }
+          if (
             (flaggedByPreview && live.status !== "matched") ||
             live.status === "ambiguous" ||
             (shared && live.status !== "matched") ||
-            giftAlreadyImported ||
+            (giftAlreadyImported && !exactTransactionRepeat) ||
             giftsElsewhere.length > 0
           ) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
-            const reviewQueueId = await queueForReview(
+            await queueForReview(
               v,
               giftAlreadyImported
                 ? "This gift appears to have already been imported"
-                 : (flaggedByPreview && live.status !== "matched") || live.status === "ambiguous"
+                : (flaggedByPreview && live.status !== "matched") || live.status === "ambiguous"
                   ? reason
                   : giftsElsewhere.length > 0
                     ? sameGiftElsewhereReason(rowAmount, rowGiftDate, giftsElsewhere)
@@ -812,15 +1496,6 @@ function ImportCenter() {
               ],
               groupInfo,
             );
-            await recordOutcome(index, "flagged", {
-              reviewQueueId,
-              message:
-                giftAlreadyImported
-                  ? "This gift appears to have already been imported"
-                  : live.status === "ambiguous"
-                    ? live.reason
-                    : item.match.reason,
-            });
             continue;
           }
 
@@ -854,34 +1529,352 @@ function ImportCenter() {
           const allowAddressLink = !addressAnswer || addressAnswer.action === "household";
           const relationship = addressAnswer?.relationship || null;
 
-          if (match.status === "new") {
-            if (hasFamily) {
-              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
+          const transactionalRow = true as const;
+          if (transactionalRow) {
+            const existing = match.candidates[0] ?? null;
+            const personValues: Record<string, unknown> =
+              match.status === "new"
+                ? {
+                    first_name: first || null,
+                    last_name: last || null,
+                    display_name: displayName,
+                    email: v.email ?? null,
+                    phone: v.phone ?? null,
+                    birth_date: isoDate(v.birth_date),
+                    anniversary_date: isoDate(v.anniversary_date),
+                    met_source: v.met_source ?? null,
+                    school: v.school ?? null,
+                    notes: v.person_notes ?? null,
+                    role: personRole,
+                    tags: splitList(v.tags),
+                    programs: splitList(v.programs),
+                    ...(relationship ? { household_relationship: relationship } : {}),
+                  }
+                : {};
+            if (match.status !== "new" && existing) {
+              if (v.email && !existing.email) personValues["email"] = v.email;
+              if (v.phone && !existing.phone) personValues["phone"] = v.phone;
+              const dob = isoDate(v.birth_date);
+              if (dob) personValues["birth_date"] = dob;
+              const anniversary = isoDate(v.anniversary_date);
+              if (anniversary) personValues["anniversary_date"] = anniversary;
+              if (v.met_source) personValues["met_source"] = v.met_source;
+              if (v.school) personValues["school"] = v.school;
+              if (v.person_notes) personValues["notes"] = v.person_notes;
+              if (relationship) personValues["household_relationship"] = relationship;
             }
-            const { data: created, error: createError } = await supabase
-              .from("people")
-              .insert({
-                first_name: first || null,
-                last_name: last || null,
-                display_name: displayName,
-                email: v.email ?? null,
-                phone: v.phone ?? null,
-                birth_date: isoDate(v.birth_date),
-                anniversary_date: isoDate(v.anniversary_date),
-                met_source: v.met_source ?? null,
-                school: v.school ?? null,
-                notes: v.person_notes ?? null,
-                household_id: householdId,
-                role: personRole,
-                tags: splitList(v.tags),
-                programs: splitList(v.programs),
-                ...(relationship ? { household_relationship: relationship } : {}),
-                import_batch_id: batch.id,
-              })
-              .select("id")
-              .single();
-            if (createError) throw createError;
-            personId = created.id;
+
+            let householdPlan: ReturnType<typeof resolveHouseholdIntent> | null = null;
+            let householdPayload: Record<string, unknown> = { action: "none" };
+            if (match.status === "new" && hasFamily) {
+              householdPlan = resolveHouseholdIntent(
+                householdName,
+                addressParts,
+                allowAddressLink,
+                Boolean(v.household_name?.trim()),
+              );
+              householdPayload = householdPlan.payload;
+              householdId = householdPlan.id;
+            } else if (match.status !== "new" && !householdId && hasFamily) {
+              householdPlan = resolveHouseholdIntent(
+                householdName,
+                addressParts,
+                allowAddressLink,
+                Boolean(v.household_name?.trim()),
+              );
+              householdPayload = householdPlan.payload;
+              householdId = householdPlan.id;
+            } else if (match.status !== "new" && householdId && fullAddress) {
+              householdPayload = { action: "update", id: householdId, values: addressParts };
+            }
+
+            const addressHouseholdId = fullAddress
+              ? (houseByKey.get(addressKey(fullAddress) ?? "") ?? null)
+              : null;
+            if (
+              match.status !== "new" &&
+              existing?.household_id &&
+              addressHouseholdId &&
+              addressHouseholdId !== existing.household_id
+            ) {
+              await queueForReview(
+                v,
+                "The person matches, but household membership conflicts.",
+                [existing.id],
+                groupInfo,
+              );
+              continue;
+            }
+
+            const contactMethods = [
+              ...(v.phones ?? []).map((method, methodIndex) => ({
+                kind: "phone",
+                value: method.value,
+                method_type: method.method_type,
+                is_primary: methodIndex === 0 && match.status === "new",
+              })),
+              ...(v.emails ?? []).map((method, methodIndex) => ({
+                kind: "email",
+                value: method.value,
+                method_type: method.method_type,
+                is_primary: methodIndex === 0 && match.status === "new",
+              })),
+            ];
+
+            const spouseName = v.spouse_first_name
+              ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
+              : v.spouse_full_name
+                ? splitFullName(v.spouse_full_name)
+                : null;
+            const houseMembers = householdId
+              ? ((
+                  await supabase
+                    .from("people")
+                    .select("first_name, last_name")
+                    .eq("household_id", householdId)
+                ).data ?? [])
+              : [];
+            const inHousehold = (relativeFirst: string, relativeLast: string) =>
+              houseMembers.some(
+                (member) =>
+                  (member.first_name ?? "").trim().toLowerCase() ===
+                    relativeFirst.trim().toLowerCase() &&
+                  (member.last_name ?? "").trim().toLowerCase() ===
+                    relativeLast.trim().toLowerCase(),
+              );
+
+            let spousePayload: Record<string, unknown> = { action: "skip" };
+            if (spouseName && (spouseName.first || spouseName.last)) {
+              const spouseLast = spouseName.last || last;
+              const existingPartner = coupleResolution?.partner.candidates[0] ?? null;
+              if (existingPartner && coupleResolution?.partner.status === "matched") {
+                spousePayload = {
+                  action: "update",
+                  id: existingPartner.id,
+                  values: { household_relationship: "Spouse" },
+                };
+              } else if (!inHousehold(spouseName.first, spouseLast)) {
+                spousePayload = {
+                  action: "create",
+                  values: {
+                    first_name: spouseName.first || null,
+                    last_name: spouseLast || null,
+                    display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
+                    email: v.spouse_email ?? null,
+                    phone: v.spouse_phone ?? null,
+                    role: "Adult",
+                    met_source: v.met_source ?? null,
+                  },
+                  contact_methods: [
+                    ...(v.spouse_phone
+                      ? [
+                          {
+                            kind: "phone",
+                            value: v.spouse_phone,
+                            method_type: "Mobile",
+                            is_primary: true,
+                          },
+                        ]
+                      : []),
+                    ...(v.spouse_email
+                      ? [
+                          {
+                            kind: "email",
+                            value: v.spouse_email,
+                            method_type: "Personal",
+                            is_primary: true,
+                          },
+                        ]
+                      : []),
+                  ],
+                };
+                houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
+              }
+            }
+
+            const childrenPayload: { action: string; values: Record<string, unknown> }[] = [];
+            for (const child of v.children ?? []) {
+              const childFirst = child.first.trim();
+              const childLast = (child.last ?? "").trim() || last;
+              if (!childFirst && !childLast) continue;
+              if (inHousehold(childFirst, childLast)) continue;
+              childrenPayload.push({
+                action: "create",
+                values: {
+                  first_name: childFirst || null,
+                  last_name: childLast || null,
+                  display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
+                  role: "Child",
+                  birth_date: isoDate(child.birth_date),
+                  school: child.school ?? null,
+                  met_source: v.met_source ?? null,
+                  programs: splitList(v.programs),
+                },
+              });
+              houseMembers.push({ first_name: childFirst, last_name: childLast });
+            }
+
+            const provenance = (
+              [
+                "email",
+                "phone",
+                "address",
+                "birth_date",
+                "anniversary_date",
+                "met_source",
+                "school",
+              ] as FieldKey[]
+            )
+              .filter((key) => Boolean(v[key]))
+              .map((key) => ({ field_name: key, source, recorded_date: importDate }));
+
+            const registrations = new Map<string, Record<string, unknown>>();
+            const registrationEventId = giftPlan.activityPlan.attendanceIntent
+              ? giftPlan.activityPlan.eventId
+              : null;
+            if (registrationEventId) {
+              registrations.set(registrationEventId, {
+                event_id: registrationEventId,
+                ...(Number.isFinite(rowAmount) && rowAmount > 0
+                  ? { fee_amount: giftPlan.registrationFee, payment_amount: rowAmount }
+                  : {}),
+              });
+            }
+
+            let donationPayload: Record<string, unknown> | null = null;
+            if (v.amount) {
+              const amount = importedAmount(v.amount);
+              const readDate = isoDate(v.date);
+              if (v.date && !readDate) {
+                unreadableGiftDates += 1;
+              } else if (Number.isFinite(amount) && amount > 0) {
+                const giftDate = readDate ?? importDate;
+                const { donationAmount, fingerprint } = giftPlan;
+                if (donationAmount > 0) {
+                  donationPayload = {
+                    amount: donationAmount,
+                    date: giftDate,
+                    campaign_name: giftPlan.activityPlan.campaignName,
+                    event_id: giftPlan.activityPlan.donationEventId,
+                    source,
+                    notes: v.notes ?? null,
+                    import_batch_id: batchId,
+                    import_fingerprint: fingerprint,
+                    external_transaction_id: giftPlan.activityPlan.sourceTransactionId,
+                    external_transaction_id_key: giftPlan.activityPlan.sourceTransactionIdentity,
+                    transaction_source_system: giftPlan.activityPlan.sourceSystem,
+                    transaction_object_type: giftPlan.activityPlan.transactionObjectType,
+                  };
+                }
+              }
+            }
+
+            const noteParts = [
+              v.notes,
+              v.person_notes ? `Note: ${v.person_notes}` : "",
+              v.school ? `School: ${v.school}` : "",
+            ]
+              .filter(Boolean)
+              .join(" Â· ");
+            const notePayload =
+              noteParts && !giftPlan.activityPlan.donationIntent
+                ? { date: importDate, text: noteParts, author: "Import" }
+                : null;
+
+            if (personId && registrations.size > 0) {
+              const incomingRegistration = [...registrations.values()][0]!;
+              if (giftPlan.activityPlan.grossPaymentCents !== null) {
+                const { data: storedRegistration } = await supabase
+                  .from("registrations")
+                  .select("id, payment_amount, fee_amount")
+                  .eq("person_id", personId)
+                  .eq("event_id", String(incomingRegistration["event_id"]))
+                  .maybeSingle();
+                const storedPayment = storedRegistration?.payment_amount;
+                const paymentConflict = findRegistrationPaymentConflict(
+                  storedPayment,
+                  giftPlan.activityPlan.grossPaymentCents,
+                );
+                if (paymentConflict) {
+                  const eventId = String(incomingRegistration["event_id"]);
+                  const eventName =
+                    (events ?? []).find((event) => event.id === eventId)?.name ??
+                    v.event_name ??
+                    "Event";
+                  const reviewContext: RegistrationPaymentConflictContext = {
+                    kind: "registration_payment_conflict",
+                    person_id: personId,
+                    registration_id: storedRegistration?.id ?? null,
+                    event_id: eventId,
+                    event_name: eventName,
+                    existing_payment_cents: paymentConflict.existingPaymentCents,
+                    incoming_payment_cents: paymentConflict.incomingPaymentCents,
+                    fee_cents: giftPlan.activityPlan.registrationFeeCents,
+                    planned_net_donation_cents: giftPlan.activityPlan.netDonationCents,
+                    donation_fingerprint: giftPlan.activityPlan.fingerprint,
+                  };
+                  await queueForReview(
+                    v,
+                    paymentConflict.reason,
+                    [personId],
+                    groupInfo,
+                    reviewContext,
+                  );
+                  continue;
+                }
+              }
+            }
+
+            executionPayload = {
+              kind: "direct",
+              terminal_outcome: match.status === "new" ? "created" : "matched",
+              person: {
+                action: match.status === "new" ? "create" : "update",
+                ...(personId ? { id: personId } : {}),
+                values: personValues,
+              },
+              household: householdPayload,
+              contact_methods: contactMethods,
+              labels: {
+                tags: bulkTarget.tag ? [bulkTarget.tag] : [],
+                programs: bulkTarget.program ? [bulkTarget.program] : [],
+              },
+              provenance,
+              spouse: spousePayload,
+              children: childrenPayload,
+              activity: {
+                registrations: [...registrations.values()],
+                donation: donationPayload,
+                note: notePayload,
+              },
+            } as Json;
+            const { data: resolved, error: resolveError } = await supabase.rpc(
+              "execute_claimed_import_row",
+              {
+                _batch_id: batchId,
+                _outcome_id: claimedRow.outcome_id,
+                _staged_row_id: claimedRow.staged_row_id,
+                _claim_token: claimedRow.claim_token,
+                _claimed_by: leaseOwner,
+                _execution: executionPayload,
+              },
+            );
+            if (resolveError) throw resolveError;
+            const result = resolved as {
+              person_id?: string;
+              household_id?: string | null;
+              spouse_id?: string | null;
+              child_ids?: string[];
+            } | null;
+            if (!result?.person_id) throw new Error("The imported contact ID was not returned.");
+            rowCommitted = true;
+            personId = result.person_id;
+            householdId = result.household_id ?? null;
+
+            if (householdPlan && householdId) {
+              if (householdPlan.key) houseByKey.set(householdPlan.key, householdId);
+              if (householdPlan.nameKey) houseByKey.set(householdPlan.nameKey, householdId);
+            }
             remember({
               id: personId,
               first,
@@ -891,429 +1884,514 @@ function ImportCenter() {
               birthDate: isoDate(v.birth_date),
               householdId,
               address: fullAddress,
-              methods: [
-                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
-                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
-              ],
+              methods: contactMethods.map((method) => ({
+                kind: method.kind,
+                value: method.value,
+              })),
             });
-          } else if (personId) {
-            const existing = match.candidates[0]!;
-            const patch: {
-              email?: string;
-              phone?: string;
-              birth_date?: string;
-              anniversary_date?: string;
-              met_source?: string;
-              school?: string;
-              notes?: string;
-            } = {};
-            if (v.email && !existing.email) patch["email"] = v.email;
-            if (v.phone && !existing.phone) patch["phone"] = v.phone;
-            const dob = isoDate(v.birth_date);
-            if (dob) patch["birth_date"] = dob;
-            const anniversary = isoDate(v.anniversary_date);
-            if (anniversary) patch["anniversary_date"] = anniversary;
-            if (v.met_source) patch["met_source"] = v.met_source;
-            if (v.school) patch["school"] = v.school;
-            if (v.person_notes) patch["notes"] = v.person_notes;
-            if (Object.keys(patch).length > 0) {
-              await guard(supabase.from("people").update(patch).eq("id", personId), {
-                area: "import",
-                action: "Update the matched contact",
+            if (result.spouse_id && spouseName) {
+              remember({
+                id: result.spouse_id,
+                first: spouseName.first || "",
+                last: spouseName.last || last,
+                email: v.spouse_email ?? null,
+                phone: v.spouse_phone ?? null,
+                householdId,
+                address: fullAddress,
               });
             }
-            remember({
-              id: personId,
-              first,
-              last,
-              email: v.email ?? null,
-              phone: v.phone ?? null,
-              birthDate: isoDate(v.birth_date),
-              methods: [
-                ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
-                ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
-              ],
+            if (logicalMain) databasePersonByLogicalId.set(logicalMain.id, personId);
+            const logicalPartner = logicalFilePerson(claimGraph, index, "partner");
+            if (logicalPartner && result.spouse_id)
+              databasePersonByLogicalId.set(logicalPartner.id, result.spouse_id);
+            (result.child_ids ?? []).forEach((childId, childIndex) => {
+              const child = childrenPayload[childIndex]?.values;
+              remember({
+                id: childId,
+                first: String(child?.["first_name"] ?? ""),
+                last: String(child?.["last_name"] ?? ""),
+                householdId,
+                address: fullAddress,
+              });
             });
-
-            // Existing person, new family details on the row: attach a household if they don't have one.
-            if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
-              householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
-              if (householdId)
-                await supabase
-                  .from("people")
-                  .update({ household_id: householdId })
-                  .eq("id", personId);
-            } else if (householdId && fullAddress) {
-              const housePatch: {
-                address?: string;
-                address_line2?: string;
-                city?: string;
-                state?: string;
-                postal_code?: string;
-              } = {};
-              if (fullAddress) {
-                housePatch["address"] = fullAddress;
-                if (v.address_line2) housePatch["address_line2"] = v.address_line2;
-                if (v.city) housePatch["city"] = v.city;
-                if (v.state) housePatch["state"] = v.state;
-                if (v.postal_code) housePatch["postal_code"] = v.postal_code;
+            if (donationPayload?.["import_fingerprint"]) {
+              existingGiftFingerprints.add(String(donationPayload["import_fingerprint"]));
+            }
+          } else {
+            // DEPRECATED/QUARANTINED: unreachable while transactionalRow is the
+            // literal true. Do not re-enable this select-then-insert activity
+            // implementation; resolve_import_row is the authoritative path.
+            if (match.status === "new") {
+              if (hasFamily) {
+                householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
               }
-              if (Object.keys(housePatch).length > 0)
-                await guard(supabase.from("households").update(housePatch).eq("id", householdId), {
-                  area: "import",
-                  action: "Save an imported detail",
-                });
-            }
-          }
-
-          if (!personId) throw new Error("No contact was created or matched for this row.");
-
-          if (relationship) {
-            await guard(
-              supabase
-                .from("people")
-                .update({ household_relationship: relationship })
-                .eq("id", personId),
-              { area: "import", action: "Save an imported detail" },
-            );
-          }
-
-          // Link this contact to the event named on the row, or to the event the
-          // reviewer chose for the whole file. One shared attendance function, so an
-          // existing RSVP is upgraded to Attended instead of being left as-is.
-          const rowEventKey = normalizeLabel(v.event_name ?? "");
-          const rowCampaignKey = normalizeLabel(v.campaign ?? "");
-          const targetEventId =
-            (rowEventKey ? eventIdByKey.get(rowEventKey) : undefined) ??
-            (rowCampaignKey ? eventIdByKey.get(rowCampaignKey) : undefined) ??
-            bulkTarget.eventId ??
-            "";
-          if (targetEventId) {
-            const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
-            const fee = Math.min(
-              Math.max(Number(linkedEvent?.registration_fee ?? 0), 0),
-              Number.isFinite(rowAmount) && rowAmount > 0 ? rowAmount : 0,
-            );
-            await recordAttendance({
-              personId,
-              eventId: targetEventId,
-              eventName: linkedEvent?.name ?? "an event",
-              eventDate: linkedEvent?.date ?? null,
-              importBatchId: batchId,
-              ...(fee > 0 ? { feeAmount: fee, paymentAmount: rowAmount } : {}),
-            });
-            // The attendance timeline entry is written by the database from the
-            // registration, so removing the registration removes the entry too.
-          }
-
-          // Programs and lists chosen for the whole file, added without wiping
-          // anything the contact already had.
-          if (bulkTarget.program || bulkTarget.tag) {
-            const { data: current } = await supabase
-              .from("people")
-              .select("tags, programs")
-              .eq("id", personId)
-              .single();
-            const patch: { tags?: string[]; programs?: string[] } = {};
-            if (bulkTarget.program) {
-              const list = current?.programs ?? [];
-              if (!list.some((p) => normalizeLabel(p) === normalizeLabel(bulkTarget.program)))
-                patch.programs = [...list, bulkTarget.program];
-            }
-            if (bulkTarget.tag) {
-              const list = current?.tags ?? [];
-              if (!list.some((t) => normalizeLabel(t) === normalizeLabel(bulkTarget.tag)))
-                patch.tags = [...list, bulkTarget.tag];
-            }
-            if (Object.keys(patch).length > 0)
-              await supabase.from("people").update(patch).eq("id", personId);
-          }
-
-          // Every phone and email on the row is stored, with anything already on
-          // file skipped so a re-import never duplicates a number.
-          const methodDrafts: MethodDraft[] = [
-            ...(v.phones ?? []).map((m, mi) => ({
-              kind: "phone" as const,
-              value: m.value,
-              method_type: m.method_type,
-              is_primary: mi === 0 && match.status === "new",
-            })),
-            ...(v.emails ?? []).map((m, mi) => ({
-              kind: "email" as const,
-              value: m.value,
-              method_type: m.method_type,
-              is_primary: mi === 0 && match.status === "new",
-            })),
-          ];
-          if (methodDrafts.length > 0) {
-            await addContactMethods(personId, methodDrafts, {
-              importBatchId: batchId,
-              ...(match.status === "new" ? { existing: [] } : {}),
-            });
-          }
-
-          // A partner on the same row becomes their own contact in the same household.
-          const spouseName = v.spouse_first_name
-            ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
-            : v.spouse_full_name
-              ? splitFullName(v.spouse_full_name)
-              : null;
-          // Only people already in this household count as "already there", so a
-          // common first name elsewhere in the database never swallows a real person.
-          const houseMembers = householdId
-            ? ((
-                await supabase
-                  .from("people")
-                  .select("first_name, last_name")
-                  .eq("household_id", householdId)
-              ).data ?? [])
-            : [];
-          const inHousehold = (f: string, l: string) =>
-            houseMembers.some(
-              (p) =>
-                (p.first_name ?? "").trim().toLowerCase() === f.trim().toLowerCase() &&
-                (p.last_name ?? "").trim().toLowerCase() === l.trim().toLowerCase(),
-            );
-          if (spouseName && (spouseName.first || spouseName.last)) {
-            const spouseLast = spouseName.last || last;
-            if (!inHousehold(spouseName.first, spouseLast)) {
-            const { data: spouse, error: spouseError } = await supabase
+              const { data: created, error: createError } = await supabase
                 .from("people")
                 .insert({
-                  first_name: spouseName.first || null,
-                  last_name: spouseLast || null,
-                  display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
-                  email: v.spouse_email ?? null,
-                  phone: v.spouse_phone ?? null,
-                  household_id: householdId,
-                  role: "Adult",
+                  first_name: first || null,
+                  last_name: last || null,
+                  display_name: displayName,
+                  email: v.email ?? null,
+                  phone: v.phone ?? null,
+                  birth_date: isoDate(v.birth_date),
+                  anniversary_date: isoDate(v.anniversary_date),
                   met_source: v.met_source ?? null,
+                  school: v.school ?? null,
+                  notes: v.person_notes ?? null,
+                  household_id: householdId,
+                  role: personRole,
+                  tags: splitList(v.tags),
+                  programs: splitList(v.programs),
+                  ...(relationship ? { household_relationship: relationship } : {}),
                   import_batch_id: batchId,
                 })
                 .select("id")
                 .single();
-              if (spouseError) throw spouseError;
-              if (spouse?.id) {
-                const spouseMethods: MethodDraft[] = [];
-                if (v.spouse_phone)
-                  spouseMethods.push({
-                    kind: "phone",
-                    value: v.spouse_phone,
-                    method_type: "Mobile",
-                    is_primary: true,
-                  });
-                if (v.spouse_email)
-                  spouseMethods.push({
-                    kind: "email",
-                    value: v.spouse_email,
-                    method_type: "Personal",
-                    is_primary: true,
-                  });
-                if (spouseMethods.length)
-                  await addContactMethods(spouse.id, spouseMethods, {
-                    importBatchId: batchId,
-                    existing: [],
-                  });
-                remember({
-                  id: spouse.id,
-                  first: spouseName.first || "",
-                  last: spouseLast || "",
-                  email: v.spouse_email ?? null,
-                  phone: v.spouse_phone ?? null,
-                  householdId,
-                  address: fullAddress,
-                });
-              }
-              houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
-            }
-          }
-
-          // Children listed on the row each become their own contact, linked by household.
-          for (const child of v.children ?? []) {
-            const childFirst = child.first.trim();
-            const childLast = (child.last ?? "").trim() || last;
-            if (!childFirst && !childLast) continue;
-            if (inHousehold(childFirst, childLast)) continue;
-            const { data: childRow, error: childError } = await supabase
-              .from("people")
-              .insert({
-                first_name: childFirst || null,
-                last_name: childLast || null,
-                display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
-                household_id: householdId,
-                role: "Child",
-                birth_date: isoDate(child.birth_date),
-                school: child.school ?? null,
-                met_source: v.met_source ?? null,
-                programs: splitList(v.programs),
-                import_batch_id: batchId,
-              })
-              .select("id")
-              .single();
-            if (childError) throw childError;
-            if (childRow?.id)
+              if (createError) throw createError;
+              personId = created.id;
               remember({
-                id: childRow.id,
-                first: childFirst,
-                last: childLast,
+                id: personId,
+                first,
+                last,
+                email: v.email ?? null,
+                phone: v.phone ?? null,
+                birthDate: isoDate(v.birth_date),
                 householdId,
                 address: fullAddress,
+                methods: [
+                  ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                  ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+                ],
               });
-            houseMembers.push({ first_name: childFirst, last_name: childLast });
-          }
-
-          for (const key of [
-            "email",
-            "phone",
-            "address",
-            "birth_date",
-            "anniversary_date",
-            "met_source",
-            "school",
-          ] as FieldKey[]) {
-            if (v[key])
-              fieldSources.push({
-                person_id: personId,
-                field_name: key,
-                source,
-                recorded_date: importDate,
-                import_batch_id: batch.id,
+            } else if (personId) {
+              const existing = match.candidates[0]!;
+              const patch: {
+                email?: string;
+                phone?: string;
+                birth_date?: string;
+                anniversary_date?: string;
+                met_source?: string;
+                school?: string;
+                notes?: string;
+              } = {};
+              if (v.email && !existing.email) patch["email"] = v.email;
+              if (v.phone && !existing.phone) patch["phone"] = v.phone;
+              const dob = isoDate(v.birth_date);
+              if (dob) patch["birth_date"] = dob;
+              const anniversary = isoDate(v.anniversary_date);
+              if (anniversary) patch["anniversary_date"] = anniversary;
+              if (v.met_source) patch["met_source"] = v.met_source;
+              if (v.school) patch["school"] = v.school;
+              if (v.person_notes) patch["notes"] = v.person_notes;
+              if (Object.keys(patch).length > 0) {
+                await mustWrite(
+                  supabase.from("people").update(patch).eq("id", personId),
+                  "The matched contact couldn't be updated.",
+                );
+              }
+              remember({
+                id: personId,
+                first,
+                last,
+                email: v.email ?? null,
+                phone: v.phone ?? null,
+                birthDate: isoDate(v.birth_date),
+                methods: [
+                  ...(v.phones ?? []).map((m) => ({ kind: "phone", value: m.value })),
+                  ...(v.emails ?? []).map((m) => ({ kind: "email", value: m.value })),
+                ],
               });
-          }
 
-          if (v.amount) {
-            const amount = Number(String(v.amount).replace(/[^0-9.-]/g, ""));
-            const readDate = isoDate(v.date);
-            if (v.date && !readDate) {
-              // Better no gift than a gift dated today: a wrong date corrupts
-              // giving history, so the row is reported instead of guessed at.
-              unreadableGiftDates += 1;
-            } else if (Number.isFinite(amount) && amount > 0) {
-              const giftDate = readDate ?? importDate;
-              const explicitEvent = targetEventId
-                ? (events ?? []).find((event) => event.id === targetEventId) ?? null
+              // Existing person, new family details on the row: attach a household if they don't have one.
+              if (!householdId && (v.household_name || fullAddress || v.children?.length)) {
+                householdId = await ensureHousehold(householdName, addressParts, allowAddressLink);
+                if (householdId)
+                  await mustWrite(
+                    supabase
+                      .from("people")
+                      .update({ household_id: householdId })
+                      .eq("id", personId),
+                    "The contact couldn't be linked to the household.",
+                  );
+              } else if (householdId && fullAddress) {
+                const housePatch: {
+                  address?: string;
+                  address_line2?: string;
+                  city?: string;
+                  state?: string;
+                  postal_code?: string;
+                } = {};
+                if (fullAddress) {
+                  housePatch["address"] = fullAddress;
+                  if (v.address_line2) housePatch["address_line2"] = v.address_line2;
+                  if (v.city) housePatch["city"] = v.city;
+                  if (v.state) housePatch["state"] = v.state;
+                  if (v.postal_code) housePatch["postal_code"] = v.postal_code;
+                }
+                if (Object.keys(housePatch).length > 0)
+                  await mustWrite(
+                    supabase.from("households").update(housePatch).eq("id", householdId),
+                    "The household couldn't be updated.",
+                  );
+              }
+            }
+
+            if (!personId) throw new Error("No contact was created or matched for this row.");
+
+            if (relationship) {
+              await mustWrite(
+                supabase
+                  .from("people")
+                  .update({ household_relationship: relationship })
+                  .eq("id", personId),
+                "The household relationship couldn't be saved.",
+              );
+            }
+
+            // Link this contact to the event named on the row, or to the event the
+            // reviewer chose for the whole file. One shared attendance function, so an
+            // existing RSVP is upgraded to Attended instead of being left as-is.
+            const targetEventId = giftPlan.targetEventId;
+            if (targetEventId) {
+              const linkedEvent = (events ?? []).find((e) => e.id === targetEventId) ?? null;
+              const fee = giftPlan.registrationFee;
+              await recordAttendance({
+                personId,
+                eventId: targetEventId,
+                eventName: linkedEvent?.name ?? "an event",
+                eventDate: linkedEvent?.date ?? null,
+                importBatchId: batchId,
+                ...(fee > 0 ? { feeAmount: fee, paymentAmount: rowAmount } : {}),
+              });
+              // The attendance timeline entry is written by the database from the
+              // registration, so removing the registration removes the entry too.
+            }
+
+            // Programs and lists chosen for the whole file, added without wiping
+            // anything the contact already had.
+            if (bulkTarget.program || bulkTarget.tag) {
+              const { data: current } = await supabase
+                .from("people")
+                .select("tags, programs")
+                .eq("id", personId)
+                .single();
+              const patch: { tags?: string[]; programs?: string[] } = {};
+              if (bulkTarget.program) {
+                const list = current?.programs ?? [];
+                if (!list.some((p) => normalizeLabel(p) === normalizeLabel(bulkTarget.program)))
+                  patch.programs = [...list, bulkTarget.program];
+              }
+              if (bulkTarget.tag) {
+                const list = current?.tags ?? [];
+                if (!list.some((t) => normalizeLabel(t) === normalizeLabel(bulkTarget.tag)))
+                  patch.tags = [...list, bulkTarget.tag];
+              }
+              if (Object.keys(patch).length > 0)
+                await supabase.from("people").update(patch).eq("id", personId);
+            }
+
+            // Every phone and email on the row is stored, with anything already on
+            // file skipped so a re-import never duplicates a number.
+            const methodDrafts: MethodDraft[] = [
+              ...(v.phones ?? []).map((m, mi) => ({
+                kind: "phone" as const,
+                value: m.value,
+                method_type: m.method_type,
+                is_primary: mi === 0 && match.status === "new",
+              })),
+              ...(v.emails ?? []).map((m, mi) => ({
+                kind: "email" as const,
+                value: m.value,
+                method_type: m.method_type,
+                is_primary: mi === 0 && match.status === "new",
+              })),
+            ];
+            if (methodDrafts.length > 0) {
+              await addContactMethods(personId, methodDrafts, {
+                importBatchId: batchId,
+                ...(match.status === "new" ? { existing: [] } : {}),
+              });
+            }
+
+            // A partner on the same row becomes their own contact in the same household.
+            const spouseName = v.spouse_first_name
+              ? { first: v.spouse_first_name, last: v.spouse_last_name ?? last }
+              : v.spouse_full_name
+                ? splitFullName(v.spouse_full_name)
                 : null;
-              const nearbyGroup = giftEventGroups.find(
-                (g) =>
-                  g.event.date >= dayShift(giftDate, -1) && g.event.date <= dayShift(giftDate, 1),
+            // Only people already in this household count as "already there", so a
+            // common first name elsewhere in the database never swallows a real person.
+            const houseMembers = householdId
+              ? ((
+                  await supabase
+                    .from("people")
+                    .select("first_name, last_name")
+                    .eq("household_id", householdId)
+                ).data ?? [])
+              : [];
+            const inHousehold = (f: string, l: string) =>
+              houseMembers.some(
+                (p) =>
+                  (p.first_name ?? "").trim().toLowerCase() === f.trim().toLowerCase() &&
+                  (p.last_name ?? "").trim().toLowerCase() === l.trim().toLowerCase(),
               );
-              const nearbyDecision = nearbyGroup
-                ? giftEventDecisions[nearbyGroup.event.id]
-                : undefined;
-              const feeEvent =
-                explicitEvent ?? (nearbyDecision === "attended" ? nearbyGroup?.event ?? null : null);
-              const registrationFee = Math.min(
-                Math.max(Number(feeEvent?.registration_fee ?? 0), 0),
-                amount,
-              );
-              const donationAmount = amount - registrationFee;
-              const fingerprint = donationImportFingerprint(v, amount, giftDate);
-              const rowCampaignId = await resolveCampaignId(v.campaign);
-              // Re-importing the same file must not add the same gift twice, and a
-              // gift only ever gets one timeline entry — the donation itself.
-              const dupeCheck = supabase
-                .from("donations")
-                .select("id")
-                .eq("person_id", personId)
-                .eq("amount", donationAmount)
-                .eq("date", giftDate)
-                .is("deleted_at", null);
-              const { data: existingGift } = await (
-                rowCampaignId
-                  ? dupeCheck.eq("campaign_id", rowCampaignId)
-                  : dupeCheck.is("campaign_id", null)
-              ).limit(1);
-              if (!existingGift?.length && donationAmount > 0) {
-                const { data: newGift, error: giftError } = await supabase
-                  .from("donations")
+            if (spouseName && (spouseName.first || spouseName.last)) {
+              const spouseLast = spouseName.last || last;
+              if (!inHousehold(spouseName.first, spouseLast)) {
+                const { data: spouse, error: spouseError } = await supabase
+                  .from("people")
                   .insert({
-                    person_id: personId,
-                    amount: donationAmount,
-                    date: giftDate,
-                    campaign_id: rowCampaignId,
-                    source,
-                    notes: v.notes ?? null,
-                    import_batch_id: batch.id,
-                    import_fingerprint: fingerprint,
+                    first_name: spouseName.first || null,
+                    last_name: spouseLast || null,
+                    display_name: [spouseName.first, spouseLast].filter(Boolean).join(" ") || null,
+                    email: v.spouse_email ?? null,
+                    phone: v.spouse_phone ?? null,
+                    household_id: householdId,
+                    role: "Adult",
+                    met_source: v.met_source ?? null,
+                    import_batch_id: batchId,
                   })
                   .select("id")
                   .single();
-                if (giftError) throw giftError;
-
-                // Apply the reviewer's one decision about gifts made on an event date.
-                const giftEvent = nearbyGroup;
-                const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
-                if (
-                  newGift?.id &&
-                  giftEvent &&
-                  (decision === "attended" || decision === "gift_only")
-                ) {
-                  await attributeGiftToEvent({
-                    donationId: newGift.id,
-                    personId,
-                    eventId: giftEvent.event.id,
-                    attended: decision === "attended",
-                    importBatchId: batchId,
-                    ...(decision === "attended" && registrationFee > 0
-                      ? { feeAmount: registrationFee, paymentAmount: amount }
-                      : {}),
-                  });
-                } else if (newGift?.id && targetEventId) {
-                  // The row named an event or a campaign that is an event, so the
-                  // gift is credited to it and the person counts as having come.
-                  await attributeGiftToEvent({
-                    donationId: newGift.id,
-                    personId,
-                    eventId: targetEventId,
-                    attended: true,
-                    importBatchId: batchId,
+                if (spouseError) throw spouseError;
+                if (spouse?.id) {
+                  const spouseMethods: MethodDraft[] = [];
+                  if (v.spouse_phone)
+                    spouseMethods.push({
+                      kind: "phone",
+                      value: v.spouse_phone,
+                      method_type: "Mobile",
+                      is_primary: true,
+                    });
+                  if (v.spouse_email)
+                    spouseMethods.push({
+                      kind: "email",
+                      value: v.spouse_email,
+                      method_type: "Personal",
+                      is_primary: true,
+                    });
+                  if (spouseMethods.length)
+                    await addContactMethods(spouse.id, spouseMethods, {
+                      importBatchId: batchId,
+                      existing: [],
+                    });
+                  remember({
+                    id: spouse.id,
+                    first: spouseName.first || "",
+                    last: spouseLast || "",
+                    email: v.spouse_email ?? null,
+                    phone: v.spouse_phone ?? null,
+                    householdId,
+                    address: fullAddress,
                   });
                 }
-                if (fingerprint) existingGiftFingerprints.add(fingerprint);
+                houseMembers.push({ first_name: spouseName.first, last_name: spouseLast });
               }
             }
-          }
 
-          const noteParts = [
-            v.notes,
-            v.person_notes ? `Note: ${v.person_notes}` : "",
-            v.school ? `School: ${v.school}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          if (noteParts && !v.amount) {
-            await guard(
-              supabase.from("interactions").insert({
-                person_id: personId,
-                type: "form",
-                date: importDate,
-                text: noteParts,
-                author: "Import",
-                import_batch_id: batch.id,
-              }),
-              { area: "import", action: "Save an imported detail" },
-            );
+            // Children listed on the row each become their own contact, linked by household.
+            for (const child of v.children ?? []) {
+              const childFirst = child.first.trim();
+              const childLast = (child.last ?? "").trim() || last;
+              if (!childFirst && !childLast) continue;
+              if (inHousehold(childFirst, childLast)) continue;
+              const { data: childRow, error: childError } = await supabase
+                .from("people")
+                .insert({
+                  first_name: childFirst || null,
+                  last_name: childLast || null,
+                  display_name: [childFirst, childLast].filter(Boolean).join(" ") || null,
+                  household_id: householdId,
+                  role: "Child",
+                  birth_date: isoDate(child.birth_date),
+                  school: child.school ?? null,
+                  met_source: v.met_source ?? null,
+                  programs: splitList(v.programs),
+                  import_batch_id: batchId,
+                })
+                .select("id")
+                .single();
+              if (childError) throw childError;
+              if (childRow?.id)
+                remember({
+                  id: childRow.id,
+                  first: childFirst,
+                  last: childLast,
+                  householdId,
+                  address: fullAddress,
+                });
+              houseMembers.push({ first_name: childFirst, last_name: childLast });
+            }
+
+            for (const key of [
+              "email",
+              "phone",
+              "address",
+              "birth_date",
+              "anniversary_date",
+              "met_source",
+              "school",
+            ] as FieldKey[]) {
+              if (v[key])
+                fieldSources.push({
+                  person_id: personId,
+                  field_name: key,
+                  source,
+                  recorded_date: importDate,
+                  import_batch_id: batchId,
+                });
+            }
+
+            if (v.amount) {
+              const amount = importedAmount(v.amount);
+              const readDate = isoDate(v.date);
+              if (v.date && !readDate) {
+                // Better no gift than a gift dated today: a wrong date corrupts
+                // giving history, so the row is reported instead of guessed at.
+                unreadableGiftDates += 1;
+              } else if (Number.isFinite(amount) && amount > 0) {
+                const giftDate = readDate ?? importDate;
+                const {
+                  nearbyGroup,
+                  nearbyDecision,
+                  registrationFee,
+                  donationAmount,
+                  fingerprint,
+                } = giftPlan;
+                const rowCampaignId = await resolveCampaignId(v.campaign);
+                // Re-importing the same file must not add the same gift twice, and a
+                // gift only ever gets one timeline entry — the donation itself.
+                const dupeCheck = supabase
+                  .from("donations")
+                  .select("id")
+                  .eq("person_id", personId)
+                  .eq("amount", donationAmount)
+                  .eq("date", giftDate)
+                  .is("deleted_at", null);
+                const { data: existingGift } = await (
+                  rowCampaignId
+                    ? dupeCheck.eq("campaign_id", rowCampaignId)
+                    : dupeCheck.is("campaign_id", null)
+                ).limit(1);
+                if (!existingGift?.length && donationAmount > 0) {
+                  const { data: newGift, error: giftError } = await supabase
+                    .from("donations")
+                    .insert({
+                      person_id: personId,
+                      amount: donationAmount,
+                      date: giftDate,
+                      campaign_id: rowCampaignId,
+                      source,
+                      notes: v.notes ?? null,
+                      import_batch_id: batchId,
+                      import_fingerprint: fingerprint,
+                    })
+                    .select("id")
+                    .single();
+                  if (giftError) throw giftError;
+
+                  // Apply the reviewer's one decision about gifts made on an event date.
+                  const giftEvent = nearbyGroup;
+                  const decision = giftEvent ? giftEventDecisions[giftEvent.event.id] : undefined;
+                  if (
+                    newGift?.id &&
+                    giftEvent &&
+                    (decision === "attended" || decision === "gift_only")
+                  ) {
+                    await attributeGiftToEvent({
+                      donationId: newGift.id,
+                      personId,
+                      eventId: giftEvent.event.id,
+                      attended: decision === "attended",
+                      importBatchId: batchId,
+                      ...(decision === "attended" && registrationFee > 0
+                        ? { feeAmount: registrationFee, paymentAmount: amount }
+                        : {}),
+                    });
+                  } else if (newGift?.id && targetEventId) {
+                    // The row named an event or a campaign that is an event, so the
+                    // gift is credited to it and the person counts as having come.
+                    await attributeGiftToEvent({
+                      donationId: newGift.id,
+                      personId,
+                      eventId: targetEventId,
+                      attended: true,
+                      importBatchId: batchId,
+                    });
+                  }
+                  if (fingerprint) existingGiftFingerprints.add(fingerprint);
+                }
+              }
+            }
+
+            const noteParts = [
+              v.notes,
+              v.person_notes ? `Note: ${v.person_notes}` : "",
+              v.school ? `School: ${v.school}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            if (noteParts && !v.amount) {
+              await guard(
+                supabase.from("interactions").insert({
+                  person_id: personId,
+                  type: "form",
+                  date: importDate,
+                  text: noteParts,
+                  author: "Import",
+                  import_batch_id: batchId,
+                }),
+                { area: "import", action: "Save an imported detail" },
+              );
+            }
           }
-          await recordOutcome(index, match.status === "new" ? "created" : "matched", {
-            personId,
-          });
         } catch (rowError) {
+          if (rowCommitted) throw rowError;
+          const transactionCondition = transactionReviewCondition(rowError);
+          if (transactionCondition) {
+            const reason = transactionReviewReason(transactionCondition);
+            await queueForReview(
+              v,
+              reason,
+              item.match.candidates.map((candidate) => candidate.id),
+              null,
+              {
+                kind: transactionCondition,
+                transaction_source_system: transactionSourceSystem || null,
+                transaction_object_type: transactionObjectType,
+                external_transaction_id: v.transaction_id ?? null,
+              },
+            );
+            continue;
+          }
           failures += 1;
           console.error("Import row failed", rowError);
           const why = await friendlyDbError(rowError, "We couldn't save this row.");
-          const k = addressKey(composeAddress(v));
-          let reviewQueueId: string | null = null;
           try {
-            reviewQueueId = await queueForReview(
-              v,
-              why,
-              [],
-              k ? { key: k, address: composeAddress(v) ?? "" } : null,
+            await recordImportRowFailureAndRethrow(
+              {
+                batchId,
+                outcomeId: claimedRow.outcome_id,
+                stagedRowId: claimedRow.staged_row_id,
+                claimToken: claimedRow.claim_token,
+                claimedBy: leaseOwner,
+                message: why,
+              },
+              rowError,
             );
-          } catch (queueError) {
-            console.error("Failed to preserve import row in review queue", queueError);
+          } catch (preservedError) {
+            console.error("Import row remains failed", preservedError);
           }
-          await recordOutcome(index, "failed", { reviewQueueId, message: why });
+          if (executionPayload) {
+            retryableFailures.push({
+              rowNumber: index + 1,
+              outcomeId: claimedRow.outcome_id,
+              stagedRowId: claimedRow.staged_row_id,
+              execution: executionPayload,
+              retrying: false,
+              error: null,
+            });
+          }
         }
 
         // Let the browser breathe so a long import never freezes the page.
@@ -1323,46 +2401,28 @@ function ImportCenter() {
         }
       }
 
-      if (fieldSources.length > 0) {
-        for (let i = 0; i < fieldSources.length; i += 500) {
-          await guard(supabase.from("field_sources").insert(fieldSources.slice(i, i + 500)), {
-            area: "import",
-            action: "Save an imported detail",
-          });
-        }
-      }
-
-      const { data: outcomeRows, error: outcomeError } = await supabase
-        .from("import_row_outcomes")
-        .select("outcome")
-        .eq("batch_id", batchId);
-      if (outcomeError) throw outcomeError;
-      const reconciliation = {
-        created: (outcomeRows ?? []).filter((row) => row.outcome === "created").length,
-        matched: (outcomeRows ?? []).filter((row) => row.outcome === "matched").length,
-        flagged: (outcomeRows ?? []).filter((row) => row.outcome === "flagged").length,
-        failed: (outcomeRows ?? []).filter((row) => row.outcome === "failed").length,
+      // Authoritative, durable progress — derived server-side from import_row_outcomes,
+      // never from a client-computed count. This is the only thing that decides whether
+      // the loop actually finished everything it was supposed to.
+      const { data: progressData, error: progressError } = await (supabase.rpc as any)("import_batch_progress", {
+        _batch_id: batchId,
+      });
+      if (progressError) throw progressError;
+      const progress = progressData as {
+        total_rows: number;
+        terminal_count: number;
+        created_count: number;
+        matched_count: number;
+        flagged_count: number;
+        failed_count: number;
+        incomplete: boolean;
       };
-      const processed = Object.values(reconciliation).reduce((sum, count) => sum + count, 0);
-      const reconciled = processed === analysed.length;
-      const { error: batchFinishError } = await supabase
-        .from("import_batches")
-        .update({
-          processed_rows: processed,
-          created_rows: reconciliation.created,
-          matched_rows: reconciliation.matched,
-          flagged_rows: reconciliation.flagged,
-          failed_rows: reconciliation.failed,
-          completed_at: new Date().toISOString(),
-          status: reconciled && reconciliation.failed === 0 ? "imported" : "needs_attention",
-        })
-        .eq("id", batchId);
-      if (batchFinishError) throw batchFinishError;
-      if (!reconciled) {
+      if (progress.incomplete || progress.total_rows !== analysed.length) {
         throw new Error(
-          `Import stopped before reconciliation: ${processed} of ${analysed.length} rows have a final outcome.`,
+          `Import stopped before reconciliation: ${progress.terminal_count} of ${analysed.length} rows have a final outcome.`,
         );
       }
+
       const notes = [
         queued > 0
           ? "The rows that need a person to look at them are waiting in the Data Inbox."
@@ -1373,23 +2433,192 @@ function ImportCenter() {
             } left out because the date in the file couldn't be read — nothing was dated today by mistake.`
           : "",
       ].filter(Boolean);
-      toast.success(
-        `${analysed.length} rows reconciled · ${reconciliation.created} created · ${reconciliation.matched} matched · ${reconciliation.flagged} flagged · ${reconciliation.failed} failed${
-          counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
-        }`,
-        {
-          duration: 12000,
-          ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
-        },
-      );
-      await queryClient.invalidateQueries();
-      reset();
+
+      if (retryableFailures.length > 0) {
+        // A row can only be retried while the batch is still `processing` with an active
+        // lease (claim_import_rows requires both), so this deliberately does NOT call
+        // reconcile_import_batch yet — that would immediately finalize the batch to
+        // `needs_attention` and the retry panel needs `processing` to claim rows. It gets
+        // authoritatively reconciled for real in finalizeBatchAfterRetries once the panel
+        // empties. import_batch_progress stays live and correct for a reload in the meantime.
+        keepLeaseOpenForRetry = true;
+        activeRetryBatchRef.current = { batchId, leaseOwner: leaseOwner! };
+        setFailedRetryRows(retryableFailures);
+        toast.warning(
+          `${retryableFailures.length} row${retryableFailures.length === 1 ? "" : "s"} failed to save. Retry ${retryableFailures.length === 1 ? "it" : "them"} below, or leave this page and re-import the file later.`,
+          { duration: 15000 },
+        );
+        await refreshActiveBatch();
+      } else {
+        // The only call allowed to move this batch into a terminal status. It re-derives
+        // counts itself server-side rather than trusting anything computed above.
+        const { data: reconcileData, error: reconcileError } = await (supabase.rpc as any)("reconcile_import_batch", {
+          _batch_id: batchId,
+        });
+        if (reconcileError) throw reconcileError;
+        const reconcileResult = reconcileData as { status: string; reconciled: boolean; progress?: typeof progress };
+        if (!reconcileResult.reconciled) {
+          throw new Error("Import stopped before reconciliation: the database does not yet show every row as final.");
+        }
+        const finalProgress = reconcileResult.progress ?? progress;
+        if (reconcileResult.status === "completed") {
+          toast.success(
+            `${analysed.length} rows reconciled · ${finalProgress.created_count} created · ${finalProgress.matched_count} matched · ${finalProgress.flagged_count} flagged · ${finalProgress.failed_count} failed${
+              counts.extraPeople ? ` · ${counts.extraPeople} family members added` : ""
+            }`,
+            {
+              duration: 12000,
+              ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
+            },
+          );
+        } else {
+          toast.warning(
+            `Import needs attention · ${finalProgress.failed_count} failed · ${finalProgress.flagged_count} flagged. Check the Data Inbox and try again.`,
+            {
+              duration: 15000,
+              ...(notes.length > 0 ? { description: notes.join(" ") } : {}),
+            },
+          );
+        }
+        await queryClient.invalidateQueries();
+        await refreshActiveBatch();
+        reset();
+      }
     } catch (e) {
       const why = await friendlyDbError(e, "Import failed.");
       toast.error(`${why} Your file is still here, nothing was lost.`);
     } finally {
+      if (leasedBatchId && leaseOwner && !keepLeaseOpenForRetry) {
+        await supabase.rpc("release_import_batch", {
+          _batch_id: leasedBatchId,
+          _lease_owner: leaseOwner,
+        });
+      }
       setBusy(false);
       runningRef.current = false;
+    }
+  }
+
+  /** Finish the batch once every row captured for retry has been resolved. Calls the same
+   * authoritative reconciliation the main run uses — it does NOT assume "completed" just
+   * because the local retry panel emptied; a flagged row this panel never handles could
+   * still be outstanding, and reconcile_import_batch is what actually checks that. */
+  async function finalizeBatchAfterRetries(batchId: string, leaseOwner: string) {
+    const { data: reconcileData, error: reconcileError } = await (supabase.rpc as any)("reconcile_import_batch", {
+      _batch_id: batchId,
+    });
+    if (reconcileError) {
+      toast.error(await friendlyDbError(reconcileError, "Could not finish reconciling this import."));
+      return;
+    }
+    const reconcileResult = reconcileData as {
+      status: string;
+      reconciled: boolean;
+      progress?: { failed_count: number; flagged_count: number };
+    };
+    if (!reconcileResult.reconciled) {
+      // Genuinely outstanding work remains (e.g. a row still processing elsewhere) —
+      // leave the batch and lease exactly as they are rather than pretending it's done.
+      toast.warning("This import still has unfinished rows. It will stay open until they resolve.", {
+        duration: 12000,
+      });
+      return;
+    }
+    await supabase.rpc("release_import_batch", { _batch_id: batchId, _lease_owner: leaseOwner });
+    activeRetryBatchRef.current = null;
+    await queryClient.invalidateQueries();
+    await refreshActiveBatch();
+    reset();
+    if (reconcileResult.status === "completed") {
+      toast.success("All rows saved.");
+    } else {
+      const flagged = reconcileResult.progress?.flagged_count ?? 0;
+      toast.warning(
+        `Row saved, but this import still needs attention${flagged > 0 ? ` · ${flagged} flagged` : ""}. Check the Data Inbox.`,
+        { duration: 15000 },
+      );
+    }
+  }
+
+  /** Retry exactly one failed row: retry_failed_import_row -> claim_import_rows ->
+   * execute_claimed_import_row, reusing the decision already made for it. No direct table
+   * writes, no fabricated claim state — every step is the same RPC the active importer uses. */
+  async function retryOneFailedRow(row: FailedRetryRow) {
+    const active = activeRetryBatchRef.current;
+    if (!active) {
+      setFailedRetryRows((prev) =>
+        prev.map((r) =>
+          r.outcomeId === row.outcomeId
+            ? { ...r, error: "This import session has ended. Re-import the file to retry this row." }
+            : r,
+        ),
+      );
+      return;
+    }
+    setFailedRetryRows((prev) =>
+      prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, retrying: true, error: null } : r)),
+    );
+    try {
+      await retryFailedImportRow({
+        batchId: active.batchId,
+        outcomeId: row.outcomeId,
+        stagedRowId: row.stagedRowId,
+        expectedAttemptCount: null,
+        expectedLastError: null,
+      });
+      const { error: heartbeatError } = await supabase.rpc("heartbeat_import_batch", {
+        _batch_id: active.batchId,
+        _lease_owner: active.leaseOwner,
+        _lease_seconds: 300,
+      });
+      if (heartbeatError) throwImportLeaseError(heartbeatError);
+      const { data: claimedRows, error: claimError } = await supabase.rpc("claim_import_rows", {
+        _batch_id: active.batchId,
+        _lease_owner: active.leaseOwner,
+        _max_rows: 1,
+      });
+      if (claimError) throwImportLeaseError(claimError);
+      const claimed = (claimedRows as unknown as ClaimedImportRow[] | null)?.[0];
+      if (!claimed || claimed.staged_row_id !== row.stagedRowId) {
+        throw new Error(
+          "The retried row could not be claimed (another retry may be in progress). Try again.",
+        );
+      }
+      const { error: resolveError } = await supabase.rpc("execute_claimed_import_row", {
+        _batch_id: active.batchId,
+        _outcome_id: claimed.outcome_id,
+        _staged_row_id: claimed.staged_row_id,
+        _claim_token: claimed.claim_token,
+        _claimed_by: active.leaseOwner,
+        _execution: row.execution,
+      });
+      if (resolveError) {
+        const why = await friendlyDbError(resolveError, "We couldn't save this row.");
+        await recordImportRowFailureAndRethrow(
+          {
+            batchId: active.batchId,
+            outcomeId: claimed.outcome_id,
+            stagedRowId: claimed.staged_row_id,
+            claimToken: claimed.claim_token,
+            claimedBy: active.leaseOwner,
+            message: why,
+          },
+          resolveError,
+        );
+      }
+      toast.success(`Row ${row.rowNumber} saved.`);
+      let remaining = 0;
+      setFailedRetryRows((prev) => {
+        const next = prev.filter((r) => r.outcomeId !== row.outcomeId);
+        remaining = next.length;
+        return next;
+      });
+      if (remaining === 0) await finalizeBatchAfterRetries(active.batchId, active.leaseOwner);
+    } catch (e) {
+      const why = await friendlyDbError(e, "That row still couldn't be saved.");
+      setFailedRetryRows((prev) =>
+        prev.map((r) => (r.outcomeId === row.outcomeId ? { ...r, retrying: false, error: why } : r)),
+      );
     }
   }
 
@@ -1406,7 +2635,117 @@ function ImportCenter() {
         </Link>
       }
     >
-      {!sheet && (
+      {activeBatch && (
+        <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <AlertTriangle className="size-4 text-amber-600" />
+            {activeBatch.kind === "needs_attention" ? "Import needs attention" : "Unfinished import found"}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{activeBatch.filename}</span> ·{" "}
+            {activeBatch.progress.terminal_count} of {activeBatch.progress.total_rows} rows processed ·{" "}
+            {activeBatch.progress.created_count} created · {activeBatch.progress.matched_count} matched ·{" "}
+            {activeBatch.progress.flagged_count} flagged · {activeBatch.progress.failed_count} failed
+            {activeBatch.progress.incomplete
+              ? ` · ${activeBatch.progress.pending_count + activeBatch.progress.processing_count} still unfinished`
+              : ""}
+          </p>
+          {activeBatch.kind === "resumable" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Select {activeBatch.filename} again below to continue exactly where it left off.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {activeBatch.kind === "resumable" && (
+              <Button type="button" size="sm" onClick={resumeActiveBatch}>
+                Resume Import
+              </Button>
+            )}
+            {activeBatch.kind === "needs_attention" && activeBatch.progress.flagged_count > 0 && (
+              <Link
+                to="/inbox/review"
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground"
+              >
+                Review Issues
+              </Link>
+            )}
+            {isAdmin && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="text-urgent"
+                disabled={startingOver}
+                onClick={() => void startOverActiveBatch()}
+              >
+                {startingOver ? "Starting over…" : "Start Over"}
+              </Button>
+            )}
+          </div>
+          {oldFailedRows.length > 0 && (
+            <ul className="mt-3 space-y-2 border-t border-amber-500/20 pt-3">
+              {oldFailedRows.map((row) => (
+                <li
+                  key={row.outcomeId}
+                  className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Row {row.rowNumber} failed</p>
+                    {row.lastError && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.lastError}</p>
+                    )}
+                    {row.error && <p className="mt-0.5 text-xs text-destructive">{row.error}</p>}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={row.queuing}
+                    onClick={() => void queueOldFailedRowForRetry(row)}
+                  >
+                    {row.queuing ? "Queuing…" : "Queue for Retry"}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {failedRetryRows.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+            <AlertTriangle className="size-4" />
+            {failedRetryRows.length} row{failedRetryRows.length === 1 ? "" : "s"} failed to save
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The rest of this import is saved. Retry each row below, or leave this page and
+            re-import the file later to pick these back up.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {failedRetryRows.map((row) => (
+              <li
+                key={row.outcomeId}
+                className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Row {row.rowNumber}</p>
+                  {row.error && <p className="mt-0.5 text-xs text-destructive">{row.error}</p>}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={row.retrying || failedRetryRows.some((r) => r.retrying)}
+                  onClick={() => void retryOneFailedRow(row)}
+                >
+                  {row.retrying ? "Retrying…" : "Retry Failed Row"}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!workbook && (
         <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center shadow-sm">
           <UploadCloud className="mx-auto size-8 text-primary" />
           <p className="mt-3 font-heading font-semibold text-foreground">Upload a spreadsheet</p>
@@ -1417,6 +2756,7 @@ function ImportCenter() {
           </p>
           <label className="mt-4 inline-block">
             <input
+              ref={fileInputRef}
               type="file"
               accept=".csv,.xlsx,.xls,text/csv"
               className="hidden"
@@ -1438,11 +2778,121 @@ function ImportCenter() {
         </p>
       )}
 
+      {workbook && (
+        <section className="mb-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-heading font-semibold text-foreground">Workbook structure</h2>
+              <p className="text-sm text-muted-foreground">
+                {workbook.filename} · {workbook.sheets.length} sheet
+                {workbook.sheets.length === 1 ? "" : "s"}. Choose the sheet and tell us where its
+                headers are. A data row is never removed unless you explicitly select it as the
+                header.
+              </p>
+            </div>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={reset}>
+              Choose another file
+            </Button>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Worksheet">
+              <select
+                className={selectClass}
+                value={sheet?.sheetIndex ?? ""}
+                onChange={(event) => {
+                  const index = Number(event.target.value);
+                  const chosen = workbook.sheets[index];
+                  if (!chosen) return;
+                  const detected = chosen.detectedHeader.rowNumber;
+                  applySheetSelection(
+                    workbook,
+                    index,
+                    detected,
+                    detected === null ? "none" : "detected",
+                  );
+                }}
+              >
+                <option value="">Select a worksheet</option>
+                {workbook.sheets.map((candidate) => (
+                  <option key={`${candidate.index}-${candidate.name}`} value={candidate.index}>
+                    {candidate.name} · {candidate.physicalRowCount} rows · {candidate.columnCount}{" "}
+                    columns
+                    {candidate.visibility === "visible" ? "" : ` · ${candidate.visibility}`}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {sheet && workbook.sheets[sheet.sheetIndex] && (
+              <Field label="Header row">
+                <select
+                  className={selectClass}
+                  value={sheet.headerRowNumber ?? "none"}
+                  onChange={(event) => {
+                    const rowNumber =
+                      event.target.value === "none" ? null : Number(event.target.value);
+                    const detected = workbook.sheets[sheet.sheetIndex]!.detectedHeader.rowNumber;
+                    applySheetSelection(
+                      workbook,
+                      sheet.sheetIndex,
+                      rowNumber,
+                      rowNumber === null ? "none" : rowNumber === detected ? "detected" : "manual",
+                    );
+                  }}
+                >
+                  <option value="none">No header row — assign columns manually</option>
+                  {workbook.sheets[sheet.sheetIndex]!.rows.filter((row) =>
+                    row.cells.some((cell) => cell.display),
+                  )
+                    .slice(0, 25)
+                    .map((row) => (
+                      <option key={row.physicalRowNumber} value={row.physicalRowNumber}>
+                        Row {row.physicalRowNumber}:{" "}
+                        {row.cells
+                          .map((cell) => cell.display)
+                          .filter(Boolean)
+                          .slice(0, 4)
+                          .join(" · ")}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            )}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {workbook.sheets.map((candidate) => (
+              <button
+                key={`summary-${candidate.index}`}
+                type="button"
+                onClick={() =>
+                  applySheetSelection(
+                    workbook,
+                    candidate.index,
+                    candidate.detectedHeader.rowNumber,
+                    candidate.detectedHeader.rowNumber === null ? "none" : "detected",
+                  )
+                }
+                className={`rounded-xl border p-3 text-left text-sm ${
+                  sheet?.sheetIndex === candidate.index
+                    ? "border-primary bg-primary/5"
+                    : "border-border"
+                }`}
+              >
+                <span className="font-medium text-foreground">{candidate.name}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {candidate.usedRange ?? "empty"} · {candidate.visibility} ·{" "}
+                  {candidate.detectedHeader.reason}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {sheet && (
         <div className="space-y-5">
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <h2 className="font-heading font-semibold text-foreground">{sheet.name}</h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            <div className="mt-3 grid gap-3 sm:grid-cols-5">
               <Stat icon={Users} label="Rows found" value={counts.total} tone="text-foreground" />
               <Stat
                 icon={CheckCircle2}
@@ -1451,6 +2901,7 @@ function ImportCenter() {
                 tone="text-money"
               />
               <Stat icon={UserPlus} label="Look new" value={counts.new} tone="text-primary" />
+              <Stat icon={Users} label="Couples" value={counts.couples} tone="text-money" />
               <Stat
                 icon={AlertTriangle}
                 label="Need review"
@@ -1499,9 +2950,8 @@ function ImportCenter() {
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="font-heading font-semibold text-foreground">Events in this file</h2>
               <p className="text-sm text-muted-foreground">
-                These are the event and campaign names in the file. Answering is optional — anything
-                you leave blank simply isn't linked to an event, and the import still runs. We never
-                create an event without asking.
+                These are the explicit event names in the file. Every unmatched event must be
+                linked, created, or ignored before import. We never create an event without asking.
                 {unansweredEvents.length > 0
                   ? ` ${unansweredEvents.length} name${unansweredEvents.length === 1 ? "" : "s"} still unanswered.`
                   : ""}
@@ -1553,9 +3003,7 @@ function ImportCenter() {
                           rows={fe.rows}
                           events={events ?? []}
                           decision={decision}
-                          onApply={(next) =>
-                            setEventDecisions((d) => ({ ...d, [fe.key]: next }))
-                          }
+                          onApply={(next) => setEventDecisions((d) => ({ ...d, [fe.key]: next }))}
                           onClear={() =>
                             setEventDecisions((d) => {
                               const nextState = { ...d };
@@ -1804,14 +3252,52 @@ function ImportCenter() {
               </Button>
             </div>
             <div className="mt-4 space-y-2">
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <label
+                  className="text-sm font-medium text-foreground"
+                  htmlFor="transaction-source-system"
+                >
+                  Transaction source
+                </label>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Select a known system to namespace external transaction IDs. Unknown files remain
+                  fully importable.
+                </p>
+                <select
+                  id="transaction-source-system"
+                  className={selectClass}
+                  value={transactionSourceSystem}
+                  onChange={(event) => setTransactionSourceSystem(event.target.value)}
+                  disabled={busy}
+                >
+                  {TRANSACTION_SOURCE_OPTIONS.map((option) => (
+                    <option key={option.value || "unknown"} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {transactionSourceSystem
+                    ? "Explicit selection · transaction object type: donation"
+                    : "Unknown source · no strong provider namespace will be asserted"}
+                </p>
+              </div>
               {mapping.map((m, i) => (
                 <div
                   key={`${m.header}-${i}`}
                   className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center"
                 >
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {m.header || `Column ${i + 1}`}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {m.header || `Column ${i + 1}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Value pattern: {sheet.columnProfiles[i]?.shape.replace("_", " ") ?? "unknown"}
+                      {sheet.columnProfiles[i]?.samples.length
+                        ? ` · ${sheet.columnProfiles[i]!.samples.join(" · ")}`
+                        : " · no sample values"}
+                    </p>
+                  </div>
                   {adjusting ? (
                     <FieldPicker
                       value={m.field}
@@ -1876,10 +3362,17 @@ function ImportCenter() {
                 ))}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                A name is all we truly need. Anything missing here just means we'll know less about
-                these contacts.
+                Import is blocked until the mapping contains a usable person identity or activity
+                field and has no structural conflicts.
               </p>
             </div>
+            {!mappingReview.gate.valid && (
+              <ul className="mt-3 space-y-1 rounded-xl border border-urgent/40 bg-urgent/10 p-3 text-sm text-urgent">
+                {mappingReview.gate.errors.map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            )}
             {mappingReview.warnings.length > 0 && (
               <ul className="mt-3 space-y-1 rounded-xl border border-suggestion/50 bg-suggestion/10 p-3 text-sm text-foreground">
                 {mappingReview.warnings.map((w) => (
@@ -1912,24 +3405,34 @@ function ImportCenter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {analysed.slice(0, 15).map((a, ri) => (
+                  {previewAnalysed.slice(0, 15).map((a, ri) => (
                     <tr key={ri}>
                       <td className="whitespace-nowrap border-b border-border py-2 pr-5 text-xs">
                         <span
                           className={
-                            a.match.status === "matched"
+                            a.presentation.status === "couple"
                               ? "text-money"
-                              : a.match.status === "new"
-                                ? "text-primary"
-                                : "text-urgent"
+                              : a.match.status === "matched"
+                                ? "text-money"
+                                : a.match.status === "new"
+                                  ? "text-primary"
+                                  : "text-urgent"
                           }
                         >
-                          {a.match.reason}
+                          {a.presentation.status === "couple" || a.presentation.status === "review"
+                            ? a.presentation.reason
+                            : a.match.reason}
                         </span>
                       </td>
                       <td className="whitespace-nowrap border-b border-border py-2 pr-5 text-xs text-muted-foreground">
                         {[
-                          a.match.status === "new" ? "contact" : "update",
+                          a.presentation.willCreate === "two contacts"
+                            ? "two contacts"
+                            : a.presentation.willCreate === "review"
+                              ? "review"
+                              : a.match.status === "new"
+                                ? "contact"
+                                : "update",
                           a.values.spouse_full_name || a.values.spouse_first_name ? "partner" : "",
                           a.values.children?.length ? `${a.values.children.length} child` : "",
                         ]
@@ -1949,9 +3452,9 @@ function ImportCenter() {
                 </tbody>
               </table>
             </div>
-            {analysed.length > 15 && (
+            {previewAnalysed.length > 15 && (
               <p className="mt-3 text-xs text-muted-foreground">
-                Showing the first 15 of {analysed.length} rows.
+                Showing the first 15 of {previewAnalysed.length} rows.
               </p>
             )}
           </section>
@@ -1966,14 +3469,34 @@ function ImportCenter() {
                   onChange={(e) => setReimportConfirmed(e.target.checked)}
                 />
                 <span>
-                  A file named <strong>{sheet.name}</strong> was already imported
+                  This filename, exact file, or equivalent workbook data was already imported
                   {priorImports![0]?.import_date ? ` on ${priorImports![0]!.import_date}` : ""}
                   {(priorImports ?? []).length > 1 ? ` (${priorImports!.length} times)` : ""}. Tick
                   this box if you really want to import it again.
                 </span>
               </label>
             )}
-            <Button className="rounded-xl" disabled={busy} onClick={() => void approve()}>
+            {sheet.headerRowNumber !== null &&
+              workbook?.sheets[sheet.sheetIndex]?.detectedHeader.rowNumber !==
+                sheet.headerRowNumber && (
+                <label className="flex w-full items-start gap-2 rounded-xl bg-urgent/10 px-3 py-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={headerRiskConfirmed}
+                    onChange={(event) => setHeaderRiskConfirmed(event.target.checked)}
+                  />
+                  <span>
+                    Header detection was uncertain. I checked row {sheet.headerRowNumber} and
+                    confirm that it contains column labels, not the first data record.
+                  </span>
+                </label>
+              )}
+            <Button
+              className="rounded-xl"
+              disabled={busy || !mappingReview.gate.valid || unansweredEvents.length > 0}
+              onClick={() => void approve()}
+            >
               {busy
                 ? `Importing… ${progress?.done ?? 0}/${progress?.total ?? 0}`
                 : "Approve & import"}

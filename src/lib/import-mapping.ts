@@ -1,5 +1,9 @@
 import { parseImportDate } from "@/lib/import-dates";
+import { allocateRegistrationCents, centsToAmount, parseImportAmount, parseImportEmails, parseImportPhone } from "@/lib/import-normalization";
 import { fuzzyScore } from "@/lib/nl-search";
+import { PencilOff } from "lucide-react";
+import { parseExternalTransactionId } from "@/lib/external-transaction-id";
+import { resolveTransactionNamespace } from "@/lib/transaction-namespace";
 
 /** Fields a spreadsheet column can be mapped to. */
 export type FieldKey =
@@ -43,6 +47,7 @@ export type FieldKey =
   | "amount"
   | "date"
   | "campaign"
+  | "transaction_id"
   | "notes"
   | "met_source"
   | "tags"
@@ -91,6 +96,7 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   amount: "Donation amount",
   date: "Donation date",
   campaign: "Campaign",
+  transaction_id: "External transaction ID",
   notes: "Message or form note",
   met_source: "Where we met",
   tags: "Tags",
@@ -161,7 +167,7 @@ export const FIELD_GROUPS: { title: string; fields: FieldKey[] }[] = [
       "child_school",
     ],
   },
-  { title: "Donation", fields: ["amount", "date", "campaign"] },
+  { title: "Donation", fields: ["amount", "date", "campaign", "transaction_id"] },
   { title: "Activity", fields: ["event_name", "programs", "tags", "met_source", "notes"] },
   { title: "Skip", fields: ["ignore"] },
 ];
@@ -187,7 +193,8 @@ export const FIELD_HINTS: Partial<Record<FieldKey, string>> = {
   child_school: "Saved on the child's own record.",
   amount: "Creates a donation. Needs a donation date too.",
   date: "The date of the donation in this row.",
-  campaign: "Links the donation to a campaign, and can record event attendance.",
+  campaign: "Designates the donation to a campaign. It never records attendance.",
+  transaction_id: "A source payment reference used to distinguish and deduplicate gifts.",
   event_name: "Records attendance at this event.",
   tags: "Adds to the contact's tags. Separate several with a comma.",
   programs: "Adds to the contact's programs. Separate several with a comma.",
@@ -197,7 +204,7 @@ export const FIELD_HINTS: Partial<Record<FieldKey, string>> = {
 };
 
 /** Columns whose meaning depends on another column being mapped too. */
-export const FIELD_PAIRS: { field: FieldKey; needs: FieldKey; message: string }[] = [
+export const FIELD_PAIRS: { field: FieldKey; needs: FieldKey | FieldKey[]; message: string }[] = [
   {
     field: "amount",
     needs: "date",
@@ -222,16 +229,6 @@ export const FIELD_PAIRS: { field: FieldKey; needs: FieldKey; message: string }[
     field: "child_school",
     needs: "child_name",
     message: "Child school is mapped but no child name column is.",
-  },
-  {
-    field: "spouse_email",
-    needs: "spouse_full_name",
-    message: "Partner email is mapped but no partner name column is.",
-  },
-  {
-    field: "spouse_phone",
-    needs: "spouse_full_name",
-    message: "Partner phone is mapped but no partner name column is.",
   },
 ];
 
@@ -363,9 +360,11 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
   ],
   address: [
     "address",
+    "address 1",
     "street",
     "street address",
     "address line 1",
+    "mailing street",
     "mailing address",
     "home address",
     "city state zip",
@@ -382,14 +381,28 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "address line two",
     "apt suite",
   ],
-  city: ["city", "town", "city name", "billing city", "shipping city"],
-  state: ["state", "province", "region", "st", "billing state", "shipping state"],
+  city: ["city", "town", "city name", "mailing city", "billing city", "shipping city"],
+  state: [
+    "state",
+    "province",
+    "state province",
+    "region",
+    "st",
+    "mailing state",
+    "mailing state province",
+    "billing state",
+    "shipping state",
+  ],
   postal_code: [
     "zip",
     "zip code",
+    "zip postal code",
     "zipcode",
     "postal code",
     "postcode",
+    "mailing zip",
+    "mailing postal code",
+    "mailing zip postal code",
     "billing zip",
     "shipping zip",
   ],
@@ -490,8 +503,23 @@ const SYNONYMS: Record<Exclude<FieldKey, "ignore">, string[]> = {
     "grade",
   ],
   amount: ["amount", "gift amount", "donation amount", "total", "gross amount", "paid amount"],
-  date: ["date", "gift date", "donation date", "transaction date", "created at", "processed on"],
+  date: [
+    "date",
+    "gift date",
+    "donation date",
+    "transaction date",
+    "close date",
+    "created at",
+    "processed on",
+  ],
   campaign: ["campaign", "fund", "appeal", "designation"],
+  transaction_id: [
+    "transaction id",
+    "transaction reference",
+    "external transaction id",
+    "payment id",
+    "payment reference",
+  ],
   notes: ["notes", "note", "comments", "comment", "message", "memo", "your message", "questions"],
   met_source: ["source", "met at", "where we met", "how did you hear", "lead source", "referral"],
   tags: ["tags", "tag", "labels", "groups", "lists"],
@@ -517,7 +545,7 @@ function normalize(h: string) {
   return h
     .trim()
     .toLowerCase()
-    .replace(/[_\-.]+/g, " ")
+    .replace(/[_\-./]+/g, " ")
     .replace(/\s+/g, " ");
 }
 
@@ -530,6 +558,9 @@ export function guessColumn(header: string): ColumnGuess {
   for (const [field, list] of Object.entries(SYNONYMS) as [FieldKey, string[]][]) {
     for (const syn of list) {
       if (h === syn) return { header, field, confidence: "high" };
+      // Short aliases such as "mail", "st", and "zip" are useful as exact
+      // headers, but unsafe as fuzzy prefixes of unrelated longer headers.
+      if (syn.length < 5) continue;
       const score = fuzzyScore(syn, h);
       if (score !== null && (best === null || score < best.score)) best = { field, score };
     }
@@ -586,12 +617,12 @@ export function rowDedupeKey(v: RowValues): string | null {
 export function rowIdentityKeys(v: RowValues): string[] {
   const keys: string[] = [];
   for (const raw of [...(v.emails ?? []).map((e) => e.value), v.email ?? ""]) {
-    const email = raw.trim().toLowerCase();
-    if (email) keys.push(`email:${email}`);
+    for (const parsed of parseImportEmails(raw))
+      if (parsed.status === "valid" && parsed.canonical) keys.push(`email:${parsed.canonical}`);
   }
   for (const raw of [...(v.phones ?? []).map((p) => p.value), v.phone ?? ""]) {
-    const phone = digits(raw);
-    if (phone.length >= 7) keys.push(`phone:${phone.slice(-10)}`);
+    const phone = parseImportPhone(raw);
+    if (phone.identityKey) keys.push(`phone:${phone.identityKey}`);
   }
   const { first, last } = splitName(v);
   const name = `${first} ${last}`.trim().toLowerCase();
@@ -602,14 +633,182 @@ export function rowIdentityKeys(v: RowValues): string[] {
 /** The same person may legitimately appear once per gift in a transaction export. */
 export function rowOccurrenceKeys(v: RowValues): string[] {
   const identities = rowIdentityKeys(v);
-  const amount = Number(String(v.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const parsedAmount = parseImportAmount(v.amount);
+  const amount = parsedAmount.status === "valid" && parsedAmount.cents !== null ? parsedAmount.cents / 100 : Number.NaN;
   const date = parseImportDate(v.date);
   const hasGift = Number.isFinite(amount) && amount > 0 && Boolean(date);
-  if (!hasGift) return identities;
+  // A repeated person is not a repeated source occurrence. Only activity has a
+  // stable occurrence identity here; person correlation is handled separately.
+  if (!hasGift) return [];
+  const transactionId = parseExternalTransactionId(v.transaction_id).identityValue;
+  if (transactionId)
+    return identities.map((identity) => [identity, "transaction", transactionId].join("|"));
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  return identities.map((identity) =>
-    [identity, date, amount.toFixed(2), campaign].join("|"),
-  );
+  return identities.map((identity) => [identity, date, amount.toFixed(2), campaign].join("|"));
+}
+
+export type FilePersonClaim = {
+  rowIndex: number;
+  role: "main" | "partner";
+  values: RowValues;
+  identityKeys: string[];
+};
+
+export type LogicalFilePerson = {
+  id: string;
+  claims: FilePersonClaim[];
+  identityKeys: string[];
+  conflicted: boolean;
+  conflictReason?: string;
+};
+
+export type FileClaimGraph = {
+  people: LogicalFilePerson[];
+  byClaim: Map<string, LogicalFilePerson>;
+};
+
+const claimKey = (rowIndex: number, role: FilePersonClaim["role"]) => `${rowIndex}:${role}`;
+
+/** Extract the two independent people represented by a confident couple row. */
+export function filePersonClaims(values: RowValues, rowIndex: number): FilePersonClaim[] {
+  const claims: FilePersonClaim[] = [
+    { rowIndex, role: "main", values, identityKeys: rowIdentityKeys(values) },
+  ];
+  const decision = values.couple_decision;
+  if (decision?.kind === "confident_couple" && decision.person2) {
+    const partner: RowValues = {
+      first_name: decision.person2.first,
+      last_name: decision.person2.last,
+      ...(values.spouse_email ? { email: values.spouse_email } : {}),
+      ...(values.spouse_phone ? { phone: values.spouse_phone } : {}),
+    };
+    claims.push({
+      rowIndex,
+      role: "partner",
+      values: partner,
+      identityKeys: rowIdentityKeys(partner),
+    });
+  }
+  return claims.filter((claim) => claim.identityKeys.length > 0);
+}
+
+function claimAsPerson(claim: FilePersonClaim): ExistingPerson {
+  const name = splitName(claim.values);
+  return {
+    id: claimKey(claim.rowIndex, claim.role),
+    first_name: name.first,
+    last_name: name.last,
+    email: claim.values.email ?? null,
+    phone: claim.values.phone ?? null,
+    birth_date: parseImportDate(claim.values.birth_date),
+    household_id: null,
+    households: { name: "", address: composeAddress(claim.values) },
+    contact_methods: [
+      ...(claim.values.emails ?? []).map((entry) => ({ kind: "email", value: entry.value })),
+      ...(claim.values.phones ?? []).map((entry) => ({ kind: "phone", value: entry.value })),
+    ],
+  };
+}
+
+/** Build the order-independent person graph consumed by preview and approval. */
+export function buildFileClaimGraph(rows: RowValues[]): FileClaimGraph {
+  const claims = rows.flatMap(filePersonClaims);
+  const parent = claims.map((_, index) => index);
+  const conflicts = new Map<number, string>();
+  const root = (index: number): number => (parent[index] === index ? index : (parent[index] = root(parent[index]!)));
+  const join = (a: number, b: number) => {
+    const ra = root(a);
+    const rb = root(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+
+  for (let a = 0; a < claims.length; a++) {
+    for (let b = a + 1; b < claims.length; b++) {
+      const left = claims[a]!;
+      const right = claims[b]!;
+      if (!left.identityKeys.some((key) => right.identityKeys.includes(key))) continue;
+      // A contact method shared by the two spouses on one row is not proof they
+      // are one person.
+      if (left.rowIndex === right.rowIndex && left.role !== right.role) continue;
+      const comparison = matchRow(right.values, [claimAsPerson(left)]);
+      if (comparison.status === "matched") join(a, b);
+      else if (comparison.evidence?.some((item) => item.contradictions.length)) {
+        conflicts.set(a, comparison.reason);
+        conflicts.set(b, comparison.reason);
+      }
+    }
+  }
+
+  const groups = new Map<number, FilePersonClaim[]>();
+  claims.forEach((claim, index) => {
+    const key = root(index);
+    groups.set(key, [...(groups.get(key) ?? []), claim]);
+  });
+  const ordered = [...groups.entries()].sort(([, a], [, b]) => {
+    const signature = (group: FilePersonClaim[]) =>
+      [...new Set(group.flatMap((claim) => claim.identityKeys))].sort().join("|");
+    return signature(a).localeCompare(signature(b));
+  });
+  const people = ordered.map(([, group], index): LogicalFilePerson => {
+    const conflictReason = group
+      .map((claim) => claims.indexOf(claim))
+      .map((claimIndex) => conflicts.get(claimIndex))
+      .find(Boolean);
+    return {
+      id: `file-person-${index + 1}`,
+      claims: group,
+      identityKeys: [...new Set(group.flatMap((claim) => claim.identityKeys))],
+      conflicted: Boolean(conflictReason),
+      ...(conflictReason ? { conflictReason } : {}),
+    };
+  });
+  const byClaim = new Map<string, LogicalFilePerson>();
+  people.forEach((person) => person.claims.forEach((claim) => byClaim.set(claimKey(claim.rowIndex, claim.role), person)));
+  return { people, byClaim };
+}
+
+export function logicalFilePerson(
+  graph: FileClaimGraph,
+  rowIndex: number,
+  role: FilePersonClaim["role"] = "main",
+) {
+  return graph.byClaim.get(claimKey(rowIndex, role)) ?? null;
+}
+
+export function correlateFileMatch(
+  base: MatchResult,
+  graph: FileClaimGraph,
+  rowIndex: number,
+  role: FilePersonClaim["role"] = "main",
+): MatchResult {
+  const logical = logicalFilePerson(graph, rowIndex, role);
+  if (!logical) return base;
+  if (logical.conflicted)
+    return {
+      status: "ambiguous",
+      reason: `${logical.conflictReason ?? "Identity claims conflict"} It conflicts with another claim in this file.`,
+      candidates: base.candidates,
+      ...(base.evidence ? { evidence: base.evidence } : {}),
+    };
+  if (base.status === "new" && logical.claims.length > 1)
+    return { status: "matched", reason: "Same person elsewhere in this file", candidates: [] };
+  return base;
+}
+
+export function correlateFileCoupleResolution(
+  resolution: CoupleResolution | null,
+  graph: FileClaimGraph,
+  rowIndex: number,
+): CoupleResolution | null {
+  if (!resolution) return null;
+  const partner = correlateFileMatch(resolution.partner, graph, rowIndex, "partner");
+  if (partner.status !== "ambiguous") return resolution;
+  return {
+    kind: "ambiguous",
+    main: resolution.main,
+    partner,
+    reason: "One or both couple identities need review.",
+  };
 }
 
 /**
@@ -622,10 +821,45 @@ export function donationImportFingerprint(
   amount: number,
   date: string,
 ): string | null {
+  if (!Number.isFinite(amount)) return null;
+  return donationImportFingerprintFromCents(v, Math.round(amount * 100), date);
+}
+
+export function donationImportFingerprintFromCents(v: RowValues, cents: number, date: string) {
   const donor = rowDedupeKey(v);
-  if (!donor || !Number.isFinite(amount) || amount <= 0 || !date) return null;
+  if (!donor || !Number.isSafeInteger(cents) || cents <= 0 || !date) return null;
+  const namespace = resolveTransactionNamespace({
+    sourceSystem: v.transaction_source_system,
+    objectType: v.transaction_object_type,
+    transactionId: v.transaction_id,
+  });
+  if (namespace.strongIdentity) return namespace.strongIdentity;
+  const transactionId = namespace.sourceTransactionIdentity;
+  if (transactionId) return [donor, "transaction", transactionId].join("|");
   const campaign = (v.campaign ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  return [donor, date, amount.toFixed(2), campaign].join("|");
+  return [donor, date, `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`, campaign].join("|");
+}
+
+/** The gift portion of a payment after any event registration fee is allocated. */
+export function donationAmountAfterRegistrationFee(paymentAmount: number, registrationFee: number) {
+  if (!Number.isFinite(paymentAmount) || !Number.isFinite(registrationFee)) return Number.NaN;
+  return centsToAmount(
+    allocateRegistrationCents(Math.round(paymentAmount * 100), registrationFee).donationCents,
+  );
+}
+
+/** One amount/fingerprint pair, shared by duplicate pre-checks and the eventual insert. */
+export function donationFingerprintAfterRegistrationFee(
+  v: RowValues,
+  paymentAmount: number,
+  registrationFee: number,
+  date: string,
+) {
+  const donationAmount = donationAmountAfterRegistrationFee(paymentAmount, registrationFee);
+  return {
+    donationAmount,
+    fingerprint: donationImportFingerprint(v, donationAmount, date),
+  };
 }
 
 /**
@@ -685,30 +919,90 @@ export type MatchResult = {
   status: "matched" | "new" | "ambiguous";
   reason: string;
   candidates: ExistingPerson[];
+  evidence?: IdentityEvidence[];
+};
+
+export type CoupleResolution = {
+  kind: "safe" | "household_conflict" | "ambiguous";
+  main: MatchResult;
+  partner: MatchResult;
+  reason: string;
+};
+
+export const COUPLE_ACTIVITY_OWNER_REVIEW_REASON =
+  "This couple row contains activity, but it is unclear which person the activity belongs to.";
+
+/** Person-owned row content that cannot be assigned safely to one couple member. */
+export function hasOwnershipSensitiveCoupleContent(values: RowValues) {
+  return Boolean(
+    values.amount || values.event_name || values.notes || values.tags || values.programs,
+  );
+}
+
+export function needsCoupleActivityOwnerReview(values: RowValues) {
+  return (
+    values.couple_decision?.kind === "confident_couple" &&
+    hasOwnershipSensitiveCoupleContent(values)
+  );
+}
+
+export type IdentityEvidence = {
+  candidateId: string;
+  positives: Array<"email" | "phone" | "birth_date" | "exact_name" | "close_name" | "address">;
+  contradictions: Array<"birth_date" | "name" | "email" | "phone">;
+  cautions: Array<"address">;
 };
 
 /** A single spreadsheet row, unpacked into one main contact plus the people attached to it. */
 export type RowValues = Partial<Record<FieldKey, string>> & {
+  /** Stable fallback date captured when the row first enters import/review. */
+  activity_effective_date?: string;
+  activity_event_ignored?: string;
+  activity_event_id?: string;
+  /** Durable transaction namespace captured when the import batch is approved. */
+  transaction_source_system?: string;
+  transaction_source_confidence?: import("@/lib/transaction-namespace").TransactionSourceConfidence;
+  transaction_object_type?: string;
+  couple_decision?: import("@/lib/couple-semantics").CoupleDecision;
   children?: { first: string; last?: string; birth_date?: string; school?: string; age?: string }[];
   /** All phone numbers on the row, primary first. */
   phones?: { value: string; method_type: string }[];
   /** All email addresses on the row, primary first. */
   emails?: { value: string; method_type: string }[];
+  normalization_issues?: {
+    field: FieldKey;
+    status: "ambiguous" | "invalid" | "ambiguous_locale" | "unsafe";
+    raw: string;
+    message: string;
+  }[];
 };
+
+/** Apply canonical-value safety issues before preview or approval classification. */
+export function applyNormalizationReview(values: RowValues, match: MatchResult): MatchResult {
+  const issue = values.normalization_issues?.[0];
+  return issue
+    ? {
+        status: "ambiguous",
+        reason: issue.message,
+        candidates: match.candidates,
+        ...(match.evidence ? { evidence: match.evidence } : {}),
+      }
+    : match;
+}
 
 /** Every email a stored contact has, lower-cased. */
 export function personEmails(p: ExistingPerson): string[] {
-  const list = [(p.email ?? "").trim().toLowerCase()];
+  const list = parseImportEmails(p.email).flatMap((result) => result.canonical ? [result.canonical] : []);
   for (const m of p.contact_methods ?? [])
-    if (m.kind === "email") list.push(m.value.trim().toLowerCase());
+    if (m.kind === "email") list.push(...parseImportEmails(m.value).flatMap((result) => result.canonical ? [result.canonical] : []));
   return list.filter(Boolean);
 }
 
 /** Every phone a stored contact has, as comparable digits. */
 export function personPhones(p: ExistingPerson): string[] {
-  const list = [digits(p.phone)];
-  for (const m of p.contact_methods ?? []) if (m.kind === "phone") list.push(digits(m.value));
-  return list.filter((d) => d.length >= 7).map((d) => d.slice(-10));
+  const list = [parseImportPhone(p.phone).identityKey];
+  for (const m of p.contact_methods ?? []) if (m.kind === "phone") list.push(parseImportPhone(m.value).identityKey);
+  return list.filter((value): value is string => Boolean(value));
 }
 
 /** How different two words are, counted as single-character edits. */
@@ -720,11 +1014,7 @@ function editDistance(a: string, b: string) {
     prev[0] = i;
     for (let j = 1; j <= b.length; j++) {
       const cur = prev[j]!;
-      prev[j] = Math.min(
-        prev[j]! + 1,
-        prev[j - 1]! + 1,
-        last + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, last + (a[i - 1] === b[j - 1] ? 0 : 1));
       last = cur;
     }
   }
@@ -741,140 +1031,270 @@ export function namesAreClose(a: string, b: string) {
   return editDistance(x, y) <= allowed;
 }
 
-/**
- * Match a spreadsheet row to existing people.
- *
- * Only real signals count: the same email, the same phone number, the same name
- * with the same address or birth date, or a name that is a typo away from one we
- * have. Being an adult, sharing a program or sharing a role is never a signal, and
- * two different birth dates rule a match out even when the names look alike.
- */
+const NICKNAME_GROUPS = [
+  ["alex", "alexander", "alexandra"],
+  ["bob", "bobby", "robert"],
+  ["bill", "billy", "will", "william"],
+  ["beth", "elizabeth", "liz", "lizzy"],
+  ["chris", "christopher", "christine", "christina"],
+  ["dan", "danny", "daniel"],
+  ["dave", "david"],
+  ["joe", "joey", "joseph"],
+  ["jon", "john", "jonathan"],
+  ["kate", "katie", "katherine", "kathryn"],
+  ["mike", "michael"],
+  ["sam", "samuel", "samantha"],
+  ["sara", "sarah"],
+  ["steve", "steven", "stephen"],
+];
+
+function firstNamesCompatible(a: string, b: string) {
+  const x = a.trim().toLowerCase();
+  const y = b.trim().toLowerCase();
+  if (!x || !y) return true;
+  if (namesAreClose(x, y) || (x[0] === y[0] && (x.length === 1 || y.length === 1))) return true;
+  return NICKNAME_GROUPS.some((group) => group.includes(x) && group.includes(y));
+}
+
+function normalizedRowEmails(values: RowValues) {
+  return [...(values.emails ?? []).map((entry) => entry.value), values.email ?? ""]
+    .flatMap((value) => parseImportEmails(value))
+    .filter((result) => result.status === "valid" && result.canonical)
+    .map((result) => result.canonical!)
+    .filter(Boolean);
+}
+
+function normalizedRowPhones(values: RowValues) {
+  return [...(values.phones ?? []).map((entry) => entry.value), values.phone ?? ""]
+    .map(parseImportPhone)
+    .map((result) => result.identityKey)
+    .filter((value): value is string => Boolean(value));
+}
+
+/** Gather every plausible candidate, evaluate agreement and contradictions,
+ * then make one conservative identity decision. No individual signal can return
+ * early before conflicts such as a different nonblank birth date are checked. */
 export function matchRow(values: RowValues, people: ExistingPerson[]): MatchResult {
-  const rowEmails = (values.emails ?? []).map((e) => e.value.trim().toLowerCase()).filter(Boolean);
-  if ((values.email ?? "").trim()) rowEmails.unshift(values.email!.trim().toLowerCase());
-  if (rowEmails.length > 0) {
-    const hits = people.filter((p) => personEmails(p).some((e) => rowEmails.includes(e)));
-    if (hits.length === 1)
-      return { status: "matched", reason: "Same email address", candidates: hits };
-    if (hits.length > 1)
-      return { status: "ambiguous", reason: "Several people share that email", candidates: hits };
-  }
-
-  const rowPhones = (values.phones ?? [])
-    .map((p) => digits(p.value))
-    .concat(digits(values.phone))
-    .filter((d) => d.length >= 7)
-    .map((d) => d.slice(-10));
-  if (rowPhones.length > 0) {
-    const hits = people.filter((p) => personPhones(p).some((d) => rowPhones.includes(d)));
-    if (hits.length === 1)
-      return { status: "matched", reason: "Same phone number", candidates: hits };
-    if (hits.length > 1)
-      return { status: "ambiguous", reason: "Several people share that phone", candidates: hits };
-  }
-
+  const rowEmails = normalizedRowEmails(values);
+  const rowPhones = normalizedRowPhones(values);
   const { first, last } = splitName(values);
-  if (first || last) {
-    const rowFull = [first, last].filter(Boolean).join(" ");
-    const rowBirth = parseImportDate(values.birth_date) ?? "";
-    const storedBirth = (p: ExistingPerson) => (p.birth_date ?? "").trim().slice(0, 10);
-    /** A different birth date means a different person, full stop. */
-    const birthRulesOut = (p: ExistingPerson) =>
-      Boolean(rowBirth) && Boolean(storedBirth(p)) && storedBirth(p) !== rowBirth;
-    const sameBirth = (p: ExistingPerson) =>
-      Boolean(rowBirth) && storedBirth(p) === rowBirth;
-    const fullName = (p: ExistingPerson) =>
-      [(p.first_name ?? "").trim(), (p.last_name ?? "").trim()].filter(Boolean).join(" ");
-    const exact = (p: ExistingPerson) =>
-      (p.first_name ?? "").trim().toLowerCase() === first.toLowerCase() &&
-      (p.last_name ?? "").trim().toLowerCase() === last.toLowerCase();
-
-    const usable = people.filter((p) => !birthRulesOut(p));
-    const nameHits = usable.filter(exact);
-    const address = composeAddress(values);
-    const rowAddressKey = addressKey(address);
-    const sameAddress = (stored: string | null | undefined) => {
-      const storedKey = addressKey(stored);
-      return Boolean(rowAddressKey) && storedKey === rowAddressKey;
-    };
-
-    const confirmedByBirth = nameHits.filter(sameBirth);
-    if (confirmedByBirth.length === 1)
-      return {
-        status: "matched",
-        reason: "Same name and same birth date",
-        candidates: confirmedByBirth,
-      };
-
-    if (nameHits.length === 1) {
-      if (!rowAddressKey || sameAddress(nameHits[0]?.households?.address)) {
-        return {
-          status: "matched",
-          reason: address ? "Same name and same address" : "Same name",
-          candidates: nameHits,
-        };
-      }
-      return {
-        status: "ambiguous",
-        reason: "Same name, but a different address",
-        candidates: nameHits,
-      };
-    }
-    if (nameHits.length > 1) {
-      const withAddress = rowAddressKey
-        ? nameHits.filter((p) => sameAddress(p.households?.address))
-        : [];
-      if (withAddress.length === 1)
-        return {
-          status: "matched",
-          reason: "Same name and same address",
-          candidates: withAddress,
-        };
-      return {
-        status: "ambiguous",
-        reason: `More than one person is already called ${rowFull}`,
-        candidates: nameHits,
-      };
-    }
-
-    // No exact name. A name a typo or two away only counts when something else
-    // agrees as well, so unrelated people never reach the review queue.
-    const close = usable.filter((p) => namesAreClose(rowFull, fullName(p)));
-    const strongClose = close.filter(
-      (p) => sameBirth(p) || (Boolean(rowAddressKey) && sameAddress(p.households?.address)),
+  const rowFull = [first, last].filter(Boolean).join(" ");
+  const rowBirth = parseImportDate(values.birth_date) ?? "";
+  const rowAddressKey = addressKey(composeAddress(values));
+  const evidence = people.map((person): IdentityEvidence => {
+    const storedFirst = (person.first_name ?? "").trim();
+    const storedLast = (person.last_name ?? "").trim();
+    const storedFull = [storedFirst, storedLast].filter(Boolean).join(" ");
+    const storedBirth = (person.birth_date ?? "").trim().slice(0, 10);
+    const emails = personEmails(person);
+    const phones = personPhones(person);
+    const storedAddressKey = addressKey(person.households?.address);
+    const email = rowEmails.some((value) => emails.includes(value));
+    const phone = rowPhones.some((value) => phones.includes(value));
+    const birth = Boolean(rowBirth && storedBirth && rowBirth === storedBirth);
+    const exactName = Boolean(
+      first &&
+      last &&
+      storedFirst &&
+      storedLast &&
+      first.toLowerCase() === storedFirst.toLowerCase() &&
+      last.toLowerCase() === storedLast.toLowerCase(),
     );
-    if (strongClose.length > 0)
-      return {
-        status: "ambiguous",
-        reason: `Almost the same name as ${fullName(strongClose[0]!)}, and ${
-          sameBirth(strongClose[0]!) ? "the same birth date" : "the same address"
-        }`,
-        candidates: strongClose,
-      };
-    if (close.length > 0 && !rowBirth)
-      return {
-        status: "ambiguous",
-        reason: `Very close to the name ${fullName(close[0]!)} already on file`,
-        candidates: close,
-      };
+    const closeName = Boolean(rowFull && storedFull && namesAreClose(rowFull, storedFull));
+    const address = Boolean(
+      rowAddressKey && storedAddressKey && rowAddressKey === storedAddressKey,
+    );
+    const clearNameConflict = Boolean(
+      first &&
+      last &&
+      storedFirst &&
+      storedLast &&
+      !exactName &&
+      !closeName &&
+      (!namesAreClose(last, storedLast) || !firstNamesCompatible(first, storedFirst)),
+    );
+    return {
+      candidateId: person.id,
+      positives: [
+        ...(email ? ["email" as const] : []),
+        ...(phone ? ["phone" as const] : []),
+        ...(birth ? ["birth_date" as const] : []),
+        ...(exactName ? ["exact_name" as const] : []),
+        ...(!exactName && closeName ? ["close_name" as const] : []),
+        ...(address ? ["address" as const] : []),
+      ],
+      contradictions: [
+        ...(rowBirth && storedBirth && rowBirth !== storedBirth ? ["birth_date" as const] : []),
+        ...(clearNameConflict ? ["name" as const] : []),
+        ...(rowEmails.length && emails.length && !email ? ["email" as const] : []),
+        ...(rowPhones.length && phones.length && !phone ? ["phone" as const] : []),
+      ],
+      cautions:
+        rowAddressKey && storedAddressKey && rowAddressKey !== storedAddressKey ? ["address"] : [],
+    };
+  });
+  const plausibleEvidence = evidence.filter((item) =>
+    item.positives.some((signal) =>
+      ["email", "phone", "exact_name", "close_name", "address"].includes(signal),
+    ),
+  );
+  const emailHits = plausibleEvidence.filter((item) => item.positives.includes("email"));
+  const phoneHits = plausibleEvidence.filter((item) => item.positives.includes("phone"));
+  const narrowedEvidence =
+    emailHits.length === 1 && phoneHits.length === 0
+      ? emailHits
+      : phoneHits.length === 1 && emailHits.length === 0
+        ? phoneHits
+        : plausibleEvidence;
+  const byId = new Map(people.map((person) => [person.id, person]));
+  const candidates = narrowedEvidence.map((item) => byId.get(item.candidateId)!).filter(Boolean);
 
-    if (!first && !last)
-      return { status: "ambiguous", reason: "No name in the file", candidates: [] };
-    return { status: "new", reason: "Looks like a new person", candidates: [] };
+  if (emailHits.length > 1)
+    return {
+      status: "ambiguous",
+      reason: "Email matches more than one existing contact.",
+      candidates,
+      evidence: narrowedEvidence,
+    };
+  if (phoneHits.length > 1)
+    return {
+      status: "ambiguous",
+      reason: "Phone matches more than one existing contact.",
+      candidates,
+      evidence: narrowedEvidence,
+    };
+  if (narrowedEvidence.length > 1)
+    return {
+      status: "ambiguous",
+      reason: "Identity signals point to more than one existing contact.",
+      candidates,
+      evidence: narrowedEvidence,
+    };
+  if (narrowedEvidence.length === 1) {
+    const item = narrowedEvidence[0]!;
+    const positives = item.positives;
+    if (item.contradictions.length) {
+      const contact = positives.includes("email")
+        ? "Email"
+        : positives.includes("phone")
+          ? "Phone"
+          : "Name";
+      const conflict =
+        item.contradictions[0] === "birth_date"
+          ? "birth date differs"
+          : item.contradictions[0] === "name"
+            ? "the name appears to identify someone else"
+            : "contact details disagree";
+      return {
+        status: "ambiguous",
+        reason: `${contact} matches, but ${conflict}.`,
+        candidates,
+        evidence: narrowedEvidence,
+      };
+    }
+    const contactMatch = positives.includes("email") || positives.includes("phone");
+    const nameMatch = positives.includes("exact_name") || positives.includes("close_name");
+    const confirmedName =
+      positives.includes("exact_name") &&
+      (positives.includes("birth_date") || positives.includes("address") || contactMatch);
+    if (contactMatch || confirmedName) {
+      const reason = positives.includes("email")
+        ? "Same email address"
+        : positives.includes("phone")
+          ? "Same phone number"
+          : positives.includes("birth_date")
+            ? "Same name and same birth date"
+            : "Same name and same address";
+      return { status: "matched", reason, candidates, evidence: narrowedEvidence };
+    }
+    if (nameMatch)
+      return {
+        status: "ambiguous",
+        reason: item.cautions.includes("address")
+          ? "Same name, but a different address"
+          : "Name matches, but another identity signal is needed.",
+        candidates,
+        evidence: narrowedEvidence,
+      };
+    return {
+      status: "ambiguous",
+      reason: "Address matches an existing household, but not a specific person.",
+      candidates,
+      evidence: narrowedEvidence,
+    };
   }
+  if (!first && !last && !rowEmails.length && !rowPhones.length)
+    return {
+      status: "ambiguous",
+      reason: "Not enough information to identify a person",
+      candidates: [],
+      evidence: [],
+    };
+  return { status: "new", reason: "Looks like a new person", candidates: [], evidence: [] };
+}
 
+/** Resolve each member of a couple independently before household writes. */
+export function resolveCoupleClaims(
+  values: RowValues,
+  people: ExistingPerson[],
+  mainMatch: MatchResult = matchRow(values, people),
+): CoupleResolution | null {
+  const decision = values.couple_decision;
+  if (decision?.kind !== "confident_couple" || !decision.person1 || !decision.person2) return null;
+  const partner: RowValues = {
+    first_name: decision.person2.first,
+    last_name: decision.person2.last,
+    ...(values.spouse_email ? { email: values.spouse_email } : {}),
+    ...(values.spouse_phone ? { phone: values.spouse_phone } : {}),
+    ...(values.birth_date && decision.person2.display === decision.person1.display
+      ? { birth_date: values.birth_date }
+      : {}),
+  };
+  const partnerMatch = matchRow(partner, people);
+  if (mainMatch.status === "ambiguous" || partnerMatch.status === "ambiguous")
+    return {
+      kind: "ambiguous",
+      main: mainMatch,
+      partner: partnerMatch,
+      reason: "One or both couple identities need review.",
+    };
+  const mainPerson = mainMatch.candidates[0] ?? null;
+  const partnerPerson = partnerMatch.candidates[0] ?? null;
+  if (mainMatch.status === "matched" && partnerMatch.status === "matched") {
+    if (
+      mainPerson?.household_id &&
+      partnerPerson?.household_id &&
+      mainPerson.household_id !== partnerPerson.household_id
+    )
+      return {
+        kind: "household_conflict",
+        main: mainMatch,
+        partner: partnerMatch,
+        reason: "Both people already exist but belong to different households.",
+      };
+    return {
+      kind: "safe",
+      main: mainMatch,
+      partner: partnerMatch,
+      reason: "Both people already exist in a compatible household.",
+    };
+  }
   return {
-    status: "ambiguous",
-    reason: "Not enough information to identify a person",
-    candidates: [],
+    kind: "safe",
+    main: mainMatch,
+    partner: partnerMatch,
+    reason: "Couple claims can be resolved without collapsing identities.",
   };
 }
 
 /** Remembers which row first claimed each identity inside one file. */
-export type RowIdentityRegistry = Map<string, number>;
+export type RowIdentityRegistry = {
+  occurrences: Map<string, number>;
+  identities: Map<string, { index: number; values: RowValues }>;
+};
 
 export function newRowIdentityRegistry(): RowIdentityRegistry {
-  return new Map<string, number>();
+  return { occurrences: new Map(), identities: new Map() };
 }
 
 /**
@@ -889,8 +1309,10 @@ export function matchRowOnce(
   seen: RowIdentityRegistry,
   index: number,
 ): MatchResult {
-  const keys = rowOccurrenceKeys(values);
-  const earlier = keys.map((k) => seen.get(k)).find((n) => n !== undefined && n !== index);
+  const occurrenceKeys = rowOccurrenceKeys(values);
+  const earlier = occurrenceKeys
+    .map((key) => seen.occurrences.get(key))
+    .find((n) => n !== undefined && n !== index);
   const base = matchRow(values, people);
   if (earlier !== undefined) {
     return {
@@ -899,7 +1321,49 @@ export function matchRowOnce(
       candidates: base.candidates,
     };
   }
-  for (const k of keys) if (!seen.has(k)) seen.set(k, index);
+  const priorIdentity = rowIdentityKeys(values)
+    .map((key) => seen.identities.get(key))
+    .find((claim) => claim && claim.index !== index);
+  if (priorIdentity) {
+    const priorName = splitName(priorIdentity.values);
+    const comparison = matchRow(values, [
+      {
+        id: `file-row-${priorIdentity.index + 1}`,
+        first_name: priorName.first,
+        last_name: priorName.last,
+        email: priorIdentity.values.email ?? null,
+        phone: priorIdentity.values.phone ?? null,
+        birth_date: parseImportDate(priorIdentity.values.birth_date),
+        household_id: null,
+        households: { name: "", address: composeAddress(priorIdentity.values) },
+        contact_methods: [
+          ...(priorIdentity.values.emails ?? []).map((entry) => ({
+            kind: "email",
+            value: entry.value,
+          })),
+          ...(priorIdentity.values.phones ?? []).map((entry) => ({
+            kind: "phone",
+            value: entry.value,
+          })),
+        ],
+      },
+    ]);
+    if (
+      comparison.status === "ambiguous" &&
+      comparison.evidence?.some((item) => item.contradictions.length)
+    ) {
+      return {
+        status: "ambiguous",
+        reason: `${comparison.reason} It conflicts with row ${priorIdentity.index + 1} in this file.`,
+        candidates: base.candidates,
+        evidence: comparison.evidence,
+      };
+    }
+  }
+  for (const key of occurrenceKeys)
+    if (!seen.occurrences.has(key)) seen.occurrences.set(key, index);
+  for (const key of rowIdentityKeys(values))
+    if (!seen.identities.has(key)) seen.identities.set(key, { index, values });
   return base;
 }
 

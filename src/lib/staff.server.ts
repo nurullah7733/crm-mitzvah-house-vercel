@@ -194,14 +194,17 @@ export async function resendInvite(admin: Admin, staffId: string, redirectTo: st
 }
 
 export async function changeRole(admin: Admin, staffId: string, role: Role) {
-  const { data: row, error } = await admin
-    .from("staff_members")
-    .update({ role })
-    .eq("id", staffId)
-    .select("user_id")
-    .maybeSingle();
+  const { data: userId, error } = await admin.rpc("change_staff_role", {
+    _staff_id: staffId,
+    _role: role,
+  });
   if (error) throw error;
-  if (row?.user_id) await applyRole(admin, row.user_id, role);
+  if (userId) {
+    const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { role },
+    });
+    if (authError) throw authError;
+  }
   return { ok: true };
 }
 
@@ -218,15 +221,18 @@ export async function disableStaff(admin: Admin, staffId: string, actingUserId: 
     throw new Error("You cannot remove your own access.");
   }
 
-  if (row.user_id) {
-    await admin.auth.admin.updateUserById(row.user_id, { ban_duration: FOREVER });
-    await admin.from("user_roles").delete().eq("user_id", row.user_id);
-  }
-  const { error: updateError } = await admin
-    .from("staff_members")
-    .update({ active: false })
-    .eq("id", staffId);
-  if (updateError) throw updateError;
+  // Both database representations change in one transaction. A last-admin
+  // rejection rolls both back and prevents the subsequent Auth ban.
+  const { data: deactivatedUserId, error: deactivateError } = await admin.rpc(
+    "deactivate_staff_member",
+    {
+      _staff_id: staffId,
+    },
+  );
+  if (deactivateError) throw deactivateError;
+
+  if (deactivatedUserId)
+    await admin.auth.admin.updateUserById(deactivatedUserId, { ban_duration: FOREVER });
   return { ok: true };
 }
 

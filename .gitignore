@@ -35,3 +35,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+
+supabase/.temp
+qa-fixtures/
+.vercel*

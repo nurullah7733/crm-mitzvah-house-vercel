@@ -21,6 +21,33 @@ export async function friendlyDbError(e: unknown, fallback = "That didn't save."
   const err = asPg(e);
   const raw = `${err.message ?? ""} ${err.details ?? ""}`.trim();
 
+  if (/REVIEW_STALE_PERSON/.test(raw))
+    return "This contact changed after the review opened. Refresh the review and decide again; nothing was overwritten.";
+  if (/REVIEW_STALE_UNDO/.test(raw))
+    return "This record changed after the import update, so it cannot be undone automatically. Nothing was partially undone.";
+  if (/REVIEW_(STALE|INVALID)_TRANSITION/.test(raw))
+    return "This review row changed in another session. Refresh the Data Inbox and try again.";
+  if (/REVIEW_ALREADY_FINALIZED/.test(raw))
+    return "This review row was already resolved. Refresh the Data Inbox.";
+  if (/REVIEW_TARGET_NOT_CANDIDATE|REVIEW_INVALID_PATCH_CONTRACT/.test(raw))
+    return "This review decision no longer matches the queued row. Refresh it and decide again.";
+  if (/REVIEW_TRANSACTION_ACTION_REQUIRED/.test(raw))
+    return "This protected financial transaction cannot use a generic person action. Set it aside for financial reconciliation or discard it with a reason.";
+  if (/REVIEW_DEDICATED_ACTION_REQUIRED/.test(raw))
+    return "This row needs its dedicated review action. Refresh the Data Inbox and use the household, activity-owner, or payment-conflict choice shown there.";
+  if (/REVIEW_STALE_HOUSEHOLD/.test(raw))
+    return "This person's household changed after the screen opened. Refresh and review the household choice again; nothing was partially moved.";
+  if (/MERGE_STALE_PERSON/.test(raw))
+    return "One of these contacts changed after the merge screen opened. Refresh and compare them again; no merge was applied.";
+  if (/MERGE_STALE_HOUSEHOLD_MEMBERSHIP/.test(raw))
+    return "Someone's household membership changed after the merge screen opened. Refresh and compare the households again; no merge was applied.";
+  if (/MERGE_STALE_HOUSEHOLD/.test(raw))
+    return "One of these households changed after the merge screen opened. Refresh and compare them again; no merge was applied.";
+  if (/REVIEW_HOUSEHOLD_TARGET_INVALID|HOUSEHOLD_(TARGET|MERGE_TARGET)_INVALID/.test(raw))
+    return "That household choice no longer matches the records on screen. Refresh and choose again.";
+  if (/HOUSEHOLD_RELATIONSHIP_(INVALID|REQUIRED)/.test(raw))
+    return "Choose a valid household relationship before saving.";
+
   if (err.code === "23505") {
     const email = emailIn(raw);
     if (email) {

@@ -84,12 +84,12 @@ export async function guard<T>(
 export async function must<T>(
   work: PromiseLike<{ error: unknown; data: T }>,
   whatFailed: string,
-): Promise<T> {
+): Promise<NonNullable<T>> {
   const { data, error } = await work;
   if (error) throw error;
   if (data === null || data === undefined)
     throw new Error(`${whatFailed} didn't come back from the database.`);
-  return data;
+  return data as NonNullable<T>;
 }
 
 /**

@@ -1,16 +1,26 @@
 import { supabase } from "@/integrations/supabase/client";
-import { parseImportDate } from "@/lib/import-dates";
-import { donationImportFingerprint, type RowValues } from "@/lib/import-mapping";
+import type { Json } from "@/integrations/supabase/types";
+import { parseImportDate, resolveImportDonationDate } from "@/lib/import-dates";
+import { allocateRegistrationCents, amountToCents, centsToAmount } from "@/lib/import-normalization";
+import {
+  donationAmountAfterRegistrationFee,
+  donationImportFingerprint,
+  type RowValues,
+} from "@/lib/import-mapping";
 import { matchEventByName, type EventOption } from "@/lib/import-links";
 import { recordAttendance } from "@/lib/gift-events";
 import { resolveCampaignId } from "@/lib/campaigns";
-import { guard } from "@/lib/app-errors";
+import { buildActivityPlan, type ActivityEventDecision } from "@/lib/import-activity-plan";
+import type { RegistrationPaymentConflictContext } from "@/lib/registration-payment-conflict";
+import { must } from "@/lib/app-errors";
 import {
-  applyIncoming,
+  COMPARE_FIELDS,
   compareRecords,
   hasConflict,
+  incomingPatch,
   incomingPerson,
   type CompareKey,
+  type FieldComparison,
   type ReviewPerson,
 } from "@/lib/review-merge";
 
@@ -31,19 +41,172 @@ export type QuickMergeResult = {
   upgradedRegistration?: { id: string; status: string | null };
   interactionIds: string[];
   addedActivity: string[];
+  undoToken: Json;
 };
+
+type ResolvedMergePayload = {
+  event: Json;
+  donation: Json;
+  note: Json;
+  donationAmount: number;
+};
+
+function h2PatchContract(
+  contract: "quick" | "manual",
+  patch: Partial<Record<CompareKey, string | null>>,
+  expected: Partial<Record<CompareKey, string | null>>,
+) {
+  const expectedKeys =
+    contract === "manual" ? COMPARE_FIELDS.map(({ key }) => key) : Object.keys(patch);
+  const expectedForPatch = Object.fromEntries(
+    expectedKeys.map((key) => [key, expected[key as CompareKey] ?? null]),
+  );
+  return { __h2_contract: contract, __h2_values: patch, __h2_expected: expectedForPatch };
+}
+
+/** Resolve imported activity on the client; SQL only applies this already-decided payload. */
+export async function resolveReviewMergePayload(
+  row: RowValues,
+  source: string,
+  batchId: string | null,
+): Promise<ResolvedMergePayload> {
+  if ((row.amount ?? "").trim() && amountToCents(row.amount) === null)
+    throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
+  if ((row.date ?? "").trim() && !parseImportDate(row.date))
+    throw new Error("The donation date is invalid or ambiguous and must be corrected first.");
+  let eventDecision: ActivityEventDecision = { kind: "ignore" };
+  if ((row.event_name ?? "").trim() && row.activity_event_ignored !== "true") {
+    const { data: events } = await supabase
+      .from("events")
+      .select("id, name, date, registration_fee")
+      .is("deleted_at", null);
+    const options = (events ?? []) as EventOption[];
+    const match = options.find((event) => event.id === row.activity_event_id)
+      ?? matchEventByName(row.event_name!, options);
+    if (match) {
+      eventDecision = { kind: "attend", id: match.id, registrationFee: Number(match.registration_fee ?? 0) };
+    } else eventDecision = { kind: "unresolved" };
+  }
+  const plan = buildActivityPlan({ row, effectiveDate: row.activity_effective_date ?? today(), eventDecision });
+  if (plan.blockingIssues.length) throw new Error(plan.blockingIssues[0]);
+  const donationAmount = centsToAmount(plan.netDonationCents);
+  const event: Json = plan.attendanceIntent && plan.eventId
+    ? {
+        event_id: plan.eventId,
+        ...(plan.grossPaymentCents !== null && plan.grossPaymentCents > 0
+          ? { fee_amount: centsToAmount(plan.registrationFeeCents), payment_amount: centsToAmount(plan.grossPaymentCents) }
+          : {}),
+      }
+    : null;
+  let donation: Json = null;
+  if (plan.donationIntent && plan.donationDate) {
+    donation = {
+      amount: donationAmount,
+      date: plan.donationDate,
+      campaign_name: plan.campaignName,
+      event_id: plan.donationEventId,
+      source,
+      notes: plan.notes,
+      import_batch_id: batchId,
+      import_fingerprint: plan.fingerprint,
+      external_transaction_id: plan.sourceTransactionId,
+      external_transaction_id_key: plan.sourceTransactionIdentity,
+      transaction_source_system: plan.sourceSystem,
+      transaction_object_type: plan.transactionObjectType,
+    };
+  }
+  const noteText = [row.notes, row.person_notes ? `Note: ${row.person_notes}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const note =
+    noteText && !plan.donationIntent
+      ? { text: noteText, date: today(), author: "Import review" }
+      : null;
+  return { event, donation, note, donationAmount };
+}
+
+/** Complete a reviewer-directed merge through one atomic database boundary. */
+export async function manualMerge(
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
+  personId: string,
+  fields: FieldComparison[],
+  choices: Partial<Record<CompareKey, "existing" | "incoming">>,
+  audit: { existingBefore: Json; survivingAfter: Json },
+) {
+  const source = `${item.filename ?? "Import"} review`;
+  const { patch, changedFields } = incomingPatch(fields, choices);
+  const traceableFields = changedFields.filter((key) =>
+    ["email", "phone", "school", "notes"].includes(key),
+  );
+  const { event, donation, note } = await resolveReviewMergePayload(
+    item.row_data,
+    source,
+    item.batch_id ?? null,
+  );
+  const { error } = await supabase.rpc("resolve_review_manual_merge", {
+    _item_id: item.id,
+    _person_id: personId,
+    _person_patch: h2PatchContract("manual", patch, audit.existingBefore as Partial<Record<CompareKey, string | null>>),
+    _traceable_fields: traceableFields,
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: event,
+    _donation: donation,
+    _note: note,
+    _existing_before: audit.existingBefore,
+    _incoming: item.row_data,
+    _surviving_after: audit.survivingAfter,
+    _choices: choices,
+  });
+  if (error) throw error;
+  return changedFields.length;
+}
+
+/** Create a separate contact, its imported activity, and its review decision atomically. */
+export async function createReviewPerson(
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
+  incoming: Record<CompareKey, string | null>,
+  householdId: string | null,
+) {
+  const source = `${item.filename ?? "Import"} review`;
+  const { event, donation, note } = await resolveReviewMergePayload(
+    item.row_data,
+    source,
+    item.batch_id ?? null,
+  );
+  const { data, error } = await supabase.rpc("resolve_review_create", {
+    _item_id: item.id,
+    _person: { ...incoming, household_id: householdId },
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: event,
+    _donation: donation,
+    _note: note,
+  });
+  if (error) throw error;
+  if (!data) throw new Error("The new contact didn't come back from the database.");
+  return data;
+}
 
 /**
  * Add the extra activity sitting on an imported row — an event registration,
  * a gift, or a written note — to a contact we already have. Anything already
  * on file is skipped, so the same row can never add the same thing twice.
  */
-async function addRowActivity(
+export async function processReviewRowActivity(
   personId: string,
   row: RowValues,
   source: string,
   batchId: string | null,
 ) {
+  if (Date.now() >= 0)
+    throw new Error(
+      "LEGACY_UNSAFE_HELPER_DISABLED: use resolve_review_quick_merge or resolve_review_manual_merge.",
+    );
+  if ((row.amount ?? "").trim() && amountToCents(row.amount) === null)
+    throw new Error("The donation amount is invalid or ambiguous and must be corrected first.");
+  if ((row.date ?? "").trim() && !parseImportDate(row.date))
+    throw new Error("The donation date is invalid or ambiguous and must be corrected first.");
   const created: Pick<
     QuickMergeResult,
     "donationId" | "registrationId" | "upgradedRegistration" | "interactionIds" | "addedActivity"
@@ -53,7 +216,8 @@ async function addRowActivity(
     interactionIds: [],
     addedActivity: [],
   };
-  const paymentAmount = Number(String(row.amount ?? "").replace(/[^0-9.-]/g, ""));
+  const paymentCents = amountToCents(row.amount);
+  const paymentAmount = paymentCents === null ? Number.NaN : centsToAmount(paymentCents);
   let eventFee = 0;
 
   if ((row.event_name ?? "").trim()) {
@@ -84,10 +248,7 @@ async function addRowActivity(
         ),
         paymentAmount: Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : null,
       });
-      eventFee = Math.min(
-        Math.max(Number(match.registration_fee ?? 0), 0),
-        Number.isFinite(paymentAmount) ? paymentAmount : 0,
-      );
+      eventFee = centsToAmount(allocateRegistrationCents(paymentCents ?? 0, Number(match.registration_fee ?? 0)).feeCents);
       if (!existing) {
         const { data: reg } = await supabase
           .from("registrations")
@@ -106,9 +267,10 @@ async function addRowActivity(
   }
 
   if ((row.amount ?? "").toString().trim()) {
-    const amount = paymentAmount - eventFee;
+    const amount = donationAmountAfterRegistrationFee(paymentAmount, eventFee);
     if (Number.isFinite(amount) && amount > 0) {
-      const giftDate = isoDate(row.date) ?? today();
+      const giftDate = resolveImportDonationDate(row.date, today());
+      if (!giftDate) throw new Error("The donation date must be corrected first.");
       const fingerprint = donationImportFingerprint(row, amount, giftDate);
       const campaignId = await resolveCampaignId(row.campaign);
       const check = supabase
@@ -130,22 +292,25 @@ async function addRowActivity(
             .limit(1)
         : { data: [] };
       if (!existingGift?.length && !fingerprintGift?.length) {
-        const { data: gift } = await supabase
-          .from("donations")
-          .insert({
-            person_id: personId,
-            amount,
-            date: giftDate,
-            campaign_id: campaignId,
-            source,
-            notes: row.notes ?? null,
-            import_batch_id: batchId,
-            import_fingerprint: fingerprint,
-          } as never)
-          .select("id")
-          .single();
-        created.donationId = gift?.id ?? null;
-        if (gift?.id) created.addedActivity.push(`a $${amount.toLocaleString()} gift`);
+        const gift = await must(
+          supabase
+            .from("donations")
+            .insert({
+              person_id: personId,
+              amount,
+              date: giftDate,
+              campaign_id: campaignId,
+              source,
+              notes: row.notes ?? null,
+              import_batch_id: batchId,
+              import_fingerprint: fingerprint,
+            } as never)
+            .select("id")
+            .single(),
+          "The donation",
+        );
+        created.donationId = gift.id;
+        created.addedActivity.push(`a $${amount.toLocaleString()} gift`);
       }
     }
   }
@@ -194,68 +359,119 @@ export async function quickMerge(
   for (const f of fields) if (f.state === "fill") before[f.key] = f.existing ?? null;
 
   const source = `${item.filename ?? "Import"} quick update`;
-  const filledFields = await applyIncoming(existing.id, fields, {}, source, item.batch_id ?? null);
-  const activity = await addRowActivity(existing.id, item.row_data, source, item.batch_id ?? null);
+  const { patch, changedFields } = incomingPatch(fields, {});
+  const traceableFields = changedFields.filter((key) =>
+    ["email", "phone", "school", "notes"].includes(key),
+  );
+  const { event, donation, note, donationAmount } = await resolveReviewMergePayload(
+    item.row_data,
+    source,
+    item.batch_id ?? null,
+  );
 
-  const { error } = await supabase.rpc("log_review_decision", {
+  const { data, error } = await supabase.rpc("resolve_review_quick_merge", {
     _item_id: item.id,
-    _decision: "merged",
-    _reason: "Same person — contact updated in one tap, no conflicting fields",
     _person_id: existing.id,
+    _person_patch: h2PatchContract("quick", patch, existing),
+    _traceable_fields: traceableFields,
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: event,
+    _donation: donation,
+    _note: note,
   });
   if (error) throw error;
+  const result = (data ?? {}) as Record<string, unknown>;
+  const addedActivity: string[] = [];
+  if (result["registration_created"] || result["registration_upgraded"])
+    addedActivity.push(`attendance at ${String(result["event_name"] ?? "the event")}`);
+  if (result["donation_created"]) addedActivity.push(`a $${donationAmount.toLocaleString()} gift`);
+  if (result["note_created"]) addedActivity.push("a note");
 
   return {
     itemId: item.id,
     personId: existing.id,
     personName: existingName,
     before,
-    filledFields,
-    ...activity,
+    filledFields: changedFields.length,
+    donationId: (result["donation_id"] as string | null) ?? null,
+    registrationId: result["registration_created"]
+      ? ((result["registration_id"] as string | null) ?? null)
+      : null,
+    ...(result["registration_upgraded"] && result["registration_id"]
+      ? {
+          upgradedRegistration: {
+            id: result["registration_id"] as string,
+            status: (result["registration_previous_status"] as string | null) ?? null,
+          },
+        }
+      : {}),
+    interactionIds: result["note_id"] ? [result["note_id"] as string] : [],
+    addedActivity,
+    undoToken: (result["undo_token"] as Json) ?? null,
   };
+}
+
+/** Resolve an activity-payment conflict without applying any activity from the row. */
+export async function keepExistingRegistrationPayment(
+  item: { id: string; filename: string | null; row_data: RowValues; batch_id?: string | null },
+  existing: ReviewPerson,
+  context: RegistrationPaymentConflictContext,
+) {
+  const incoming = incomingPerson(item.row_data);
+  const fields = compareRecords(existing, incoming);
+  if (hasConflict(fields))
+    throw new Error("This row also has contact details that disagree. Resolve those separately first.");
+  const { patch, changedFields } = incomingPatch(fields, {});
+  const traceableFields = changedFields.filter((key) =>
+    ["email", "phone", "school", "notes"].includes(key),
+  );
+  const source = `${item.filename ?? "Import"} review — kept existing registration payment`;
+  const { data, error } = await supabase.rpc("resolve_review_manual_merge", {
+    _item_id: item.id,
+    _person_id: existing.id,
+    _person_patch: h2PatchContract("manual", patch, existing),
+    _traceable_fields: traceableFields,
+    _source: source,
+    _batch_id: item.batch_id ?? null,
+    _event: null,
+    _donation: null,
+    _note: null,
+    _existing_before: existing,
+    _incoming: item.row_data,
+    _surviving_after: { ...existing, ...patch },
+    _choices: {
+      activity_resolution: "keep_existing_registration_payment_skip_incoming_activity",
+      registration_payment_conflict: context,
+    },
+  });
+  if (error) throw error;
+  return { data, changedFields: changedFields.length };
 }
 
 /** Put things back the way they were, right after a one-tap merge. */
 export async function undoQuickMerge(result: QuickMergeResult) {
-  if (Object.keys(result.before).length > 0) {
-    await guard(
-      supabase
-        .from("people")
-        .update(result.before as never)
-        .eq("id", result.personId),
-      { area: "import", action: "Undo the update" },
-    );
-  }
-  if (result.donationId)
-    await guard(supabase.from("donations").delete().eq("id", result.donationId), {
-      area: "import",
-      action: "Undo the gift",
-    });
-  if (result.registrationId)
-    await guard(supabase.from("registrations").delete().eq("id", result.registrationId), {
-      area: "import",
-      action: "Undo the attendance",
-    });
-  if (result.upgradedRegistration)
-    await guard(
-      supabase
-        .from("registrations")
-        .update({ status: result.upgradedRegistration.status ?? "registered" } as never)
-        .eq("id", result.upgradedRegistration.id),
-      { area: "import", action: "Undo the update" },
-    );
-  for (const id of result.interactionIds)
-    await guard(supabase.from("interactions").delete().eq("id", id), {
-      area: "import",
-      action: "Undo the timeline note",
-    });
-  await guard(
-    supabase
-      .from("review_queue")
-      .update({ status: "pending", resolution_note: "One-tap update undone" } as never)
-      .eq("id", result.itemId),
-    { area: "import", action: "Undo the update" },
-  );
+  const { error } = await supabase.rpc("undo_review_quick_merge", {
+    _item_id: result.itemId,
+    _person_id: result.personId,
+    _undo_token: result.undoToken,
+  });
+  if (error) throw error;
+}
+
+export async function transitionReviewStatus(
+  itemId: string,
+  expectedStatus: "pending" | "skipped" | "dismissed",
+  nextStatus: "pending" | "skipped",
+  note: string,
+) {
+  const { error } = await supabase.rpc("transition_review_status", {
+    _item_id: itemId,
+    _expected_status: expectedStatus,
+    _next_status: nextStatus,
+    _note: note,
+  });
+  if (error) throw error;
 }
 
 /** Throw an incoming row away with a short reason on the record. */

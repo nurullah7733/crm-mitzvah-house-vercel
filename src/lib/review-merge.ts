@@ -195,23 +195,7 @@ export async function applyIncoming(
   source: string,
   batchId: string | null = null,
 ) {
-  const patch: Record<string, string | null> = {};
-  const changedFields: string[] = [];
-  for (const f of fields) {
-    const picked = choices[f.key];
-    if (picked === "existing") continue;
-    if (picked === "incoming") {
-      if (comparisonKey(f.key, f.incoming) !== comparisonKey(f.key, f.existing)) {
-        patch[f.key] = f.incoming;
-        changedFields.push(f.key);
-      }
-      continue;
-    }
-    if (f.state === "fill") {
-      patch[f.key] = f.incoming;
-      changedFields.push(f.key);
-    }
-  }
+  const { patch, changedFields } = incomingPatch(fields, choices);
   if (Object.keys(patch).length > 0) {
     const { error } = await supabase
       .from("people")
@@ -235,6 +219,31 @@ export async function applyIncoming(
     );
   }
   return changedFields.length;
+}
+
+/** Pure preparation shared by direct updates and the transactional quick-merge RPC. */
+export function incomingPatch(
+  fields: FieldComparison[],
+  choices: Partial<Record<CompareKey, "existing" | "incoming">>,
+) {
+  const patch: Record<string, string | null> = {};
+  const changedFields: string[] = [];
+  for (const f of fields) {
+    const picked = choices[f.key];
+    if (picked === "existing") continue;
+    if (picked === "incoming") {
+      if (comparisonKey(f.key, f.incoming) !== comparisonKey(f.key, f.existing)) {
+        patch[f.key] = f.incoming;
+        changedFields.push(f.key);
+      }
+      continue;
+    }
+    if (f.state === "fill") {
+      patch[f.key] = f.incoming;
+      changedFields.push(f.key);
+    }
+  }
+  return { patch, changedFields };
 }
 
 /** Save an incoming row as a brand-new contact ("keep both"). */

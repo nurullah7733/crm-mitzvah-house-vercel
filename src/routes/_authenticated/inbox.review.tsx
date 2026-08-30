@@ -7,18 +7,27 @@ import { AppShell, EmptyState, formatDate } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { MergeContactsDialog } from "@/components/MergeContactsDialog";
 import { ReviewCompareDialog } from "@/components/ReviewCompareDialog";
+import { HouseholdConflictReviewDialog } from "@/components/HouseholdConflictReviewDialog";
 import { personName } from "@/lib/names";
 import {
   compareRecords,
   hasConflict,
+  incomingPatch,
   incomingPerson,
   showValue,
   type ReviewPerson,
 } from "@/lib/review-merge";
 import type { RowValues } from "@/lib/import-mapping";
 import { friendlyDbError } from "@/lib/db-errors";
-import { discardRow, quickMerge, undoQuickMerge, type QuickMergeResult } from "@/lib/review-quick";
-import { createPersonFromRow, ensureHouseholdAtAddress, rowDisplayName } from "@/lib/review-create";
+import {
+  discardRow,
+  quickMerge,
+  resolveReviewMergePayload,
+  transitionReviewStatus,
+  undoQuickMerge,
+  type QuickMergeResult,
+} from "@/lib/review-quick";
+import { rowAddress, rowDisplayName } from "@/lib/review-create";
 import { RELATIONSHIP_OPTIONS, rowGroup } from "@/lib/import-links";
 import { logChange } from "@/lib/session-log";
 import { Input } from "@/components/ui/input";
@@ -27,7 +36,22 @@ import { ResponsiveModal } from "@/components/ResponsiveModal";
 import { SelectAllToggle, SelectBox, useSelection } from "@/components/BulkPeopleActions";
 import { ChevronDown } from "lucide-react";
 import { RouteError } from "@/components/RouteError";
-import { showError, guard } from "@/lib/app-errors";
+import { showError } from "@/lib/app-errors";
+import {
+  applyHouseholdReviewCard,
+  findHouseholdIdAtAddress,
+  type HouseholdReviewMember,
+} from "@/lib/review-household";
+import { normalizeEmail } from "@/lib/proper-case";
+import { householdConflictContext } from "@/lib/review-household-conflict";
+import { coupleActivityContext } from "@/lib/review-couple-activity";
+import { CoupleActivityOwnerDialog } from "@/components/CoupleActivityOwnerDialog";
+import { RegistrationPaymentConflictDialog } from "@/components/RegistrationPaymentConflictDialog";
+import {
+  isRegistrationPaymentConflict,
+  registrationPaymentConflictContext,
+} from "@/lib/registration-payment-conflict";
+import { transactionReviewKind, transactionReviewReason } from "@/lib/transaction-namespace";
 
 /** Plain-language buckets so the reviewer sees questions, not error text. */
 type Bucket = { id: string; title: string; help: string };
@@ -240,13 +264,61 @@ function DataInbox() {
     },
   });
 
+  const paymentConflictRows = pending.filter((row) =>
+    isRegistrationPaymentConflict((row.row_data ?? {}) as Record<string, unknown>, row.reason),
+  );
+  const conflictPersonIds = [...new Set(paymentConflictRows.flatMap((row) => row.candidate_person_ids ?? []))];
+  const conflictEventIds = [...new Set(paymentConflictRows.map((row) => String((row.row_data as Record<string, unknown> | null)?.["activity_event_id"] ?? "")).filter(Boolean))];
+  const { data: conflictRegistrations } = useQuery({
+    queryKey: ["review-registration-payment-conflicts", conflictPersonIds.join(","), conflictEventIds.join(",")],
+    enabled: conflictPersonIds.length > 0 && conflictEventIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("registrations")
+        .select("id, person_id, event_id, payment_amount, fee_amount, status")
+        .in("person_id", conflictPersonIds).in("event_id", conflictEventIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const { data: conflictEvents } = useQuery({
+    queryKey: ["review-registration-payment-events", conflictEventIds.join(",")],
+    enabled: conflictEventIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("events")
+        .select("id, name, registration_fee").in("id", conflictEventIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const personById = (id: string | null | undefined) =>
     (id ? (candidates ?? []).find((p) => p.id === id) : undefined) as ReviewPerson | undefined;
+
+  const paymentConflictFor = (row: (typeof pending)[number]) => {
+    const rowData = (row.row_data ?? {}) as RowValues & { review_context?: unknown };
+    const personId = (row.candidate_person_ids ?? [])[0] ?? null;
+    const eventId = String((row.row_data as Record<string, unknown> | null)?.["activity_event_id"] ?? "") || null;
+    const registration = (conflictRegistrations ?? []).find(
+      (candidate) => candidate.person_id === personId && candidate.event_id === eventId,
+    );
+    const event = (conflictEvents ?? []).find((candidate) => candidate.id === eventId);
+    return registrationPaymentConflictContext(rowData, row.reason, {
+      personId,
+      registrationId: registration?.id,
+      eventId,
+      eventName: event?.name,
+      feeAmount: registration?.fee_amount ?? event?.registration_fee,
+    });
+  };
 
   /** Rows that only fill blanks in an existing contact — safe to approve together. */
   const safeRows = useMemo(() => {
     return pending.filter((r) => {
       if (groupedIds.has(r.id)) return false;
+      if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) return false;
+      if (transactionReviewKind((r.row_data ?? {}) as Record<string, unknown>)) return false;
+      if (householdConflictContext((r.row_data ?? {}) as Record<string, unknown>)) return false;
+      if (coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)) return false;
       const existing = personById((r.candidate_person_ids ?? [])[0]);
       if (!existing) return false;
       if ((r.candidate_person_ids ?? []).length !== 1) return false;
@@ -345,13 +417,7 @@ function DataInbox() {
 
   /** Leave a row for later without losing it. */
   const skip = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("review_queue")
-        .update({ status: "skipped", resolution_note: "Skipped for now" })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => transitionReviewStatus(id, "pending", "skipped", "Skipped for now"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Set aside — find it under Past imports whenever you want it back");
@@ -361,13 +427,8 @@ function DataInbox() {
 
   /** Bring a set-aside row back into the active list. */
   const reopen = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("review_queue")
-        .update({ status: "pending", resolution_note: "Brought back from past imports" })
-        .eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (value: { id: string; status: "skipped" | "dismissed" }) =>
+      transitionReviewStatus(value.id, value.status, "pending", "Brought back from past imports"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
       toast.success("Back on the list");
@@ -381,6 +442,21 @@ function DataInbox() {
       let done = 0;
       let skipped = 0;
       for (const r of pending.filter((row) => selection.has(row.id))) {
+        if (isRegistrationPaymentConflict((r.row_data ?? {}) as Record<string, unknown>, r.reason)) {
+          skipped += 1;
+          continue;
+        }
+        if (transactionReviewKind((r.row_data ?? {}) as Record<string, unknown>)) {
+          skipped += 1;
+          continue;
+        }
+        if (
+          householdConflictContext((r.row_data ?? {}) as Record<string, unknown>) ||
+          coupleActivityContext((r.row_data ?? {}) as Record<string, unknown>)
+        ) {
+          skipped += 1;
+          continue;
+        }
         const existing = personById((r.candidate_person_ids ?? [])[0]);
         const fields = existing
           ? compareRecords(existing, incomingPerson((r.row_data ?? {}) as RowValues))
@@ -434,11 +510,8 @@ function DataInbox() {
   /** Set selected rows aside — they move to Past imports and can come back. */
   const bulkDismiss = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from("review_queue")
-        .update({ status: "skipped", resolution_note: "Dismissed from the Data Inbox" })
-        .in("id", ids);
-      if (error) throw error;
+      for (const id of ids)
+        await transitionReviewStatus(id, "pending", "skipped", "Dismissed from the Data Inbox");
       return ids.length;
     },
     onSuccess: (count) => {
@@ -478,78 +551,118 @@ function DataInbox() {
       }
       let householdId = existingHouseholdIds[0] ?? null;
       const togetherRows = [...sameRows, ...relatedRows];
-      if (!householdId && togetherRows.length > 1) {
-        const firstTogether = togetherRows[0]!;
-        const surname = rowDisplayName((firstTogether.row_data ?? {}) as RowValues).surname;
-        householdId = await ensureHouseholdAtAddress(
-          card.address || null,
-          surname ? `${surname} household` : "Household",
-          firstTogether.batch_id,
-        );
-      }
-      let saved = 0;
-      let left = 0;
+      if (!householdId && togetherRows.length > 1)
+        householdId = await findHouseholdIdAtAddress(card.address || null);
+      const firstTogether = togetherRows[0];
+      const surname = firstTogether
+        ? rowDisplayName((firstTogether.row_data ?? {}) as RowValues).surname
+        : "";
+      const members: HouseholdReviewMember[] = [];
       for (const r of card.rows) {
         const choice = choices[r.id];
         const action = choice?.action ?? "later";
         const row = (r.row_data ?? {}) as RowValues;
-        const item = { id: r.id, filename: r.filename, batch_id: r.batch_id, row_data: row };
         if (action === "later") {
-          left += 1;
-          await guard(
-            supabase
-              .from("review_queue")
-              .update({
-                status: "skipped",
-                resolution_note: "Left for later from the address card",
-              })
-              .eq("id", r.id),
-            { area: "import", action: "Update the review queue" },
-          );
+          members.push({ action, item_id: r.id });
           continue;
         }
         if (action === "discard") {
-          await discardRow(r.id, "Discarded while reviewing this address group");
-          saved += 1;
+          members.push({ action, item_id: r.id });
           continue;
         }
+        const source = `${r.filename ?? "Import"} ${action === "same" ? "quick update" : "review"}`;
+        const { event, donation, note } = await resolveReviewMergePayload(row, source, r.batch_id);
         if (action === "same") {
           const existing = chosenPeople[r.id] ?? personById((r.candidate_person_ids ?? [])[0]);
           if (!existing)
             throw new Error(
               "We don't have a matching contact for that person — open and decide instead.",
             );
-          await quickMerge(item, existing, personName(existing));
-          if (householdId) {
-            await guard(
-              supabase
-                .from("people")
-                .update({
-                  household_id: householdId,
-                  ...(choice?.relationship
-                    ? { household_relationship: choice.relationship }
-                    : {}),
-                } as never)
-                .eq("id", existing.id),
-              { area: "import", action: "Link this person to the household" },
-            );
-          }
-          saved += 1;
-          continue;
-        }
-        if (action === "related") {
-          await createPersonFromRow(item, {
-            householdId,
-            relationship: choice?.relationship || null,
-            note: "Related — added to the household at this address",
+          const comparisons = compareRecords(existing, incomingPerson(row));
+          if (hasConflict(comparisons))
+            throw new Error("This row disagrees with what we have — open it and decide.");
+          const { patch, changedFields } = incomingPatch(comparisons, {});
+          members.push({
+            action,
+            item_id: r.id,
+            person_id: existing.id,
+            expected_household_id: existing.household_id,
+            relationship: choice?.relationship || "",
+            person_patch: {
+              __h2_contract: "manual",
+              __h2_values: patch,
+              __h2_expected: Object.fromEntries(
+                Object.keys(patch).map((key) => [
+                  key,
+                  existing[key as keyof ReviewPerson] ?? null,
+                ]),
+              ),
+            },
+            traceable_fields: changedFields.filter((key) =>
+              ["email", "phone", "school", "notes"].includes(key),
+            ),
+            source,
+            batch_id: r.batch_id,
+            event,
+            donation,
+            note,
           });
-          saved += 1;
           continue;
         }
-        await createPersonFromRow(item, { note: "Not related — saved as their own contact" });
-        saved += 1;
+        const person = incomingPerson(row);
+        if (!person.first_name && !person.last_name)
+          throw new Error("This row has no name, so it can't be saved as a contact.");
+        const contactMethods = [
+          ...(row.phones ?? []).map((method, index) => ({
+            kind: "phone",
+            value: method.value.trim(),
+            method_type: method.method_type,
+            is_primary: index === 0,
+          })),
+          ...(row.emails ?? []).map((method, index) => ({
+            kind: "email",
+            value: normalizeEmail(method.value),
+            method_type: method.method_type,
+            is_primary: index === 0,
+          })),
+        ];
+        const traceableFields = [
+          row.email && "email",
+          row.phone && "phone",
+          rowAddress(row) && "address",
+          row.birth_date && "birth_date",
+          row.anniversary_date && "anniversary_date",
+          row.school && "school",
+          row.met_source && "met_source",
+        ].filter((field): field is string => Boolean(field));
+        members.push({
+          action,
+          item_id: r.id,
+          person: { ...person, notes: row.person_notes ?? null },
+          relationship: choice?.relationship || "",
+          contact_methods: contactMethods,
+          traceable_fields: traceableFields,
+          reason:
+            action === "related"
+              ? "Related — added to the household at this address"
+              : "Not related — saved as their own contact",
+          source: `${source}, ${new Date().toISOString().slice(0, 10)}`,
+          batch_id: r.batch_id,
+          event,
+          donation,
+          note,
+        });
       }
-      return { saved, left };
+      return applyHouseholdReviewCard(
+        {
+          id: householdId,
+          create: !householdId && togetherRows.length > 1,
+          name: surname ? `${surname} household` : "Household",
+          address: card.address || null,
+          batch_id: firstTogether?.batch_id ?? null,
+        },
+        members,
+      );
     },
     onSuccess: ({ saved, left }) => {
       queryClient.invalidateQueries();
@@ -587,6 +700,19 @@ function DataInbox() {
   });
 
   const reviewItem = pending.find((r) => r.id === reviewId);
+  const householdConflict = householdConflictContext(
+    (reviewItem?.row_data ?? {}) as Record<string, unknown>,
+  );
+  const coupleActivity = coupleActivityContext(
+    (reviewItem?.row_data ?? {}) as Record<string, unknown>,
+  );
+  const registrationPaymentConflict = reviewItem ? paymentConflictFor(reviewItem) : null;
+  const reviewItemIsPaymentConflict = reviewItem
+    ? isRegistrationPaymentConflict((reviewItem.row_data ?? {}) as Record<string, unknown>, reviewItem.reason)
+    : false;
+  const reviewItemTransactionConflict = transactionReviewKind(
+    (reviewItem?.row_data ?? {}) as Record<string, unknown>,
+  );
 
   return (
     <AppShell
@@ -824,7 +950,11 @@ function DataInbox() {
                               {contactSearch?.rowId === r.id &&
                                 contactSearch.query.trim().length >= 2 && (
                                   <div className="mt-1 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-border p-1">
-                                    {(contactSearchResults ?? []).map((person) => (
+                                    {(contactSearchResults ?? [])
+                                      .filter((person) =>
+                                        (r.candidate_person_ids ?? []).includes(person.id),
+                                      )
+                                      .map((person) => (
                                       <Button
                                         key={person.id}
                                         type="button"
@@ -853,7 +983,9 @@ function DataInbox() {
                                         </span>
                                       </Button>
                                     ))}
-                                    {contactSearchResults?.length === 0 && (
+                                    {(contactSearchResults ?? []).filter((person) =>
+                                      (r.candidate_person_ids ?? []).includes(person.id),
+                                    ).length === 0 && (
                                       <p className="px-2 py-1 text-sm text-muted-foreground">
                                         No matching contacts found.
                                       </p>
@@ -918,10 +1050,30 @@ function DataInbox() {
                   const fields = existing ? compareRecords(existing, incoming) : [];
                   const conflicts = fields.filter((f) => f.state === "conflict");
                   const fills = fields.filter((f) => f.state === "fill");
+                  const paymentConflict = paymentConflictFor(r);
+                  const isPaymentConflict = isRegistrationPaymentConflict(
+                    (r.row_data ?? {}) as Record<string, unknown>, r.reason,
+                  );
+                  const transactionConflict = transactionReviewKind(
+                    (r.row_data ?? {}) as Record<string, unknown>,
+                  );
+                  const householdReviewConflict = householdConflictContext(
+                    (r.row_data ?? {}) as Record<string, unknown>,
+                  );
+                  const coupleReviewConflict = coupleActivityContext(
+                    (r.row_data ?? {}) as Record<string, unknown>,
+                  );
+                  const dedicatedConflict = Boolean(
+                    isPaymentConflict ||
+                      transactionConflict ||
+                      householdReviewConflict ||
+                      coupleReviewConflict,
+                  );
                   const safe =
                     Boolean(existing) &&
                     (r.candidate_person_ids ?? []).length === 1 &&
-                    conflicts.length === 0;
+                    conflicts.length === 0 &&
+                    !dedicatedConflict;
                   const fileName = incoming.display_name ?? "This row";
                   return (
                     <div
@@ -937,11 +1089,9 @@ function DataInbox() {
                           />
                           <div className="min-w-0">
                             <p className="font-heading font-semibold text-foreground">
-                              {plainSummary(
-                                fileName,
-                                existing ? personName(existing) : null,
-                                conflicts.length,
-                              )}
+                              {isPaymentConflict
+                                ? `${fileName} has a registration payment that differs from the existing registration.`
+                                : plainSummary(fileName, existing ? personName(existing) : null, conflicts.length)}
                             </p>
                             {existing && (
                               <p
@@ -949,9 +1099,27 @@ function DataInbox() {
                                   conflicts.length > 0 ? "text-urgent" : "text-money"
                                 }`}
                               >
-                                {conflicts.length > 0
+                                {isPaymentConflict
+                                  ? "Activity conflict — choose how to handle the incoming event payment"
+                                  : householdReviewConflict
+                                    ? "Household conflict — review the current household memberships"
+                                    : coupleReviewConflict
+                                      ? "Activity owner required — choose which partner owns this activity"
+                                  : conflicts.length > 0
                                   ? `${conflicts.length} field${conflicts.length === 1 ? "" : "s"} disagree — needs review`
                                   : `No conflicts — ${fills.length} new field${fills.length === 1 ? "" : "s"} will be added`}
+                              </p>
+                            )}
+                            {paymentConflict && (
+                              <p className="mt-2 text-sm text-foreground">
+                                {paymentConflict.event_name}: existing ${(paymentConflict.existing_payment_cents / 100).toFixed(2)} · incoming ${(paymentConflict.incoming_payment_cents / 100).toFixed(2)} · fee ${(paymentConflict.fee_cents / 100).toFixed(2)} · planned net donation ${(paymentConflict.planned_net_donation_cents / 100).toFixed(2)}
+                              </p>
+                            )}
+                            {transactionConflict && (
+                              <p className="mt-2 rounded-xl border border-suggestion/40 bg-suggestion/10 p-3 text-sm text-foreground">
+                                {transactionReviewReason(transactionConflict)} Generic merge and
+                                create actions are disabled. Set this row aside for financial
+                                reconciliation, or discard it with a reason.
                               </p>
                             )}
                             <p className="mt-1 inline-block rounded-full bg-suggestion/15 px-2.5 py-1 text-xs font-medium text-foreground">
@@ -982,13 +1150,19 @@ function DataInbox() {
                               ✓ Same person
                             </Button>
                           )}
-                          <Button
+                          {!transactionConflict && <Button
                             variant="outline"
                             className="rounded-xl"
                             onClick={() => setReviewId(r.id)}
                           >
-                            ✏️ Open and decide
-                          </Button>
+                            {isPaymentConflict
+                              ? "Review activity conflict"
+                              : householdReviewConflict
+                              ? "Review household conflict"
+                              : coupleReviewConflict
+                                ? "Choose activity owner"
+                                : "✏️ Open and decide"}
+                          </Button>}
                           <Button
                             variant="outline"
                             className="rounded-xl text-urgent"
@@ -1208,7 +1382,12 @@ function DataInbox() {
                           <button
                             type="button"
                             className="text-primary underline"
-                            onClick={() => reopen.mutate(r.id)}
+                            onClick={() =>
+                              reopen.mutate({
+                                id: r.id,
+                                status: r.status as "skipped" | "dismissed",
+                              })
+                            }
                           >
                             Put back
                           </button>
@@ -1309,7 +1488,48 @@ function DataInbox() {
         />
       </ResponsiveModal>
 
-      {reviewItem && (
+      {reviewItem && householdConflict && (
+        <HouseholdConflictReviewDialog
+          open
+          onOpenChange={(value) => !value && setReviewId(null)}
+          itemId={reviewItem.id}
+          context={householdConflict}
+          hasActivity={["amount", "event_name", "campaign", "notes", "tags", "programs"].some(
+            (field) => Boolean((reviewItem.row_data as Record<string, unknown> | null)?.[field]),
+          )}
+          onDone={() => setReviewId(null)}
+        />
+      )}
+
+      {reviewItem && !householdConflict && coupleActivity && (
+        <CoupleActivityOwnerDialog
+          open
+          onOpenChange={(value) => !value && setReviewId(null)}
+          itemId={reviewItem.id}
+          context={coupleActivity}
+          row={(reviewItem.row_data ?? {}) as RowValues}
+          batchId={reviewItem.batch_id}
+          onDone={() => setReviewId(null)}
+        />
+      )}
+
+      {reviewItem && registrationPaymentConflict && personById(registrationPaymentConflict.person_id) && (
+        <RegistrationPaymentConflictDialog
+          open
+          onOpenChange={(value) => !value && setReviewId(null)}
+          item={{
+            id: reviewItem.id,
+            filename: reviewItem.filename,
+            batch_id: reviewItem.batch_id,
+            row_data: (reviewItem.row_data ?? {}) as RowValues,
+          }}
+          existing={personById(registrationPaymentConflict.person_id)!}
+          context={registrationPaymentConflict}
+          onDone={() => setReviewId(null)}
+        />
+      )}
+
+      {reviewItem && !reviewItemIsPaymentConflict && !reviewItemTransactionConflict && !householdConflict && !coupleActivity && (
         <ReviewCompareDialog
           open
           onOpenChange={(v) => !v && setReviewId(null)}
@@ -1321,6 +1541,7 @@ function DataInbox() {
             row_data: (reviewItem.row_data ?? {}) as RowValues,
           }}
           existing={personById((reviewItem.candidate_person_ids ?? [])[0]) ?? null}
+          candidatePersonIds={reviewItem.candidate_person_ids ?? []}
           onDone={() => setReviewId(null)}
         />
       )}

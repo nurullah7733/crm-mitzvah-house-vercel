@@ -18,6 +18,7 @@ import { showError } from "@/lib/app-errors";
 
 type Household = {
   id: string;
+  status: string;
   name: string;
   address: string | null;
   address_line2: string | null;
@@ -29,6 +30,20 @@ type Household = {
   billing_address: string | null;
   phone: string | null;
   notes: string | null;
+};
+
+type HouseholdMemberSnapshot = {
+  id: string;
+  household_id: string | null;
+  household_relationship: string | null;
+  deleted_at: string | null;
+};
+
+type HouseholdMergeSnapshot = {
+  key: string;
+  left: Household;
+  right: Household;
+  members: HouseholdMemberSnapshot[];
 };
 
 const FIELDS: MergeField[] = [
@@ -63,43 +78,55 @@ export function MergeHouseholdsDialog({
   const queryClient = useQueryClient();
   const [keepLeft, setKeepLeft] = useState(true);
   const [picks, setPicks] = useState<Record<string, Side>>({});
+  const [snapshot, setSnapshot] = useState<HouseholdMergeSnapshot | null>(null);
+  const snapshotKey = ids.join(",");
 
   useEffect(() => {
     if (open) {
       setKeepLeft(true);
       setPicks({});
+      setSnapshot(null);
     }
-  }, [open, ids.join(",")]);
+  }, [open, snapshotKey]);
 
-  const { data } = useQuery({
-    queryKey: ["merge-households", ids.join(",")],
+  const { data, isFetching } = useQuery({
+    queryKey: ["merge-households", snapshotKey],
     enabled: open && ids.length === 2,
+    refetchOnMount: "always",
     queryFn: async () => {
       const { data: houses, error } = await supabase
         .from("households")
         .select(
-          "id, name, address, address_line2, address_line3, city, state, postal_code, county, billing_address, phone, notes",
+          "id, status, name, address, address_line2, address_line3, city, state, postal_code, county, billing_address, phone, notes",
         )
         .in("id", ids);
       if (error) throw error;
-      const { data: members } = await supabase
+      const { data: members, error: membersError } = await supabase
         .from("people")
-        .select("id, household_id")
-        .in("household_id", ids)
-        .is("deleted_at", null);
-      const counts = new Map<string, number>();
-      for (const m of members ?? [])
-        if (m.household_id) counts.set(m.household_id, (counts.get(m.household_id) ?? 0) + 1);
+        .select("id, household_id, household_relationship, deleted_at")
+        .in("household_id", ids);
+      if (membersError) throw membersError;
       return {
         left: (houses ?? []).find((h) => h.id === ids[0]) as Household | undefined,
         right: (houses ?? []).find((h) => h.id === ids[1]) as Household | undefined,
-        counts,
+        members: (members ?? []) as HouseholdMemberSnapshot[],
       };
     },
   });
 
-  const left = data?.left;
-  const right = data?.right;
+  useEffect(() => {
+    if (!open || isFetching || snapshot || !data?.left || !data.right) return;
+    setSnapshot({
+      key: snapshotKey,
+      left: { ...data.left },
+      right: { ...data.right },
+      members: data.members.map((member) => ({ ...member })),
+    });
+  }, [data, isFetching, open, snapshot, snapshotKey]);
+
+  const currentSnapshot = snapshot?.key === snapshotKey ? snapshot : null;
+  const left = currentSnapshot?.left;
+  const right = currentSnapshot?.right;
 
   const rows = useMemo(
     () =>
@@ -123,6 +150,14 @@ export function MergeHouseholdsDialog({
         _surviving_id: survivor.id,
         _merged_id: loser.id,
         _field_values: fieldValues as never,
+        _expected_surviving_household: survivor as never,
+        _expected_merged_household: loser as never,
+        _expected_surviving_members: currentSnapshot!.members
+          .filter((member) => member.household_id === survivor.id)
+          .sort((a, b) => a.id.localeCompare(b.id)) as never,
+        _expected_merged_members: currentSnapshot!.members
+          .filter((member) => member.household_id === loser.id)
+          .sort((a, b) => a.id.localeCompare(b.id)) as never,
       });
       if (error) throw error;
     },
@@ -138,7 +173,7 @@ export function MergeHouseholdsDialog({
 
   const memberLine = (h: Household | undefined) =>
     h
-      ? `${data?.counts.get(h.id) ?? 0} ${(data?.counts.get(h.id) ?? 0) === 1 ? "person" : "people"}`
+      ? `${currentSnapshot?.members.filter((member) => member.household_id === h.id && !member.deleted_at).length ?? 0} ${(currentSnapshot?.members.filter((member) => member.household_id === h.id && !member.deleted_at).length ?? 0) === 1 ? "person" : "people"}`
       : "";
 
   return (
