@@ -36,8 +36,8 @@ describe("Import Center identity review gate", () => {
   it("queues couple activity before the transactional person and activity RPC", () => {
     const source = readFileSync("src/routes/_authenticated/inbox.index.tsx", "utf8");
     const gate = source.indexOf("if (activityOwnerReview)");
-    const rpc = source.indexOf('"resolve_import_row"', gate);
     const transactional = source.indexOf("const transactionalRow", gate);
+    const rpc = source.indexOf('"execute_claimed_import_row"', transactional);
     expect(gate).toBeGreaterThan(-1);
     expect(transactional).toBeGreaterThan(gate);
     expect(rpc).toBeGreaterThan(transactional);

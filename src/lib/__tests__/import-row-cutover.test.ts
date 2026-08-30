@@ -19,23 +19,23 @@ const legacy = rowLoop.slice(
 );
 
 describe("normal CSV transactional row cutover", () => {
-  it("calls resolve_import_row once for every direct row", () => {
-    expect(transactional.match(/\.rpc\(\s*"resolve_import_row"/g)).toHaveLength(1);
+  it("calls the claimed-row execution wrapper once for every direct row", () => {
+    expect(transactional.match(/\.rpc\(\s*"execute_claimed_import_row"/g)).toHaveLength(1);
     expect(rowLoop).toContain("for (let index = 0; index < analysed.length; index++)");
     expect(rowLoop).toContain("const transactionalRow = true as const");
   });
 
   it("keeps review-routed rows out of the transactional RPC", () => {
-    const reviewContinue = rowLoop.indexOf("await recordOutcome(index, \"flagged\"");
-    const rpcCall = rowLoop.indexOf('"resolve_import_row"');
+    const reviewContinue = rowLoop.indexOf("await queueForReview(");
+    const rpcCall = rowLoop.indexOf('"execute_claimed_import_row"', reviewContinue + 1);
     expect(reviewContinue).toBeGreaterThan(-1);
     expect(reviewContinue).toBeLessThan(rpcCall);
     expect(rowLoop.slice(reviewContinue, rpcCall)).toContain("continue;");
   });
 
   it("sends resolved spouse, children, and the complete registration array", () => {
-    expect(transactional).toContain("_spouse: spousePayload as Json");
-    expect(transactional).toContain("_children: childrenPayload as Json");
+    expect(transactional).toContain("spouse: spousePayload");
+    expect(transactional).toContain("children: childrenPayload");
     expect(transactional).toContain("registrations: [...registrations.values()]");
     expect(transactional).toContain("registrations.set(registrationEventId");
     expect(transactional).toContain("giftPlan.activityPlan.attendanceIntent");
@@ -66,24 +66,18 @@ describe("normal CSV transactional row cutover", () => {
     expect(transactional).not.toContain("attributeGiftToEvent(");
   });
 
-  it("records RPC failure separately without marking success", () => {
+  it("finalizes failures through the claim-bound helper without a success update", () => {
     const rpcError = rowLoop.indexOf("if (resolveError) throw resolveError");
     const committed = rowLoop.indexOf("rowCommitted = true");
-    const success = rowLoop.indexOf(
-      'await recordOutcome(index, match.status === "new" ? "created" : "matched"',
-    );
     const failure = rowLoop.indexOf("await recordImportRowFailureAndRethrow(");
     expect(rpcError).toBeLessThan(committed);
-    expect(committed).toBeLessThan(success);
-    expect(failure).toBeGreaterThan(success);
-    expect(rowLoop.slice(rowLoop.indexOf("} catch (rowError)"))).not.toContain(
-      'recordOutcome(index, "failed"',
-    );
+    expect(failure).toBeGreaterThan(committed);
+    expect(rowLoop).not.toContain("recordOutcome(");
   });
 
   it("keeps successful rows committed independently", () => {
     expect(rowLoop).toContain("let rowCommitted = false");
     expect(rowLoop).toContain("if (rowCommitted) throw rowError");
-    expect(rowLoop).toContain("rowNumber: index + 1");
+    expect(rowLoop).toContain("outcomeId: claimedRow.outcome_id");
   });
 });

@@ -22,7 +22,9 @@ const importer = readFileSync(
 
 describe("resolve_import_row activity composition", () => {
   it("calls the shared activity core after the transactional foundation", () => {
-    const foundationCall = sql.indexOf("v_foundation := public.resolve_import_row_foundation_core(");
+    const foundationCall = sql.indexOf(
+      "v_foundation := public.resolve_import_row_foundation_core(",
+    );
     const activityCall = sql.indexOf("v_activity := public.apply_import_activity_core(");
     const successReturn = sql.indexOf("RETURN v_foundation || v_activity");
     expect(foundationCall).toBeGreaterThan(-1);
@@ -53,9 +55,7 @@ describe("resolve_import_row activity composition", () => {
 
   it("retains shared fingerprint idempotency and required donation failure", () => {
     expect(activityCore).toContain("ON CONFLICT (import_fingerprint)");
-    expect(activityCore).toContain(
-      "WHERE import_fingerprint IS NOT NULL AND deleted_at IS NULL",
-    );
+    expect(activityCore).toContain("WHERE import_fingerprint IS NOT NULL AND deleted_at IS NULL");
     expect(activityCore).toContain(
       "RAISE EXCEPTION 'Donation insert failed without a resolvable duplicate'",
     );
@@ -69,13 +69,11 @@ describe("resolve_import_row activity composition", () => {
   });
 
   it("is now called by the normal importer cutover", () => {
-    expect(importer).toMatch(/\.rpc\(\s*"resolve_import_row"/);
+    expect(importer).toMatch(/\.rpc\(\s*"execute_claimed_import_row"/);
   });
 
   it("locks the renamed foundation away from authenticated clients", () => {
-    expect(sql).toContain(
-      ") FROM PUBLIC, anon, authenticated;",
-    );
+    expect(sql).toContain(") FROM PUBLIC, anon, authenticated;");
     expect(sql).not.toMatch(
       /GRANT EXECUTE ON FUNCTION public\.resolve_import_row_foundation_core\([^;]+\) TO authenticated/,
     );

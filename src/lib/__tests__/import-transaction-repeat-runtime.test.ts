@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const route = readFileSync(new URL("../../routes/_authenticated/inbox.index.tsx", import.meta.url), "utf8");
+const route = readFileSync(
+  new URL("../../routes/_authenticated/inbox.index.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("transaction repeat import routing", () => {
   it("only bypasses duplicate-gift review for an exact matched transaction repeat", () => {
@@ -13,6 +16,7 @@ describe("transaction repeat import routing", () => {
   it("still sends the donation through the idempotent transactional activity core", () => {
     expect(route).toContain("donation: donationPayload");
     expect(route).toContain("import_fingerprint: fingerprint");
-    expect(route).toContain('await recordOutcome(index, match.status === "new" ? "created" : "matched"');
+    expect(route).toContain('terminal_outcome: match.status === "new" ? "created" : "matched"');
+    expect(route).toContain('supabase.rpc(\n              "execute_claimed_import_row"');
   });
 });

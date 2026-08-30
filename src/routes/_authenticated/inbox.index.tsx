@@ -772,30 +772,7 @@ function ImportCenter() {
       if (executionStartError) throwImportLeaseError(executionStartError);
       leasedBatchId = batchId;
 
-      async function recordOutcome(
-        index: number,
-        outcome: "created" | "matched" | "flagged" | "failed",
-        details: { personId?: string | null; reviewQueueId?: string | null; message?: string } = {},
-      ) {
-        const { error } = await supabase
-          .from("import_row_outcomes")
-          .update({
-            outcome,
-            person_id: details.personId ?? null,
-            review_queue_id: details.reviewQueueId ?? null,
-            message: details.message ?? null,
-            completed_at: new Date().toISOString(),
-            last_error: outcome === "failed" ? (details.message ?? null) : null,
-            result: {
-              person_id: details.personId ?? null,
-              review_queue_id: details.reviewQueueId ?? null,
-              message: details.message ?? null,
-            },
-          })
-          .eq("batch_id", batchId)
-          .eq("row_number", index + 1);
-        if (error) throw error;
-      }
+      let activeClaimedRow: ClaimedImportRow | null = null;
 
       const fieldSources: {
         person_id: string;
@@ -832,45 +809,52 @@ function ImportCenter() {
         group: { key: string; address: string } | null,
         reviewContext?: Record<string, unknown>,
       ): Promise<string> {
+        if (!activeClaimedRow || !leaseOwner)
+          throw new Error("The import row has not been claimed.");
         queued += 1;
-        const { data, error } = await supabase
-          .from("review_queue")
-          .insert({
-            batch_id: batchId,
-            filename: sheet!.name,
-            reason,
-            row_data: {
-              ...(values as unknown as Record<string, unknown>),
-              activity_effective_date: importDate,
-              ...(eventDecisions[normalizeLabel(values.event_name ?? "")]?.action === "ignore"
-                ? { activity_event_ignored: "true" }
-                : {}),
-              ...(eventIdByKey.get(normalizeLabel(values.event_name ?? ""))
-                ? { activity_event_id: eventIdByKey.get(normalizeLabel(values.event_name ?? "")) }
-                : {}),
-              _source_sheet: sheet!.sheetName,
-              _source_row_number:
-                sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ??
-                null,
-              ...(group
-                ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address }
-                : {}),
-              ...(reviewContext ? { review_context: reviewContext } : {}),
-              ...(transactionSourceSystem
-                ? {
-                    transaction_source_system: transactionSourceSystem,
-                    transaction_source_confidence: sourceConfidence,
-                    transaction_object_type: transactionObjectType,
-                  }
-                : { transaction_source_confidence: "unknown" }),
-            } as unknown as Record<string, string>,
-            candidate_person_ids: candidateIds,
-            status: "pending",
-          })
-          .select("id")
-          .single();
+        const rowData = {
+          ...(values as unknown as Record<string, unknown>),
+          activity_effective_date: importDate,
+          ...(eventDecisions[normalizeLabel(values.event_name ?? "")]?.action === "ignore"
+            ? { activity_event_ignored: "true" }
+            : {}),
+          ...(eventIdByKey.get(normalizeLabel(values.event_name ?? ""))
+            ? { activity_event_id: eventIdByKey.get(normalizeLabel(values.event_name ?? "")) }
+            : {}),
+          _source_sheet: sheet!.sheetName,
+          _source_row_number:
+            sheet!.physicalRowNumbers[analysed.findIndex((item) => item.values === values)] ?? null,
+          ...(group ? { [GROUP_KEY_FIELD]: group.key, [GROUP_ADDRESS_FIELD]: group.address } : {}),
+          ...(reviewContext ? { review_context: reviewContext } : {}),
+          ...(transactionSourceSystem
+            ? {
+                transaction_source_system: transactionSourceSystem,
+                transaction_source_confidence: sourceConfidence,
+                transaction_object_type: transactionObjectType,
+              }
+            : { transaction_source_confidence: "unknown" }),
+        } as unknown as Record<string, string>;
+        const { data, error } = await supabase.rpc("execute_claimed_import_row", {
+          _batch_id: batchId,
+          _outcome_id: activeClaimedRow.outcome_id,
+          _staged_row_id: activeClaimedRow.staged_row_id,
+          _claim_token: activeClaimedRow.claim_token,
+          _claimed_by: leaseOwner,
+          _execution: {
+            kind: "review",
+            message: reason,
+            review: {
+              filename: sheet!.name,
+              reason,
+              row_data: rowData,
+              candidate_person_ids: candidateIds,
+            },
+          },
+        });
         if (error) throw error;
-        return data.id;
+        const result = data as { review_queue_id?: string } | null;
+        if (!result?.review_queue_id) throw new Error("The review item ID was not returned.");
+        return result.review_queue_id;
       }
 
       // Existing households, so people at the same address join one household
@@ -1082,6 +1066,7 @@ function ImportCenter() {
         const claimedRow = (claimedRows as unknown as ClaimedImportRow[] | null)?.[0];
         if (!claimedRow || claimedRow.row_number !== index + 1)
           throw new Error(`Import row ${index + 1} could not be claimed in source order.`);
+        activeClaimedRow = claimedRow;
         let rowCommitted = false;
 
         try {
@@ -1186,7 +1171,7 @@ function ImportCenter() {
                       .join(" "),
                   }
                 : undefined;
-            const reviewQueueId = await queueForReview(
+            await queueForReview(
               v,
               coupleResolution.reason,
               [
@@ -1198,26 +1183,18 @@ function ImportCenter() {
               groupInfo,
               reviewContext,
             );
-            await recordOutcome(index, "flagged", {
-              reviewQueueId,
-              message: coupleResolution.reason,
-            });
             continue;
           }
           if (
             coupleDecision &&
             (coupleDecision.kind === "ambiguous_couple" || coupleDecision.kind === "household_only")
           ) {
-            const reviewQueueId = await queueForReview(
+            await queueForReview(
               v,
               coupleDecision.reason,
               live.candidates.map((c) => c.id),
               groupInfo,
             );
-            await recordOutcome(index, "flagged", {
-              reviewQueueId,
-              message: coupleDecision.reason,
-            });
             continue;
           }
           if (activityOwnerReview) {
@@ -1255,17 +1232,13 @@ function ImportCenter() {
                     activity,
                   }
                 : undefined;
-            const reviewQueueId = await queueForReview(
+            await queueForReview(
               v,
               COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
               live.candidates.map((c) => c.id),
               groupInfo,
               reviewContext,
             );
-            await recordOutcome(index, "flagged", {
-              reviewQueueId,
-              message: COUPLE_ACTIVITY_OWNER_REVIEW_REASON,
-            });
             continue;
           }
           if (
@@ -1276,7 +1249,7 @@ function ImportCenter() {
             giftsElsewhere.length > 0
           ) {
             const reason = live.status === "ambiguous" ? live.reason : item.match.reason;
-            const reviewQueueId = await queueForReview(
+            await queueForReview(
               v,
               giftAlreadyImported
                 ? "This gift appears to have already been imported"
@@ -1300,14 +1273,6 @@ function ImportCenter() {
               ],
               groupInfo,
             );
-            await recordOutcome(index, "flagged", {
-              reviewQueueId,
-              message: giftAlreadyImported
-                ? "This gift appears to have already been imported"
-                : live.status === "ambiguous"
-                  ? live.reason
-                  : item.match.reason,
-            });
             continue;
           }
 
@@ -1409,16 +1374,12 @@ function ImportCenter() {
               addressHouseholdId &&
               addressHouseholdId !== existing.household_id
             ) {
-              const reviewQueueId = await queueForReview(
+              await queueForReview(
                 v,
                 "The person matches, but household membership conflicts.",
                 [existing.id],
                 groupInfo,
               );
-              await recordOutcome(index, "flagged", {
-                reviewQueueId,
-                message: "The person matches, but household membership conflicts.",
-              });
               continue;
             }
 
@@ -1629,44 +1590,48 @@ function ImportCenter() {
                     planned_net_donation_cents: giftPlan.activityPlan.netDonationCents,
                     donation_fingerprint: giftPlan.activityPlan.fingerprint,
                   };
-                  const reviewQueueId = await queueForReview(
+                  await queueForReview(
                     v,
                     paymentConflict.reason,
                     [personId],
                     groupInfo,
                     reviewContext,
                   );
-                  await recordOutcome(index, "flagged", {
-                    reviewQueueId,
-                    message: "Registration payment requires an explicit decision.",
-                  });
                   continue;
                 }
               }
             }
 
             const { data: resolved, error: resolveError } = await supabase.rpc(
-              "resolve_import_row",
+              "execute_claimed_import_row",
               {
-                _person: {
-                  action: match.status === "new" ? "create" : "update",
-                  ...(personId ? { id: personId } : {}),
-                  values: personValues,
-                } as Json,
-                _household: householdPayload as Json,
-                _contact_methods: contactMethods,
-                _labels: {
-                  tags: bulkTarget.tag ? [bulkTarget.tag] : [],
-                  programs: bulkTarget.program ? [bulkTarget.program] : [],
-                },
-                _provenance: provenance,
                 _batch_id: batchId,
-                _spouse: spousePayload as Json,
-                _children: childrenPayload as Json,
-                _activity: {
-                  registrations: [...registrations.values()],
-                  donation: donationPayload,
-                  note: notePayload,
+                _outcome_id: claimedRow.outcome_id,
+                _staged_row_id: claimedRow.staged_row_id,
+                _claim_token: claimedRow.claim_token,
+                _claimed_by: leaseOwner,
+                _execution: {
+                  kind: "direct",
+                  terminal_outcome: match.status === "new" ? "created" : "matched",
+                  person: {
+                    action: match.status === "new" ? "create" : "update",
+                    ...(personId ? { id: personId } : {}),
+                    values: personValues,
+                  },
+                  household: householdPayload,
+                  contact_methods: contactMethods,
+                  labels: {
+                    tags: bulkTarget.tag ? [bulkTarget.tag] : [],
+                    programs: bulkTarget.program ? [bulkTarget.program] : [],
+                  },
+                  provenance,
+                  spouse: spousePayload,
+                  children: childrenPayload,
+                  activity: {
+                    registrations: [...registrations.values()],
+                    donation: donationPayload,
+                    note: notePayload,
+                  },
                 } as Json,
               },
             );
@@ -1728,9 +1693,6 @@ function ImportCenter() {
             if (donationPayload?.["import_fingerprint"]) {
               existingGiftFingerprints.add(String(donationPayload["import_fingerprint"]));
             }
-            await recordOutcome(index, match.status === "new" ? "created" : "matched", {
-              personId,
-            });
           } else {
             // DEPRECATED/QUARANTINED: unreachable while transactionalRow is the
             // literal true. Do not re-enable this select-then-insert activity
@@ -2158,16 +2120,13 @@ function ImportCenter() {
                 { area: "import", action: "Save an imported detail" },
               );
             }
-            await recordOutcome(index, match.status === "new" ? "created" : "matched", {
-              personId,
-            });
           }
         } catch (rowError) {
           if (rowCommitted) throw rowError;
           const transactionCondition = transactionReviewCondition(rowError);
           if (transactionCondition) {
             const reason = transactionReviewReason(transactionCondition);
-            const reviewQueueId = await queueForReview(
+            await queueForReview(
               v,
               reason,
               item.match.candidates.map((candidate) => candidate.id),
@@ -2179,10 +2138,6 @@ function ImportCenter() {
                 external_transaction_id: v.transaction_id ?? null,
               },
             );
-            await recordOutcome(index, "flagged", {
-              reviewQueueId,
-              message: reason,
-            });
             continue;
           }
           failures += 1;
@@ -2190,7 +2145,14 @@ function ImportCenter() {
           const why = await friendlyDbError(rowError, "We couldn't save this row.");
           try {
             await recordImportRowFailureAndRethrow(
-              { batchId, rowNumber: index + 1, rowData: v, message: why },
+              {
+                batchId,
+                outcomeId: claimedRow.outcome_id,
+                stagedRowId: claimedRow.staged_row_id,
+                claimToken: claimedRow.claim_token,
+                claimedBy: leaseOwner,
+                message: why,
+              },
               rowError,
             );
           } catch (preservedError) {

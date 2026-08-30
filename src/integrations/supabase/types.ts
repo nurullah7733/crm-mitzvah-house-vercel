@@ -1387,6 +1387,7 @@ export type Database = {
           created_at: string;
           filename: string | null;
           id: string;
+          import_outcome_id: string | null;
           reason: string;
           resolution_note: string | null;
           row_data: Json;
@@ -1398,6 +1399,7 @@ export type Database = {
           created_at?: string;
           filename?: string | null;
           id?: string;
+          import_outcome_id?: string | null;
           reason: string;
           resolution_note?: string | null;
           row_data?: Json;
@@ -1409,6 +1411,7 @@ export type Database = {
           created_at?: string;
           filename?: string | null;
           id?: string;
+          import_outcome_id?: string | null;
           reason?: string;
           resolution_note?: string | null;
           row_data?: Json;
@@ -1420,6 +1423,13 @@ export type Database = {
             columns: ["batch_id"];
             isOneToOne: false;
             referencedRelation: "import_batches";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_queue_import_outcome_id_fkey";
+            columns: ["import_outcome_id"];
+            isOneToOne: true;
+            referencedRelation: "import_row_outcomes";
             referencedColumns: ["id"];
           },
         ];
@@ -1669,6 +1679,28 @@ export type Database = {
       };
       claim_import_rows: {
         Args: { _batch_id: string; _lease_owner: string; _max_rows?: number };
+        Returns: Json;
+      };
+      execute_claimed_import_row: {
+        Args: {
+          _batch_id: string;
+          _claim_token: string;
+          _claimed_by: string;
+          _execution: Json;
+          _outcome_id: string;
+          _staged_row_id: string;
+        };
+        Returns: Json;
+      };
+      finalize_claimed_import_row_failure: {
+        Args: {
+          _batch_id: string;
+          _claim_token: string;
+          _claimed_by: string;
+          _message: string;
+          _outcome_id: string;
+          _staged_row_id: string;
+        };
         Returns: Json;
       };
       apply_import_activity_core: {

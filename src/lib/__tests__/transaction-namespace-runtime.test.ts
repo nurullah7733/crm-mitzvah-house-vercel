@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const route = readFileSync(new URL("../../routes/_authenticated/inbox.index.tsx", import.meta.url), "utf8");
+const route = readFileSync(
+  new URL("../../routes/_authenticated/inbox.index.tsx", import.meta.url),
+  "utf8",
+);
 const review = readFileSync(new URL("../review-quick.ts", import.meta.url), "utf8");
 const couple = readFileSync(new URL("../review-couple-activity.ts", import.meta.url), "utf8");
 
@@ -15,7 +18,9 @@ describe("G3 namespace runtime propagation", () => {
   });
 
   it("sends the namespace in direct donation payloads", () => {
-    expect(route).toContain("external_transaction_id_key: giftPlan.activityPlan.sourceTransactionIdentity");
+    expect(route).toContain(
+      "external_transaction_id_key: giftPlan.activityPlan.sourceTransactionIdentity",
+    );
     expect(route).toContain("transaction_source_system: giftPlan.activityPlan.sourceSystem");
     expect(route).toContain("transaction_object_type: giftPlan.activityPlan.transactionObjectType");
   });
@@ -34,13 +39,16 @@ describe("G3 namespace runtime propagation", () => {
   });
 
   it("keeps registration-conflict resolution activity-free", () => {
-    const keepExisting = review.slice(review.indexOf("export async function keepExistingRegistrationPayment"));
+    const keepExisting = review.slice(
+      review.indexOf("export async function keepExistingRegistrationPayment"),
+    );
     expect(keepExisting).toContain("_event: null");
     expect(keepExisting).toContain("_donation: null");
   });
 
   it("routes structured SQL transaction conditions to review instead of failure", () => {
     expect(route).toContain("transactionReviewCondition(rowError)");
-    expect(route).toContain('recordOutcome(index, "flagged"');
+    expect(route).toContain("await queueForReview(");
+    expect(route).toContain('kind: "review"');
   });
 });
