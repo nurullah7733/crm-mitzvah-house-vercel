@@ -4,15 +4,6 @@ Set up a Supabase backend for this project with authentication enabled. Then cre
 
 Then tell me: is the Supabase backend connected, and can I access the Supabase dashboard for this project directly?
 
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/f52cbbc1-98d0-4547-ae96-5aa57ec4647e).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
 ## Development
 
